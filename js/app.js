@@ -262,7 +262,7 @@ async function ensureGame() {
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
       touch: {
         move: $('#t-move'), look: $('#t-look'), stick: $('#t-stick'), knob: $('#t-knob'), jump: $('#t-jump'), down: $('#t-down'),
-        brk: $('#t-break'), put: $('#t-place'), fly: $('#t-fly'), inv: $('#t-inv'), menu: $('#t-menu'),
+        brk: $('#t-break'), put: $('#t-place'), fly: $('#t-fly'), speed: $('#t-speed'), inv: $('#t-inv'), menu: $('#t-menu'),
       },
       onSave: (full) => saveGame(full),
     });

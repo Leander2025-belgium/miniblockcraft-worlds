@@ -231,6 +231,7 @@ export class Game {
     const now = performance.now();
     if (!force && now - td.lastCheck < 400) return;
     td.lastCheck = now;
+    if (this.queue.length > 1) this.sortQueue(); // bij snel vliegen: eerst wat dichtbij is
     const W = this.world, T = W.T, p = this.player.pos;
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
     const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
@@ -375,7 +376,7 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
-      if (this.tiled && this.queue.length === 0) this.updateTiles();
+      if (this.tiled) this.updateTiles();
       this.buildSome();
       this.tileStatus();
       if (this.active()) this.update(dt);
@@ -489,13 +490,15 @@ export class Game {
     fx += this.joy.x; fz += this.joy.y;
     const len = Math.hypot(fx, fz);
     if (len > 1) { fx /= len; fz /= len; }
-    const sprint = k.has('ShiftLeft') && !p.fly || k.has('ControlLeft') || this.touchSprint;
+    const sprint = k.has('ShiftLeft') && !p.fly || k.has('ControlLeft') || this.touchSprint || this.boost;
     const feet = this.world.get(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.4), Math.floor(p.pos.z));
     p.inWater = feet === B.WATER;
-    let speed = p.fly ? (sprint ? 30 : 12) : (sprint ? 6.6 : 4.4);
+    let speed = p.fly ? FLY_SPEEDS[this.flyLevel || 0] * (this.boost || this.touchSprint ? 2.5 : 1) : (sprint ? 6.6 : 4.4);
     if (p.inWater && !p.fly) speed *= 0.55;
     const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
-    const wx = (fx * cos + fz * sin) * speed, wz = (-fx * sin + fz * cos) * speed;
+    // vliegend: vooruit gaat in de kijkrichting (ook omhoog/omlaag)
+    const fzH = p.fly ? fz * Math.cos(p.pitch) : fz;
+    const wx = (fx * cos + fzH * sin) * speed, wz = (-fx * sin + fzH * cos) * speed;
     const acc = p.onGround || p.fly ? 14 : 4;
     p.vel.x += (wx - p.vel.x) * Math.min(1, acc * dt);
     p.vel.z += (wz - p.vel.z) * Math.min(1, acc * dt);
@@ -503,7 +506,7 @@ export class Game {
     const up = k.has('Space') || this.touchUp;
     const down = (k.has('ShiftLeft') || k.has('KeyC')) && p.fly || this.touchDown;
     if (p.fly) {
-      p.vel.y = up ? speed * 0.8 : down ? -speed * 0.8 : 0;
+      p.vel.y = (up ? speed * 0.8 : down ? -speed * 0.8 : 0) - fz * Math.sin(p.pitch) * speed;
     } else if (p.inWater) {
       p.vel.y -= 9 * dt;
       if (up) p.vel.y = 3.5;
@@ -600,7 +603,7 @@ export class Game {
     const now = performance.now();
     if (!force && now - (this.hudT || 0) < 200) return;
     this.hudT = now;
-    const p = this.player, m = this.meta, fly = p.fly ? ' · ✈ vliegen' : '';
+    const p = this.player, m = this.meta, fly = p.fly ? ` · ✈ ${FLY_NAMES[this.flyLevel || 0]}${this.boost ? ' + boost' : ''}` : '';
     const sc = (m.real && m.real.scale) || 1;
     const h = Math.floor((p.pos.y - (m.ground ?? GROUND)) / sc);
     if (m.real) {
@@ -704,10 +707,19 @@ export class Game {
       if (!this.active()) return;
       this.keys.add(e.code);
       if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1) this.selectSlot(n - 1); }
-      if (e.code === 'KeyF') { this.player.fly = !this.player.fly; this.player.vel.y = 0; this.updateHud(true); }
+      if (e.code === 'KeyF') this.toggleFly();
+      const now = performance.now();
+      if (e.code === 'Space' && !e.repeat) {
+        if (now - (this.lastSpace || 0) < 300) { this.toggleFly(); this.lastSpace = 0; } else this.lastSpace = now;
+      }
+      if (e.code === 'KeyW' && !e.repeat) {
+        if (now - (this.lastW || 0) < 300) this.boost = true;
+        this.lastW = now;
+      }
+      if (e.code === 'KeyR' && !e.repeat) this.cycleFlySpeed();
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', (e) => { this.keys.delete(e.code); if (e.code === 'KeyW') this.boost = false; });
     window.addEventListener('blur', () => this.keys.clear());
     ui.canvas.addEventListener('mousemove', (e) => {
       if (!document.pointerLockElement) return;
@@ -780,10 +792,29 @@ export class Game {
     hold(ui.touch.down, () => { this.touchDown = true; }, () => { this.touchDown = false; });
     hold(ui.touch.brk, () => { this.act('break'); this.holding = 'break'; this.actionTimer = 0.35; }, () => { this.holding = null; });
     hold(ui.touch.put, () => { this.act('place'); this.holding = 'place'; this.actionTimer = 0.35; }, () => { this.holding = null; });
-    ui.touch.fly.addEventListener('click', () => { this.player.fly = !this.player.fly; this.player.vel.y = 0; this.updateHud(true); });
+    ui.touch.fly.addEventListener('click', () => this.toggleFly());
+    ui.touch.speed?.addEventListener('click', () => this.cycleFlySpeed());
     ui.touch.inv.addEventListener('click', () => this.openInventory());
     ui.touch.menu.addEventListener('click', () => this.setPaused(true));
     ui.root.classList.toggle('is-touch', this.touch);
+  }
+
+  toggleFly() {
+    this.player.fly = !this.player.fly; this.player.vel.y = 0;
+    this.toast(this.player.fly ? `✈ Vliegen aan · ${FLY_NAMES[this.flyLevel || 0]}` : 'Vliegen uit');
+    this.updateHud(true);
+  }
+  cycleFlySpeed() {
+    this.flyLevel = ((this.flyLevel || 0) + 1) % FLY_SPEEDS.length;
+    if (!this.player.fly) { this.player.fly = true; this.player.vel.y = 0; }
+    this.toast(`✈ ${FLY_NAMES[this.flyLevel]}`);
+    this.updateHud(true);
+  }
+  toast(t) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = t; el.hidden = false;
+    clearTimeout(this.toastT); this.toastT = setTimeout(() => { el.hidden = true; }, 1600);
   }
 
   playerState() {
@@ -791,6 +822,9 @@ export class Game {
     return { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, fly: p.fly };
   }
 }
+
+const FLY_SPEEDS = [12, 40, 120];
+const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (120 m/s)'];
 
 function loadSettings() {
   try { return { view: 140, sens: 1, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
