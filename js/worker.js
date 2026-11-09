@@ -61,7 +61,7 @@ self.onmessage = (e) => {
   } else if (m.type === 'cityTile') {
     cityTile(m).then(r => {
       if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
-      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]);
+      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, paths: r.paths }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'lods') {
     sendLods(m);
@@ -180,7 +180,7 @@ async function cityTileInner(m) {
   const cached = await cacheGet(key);
   if (cached && cached.rle) {
     if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
-    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H };
+    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, paths: cached.paths || [] };
   }
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
@@ -188,9 +188,9 @@ async function cityTileInner(m) {
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
   const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile });
   const rle = rleEncode(r.vox);
-  await cachePut(key, { rle, H: r.H });
+  await cachePut(key, { rle, H: r.H, paths: r.paths });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { vox: r.vox, H: r.H, bytes: rle.length };
+  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths };
 }
 
 // ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------

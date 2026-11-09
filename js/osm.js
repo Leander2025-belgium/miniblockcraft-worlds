@@ -16,8 +16,11 @@ const ENT = { amp: '&', quot: '"', lt: '<', gt: '>', apos: "'" };
 const decode = (s) => s.replace(/&(amp|quot|lt|gt|apos|#\d+|#x[0-9a-f]+);/gi, (m, e) =>
   e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : +e.slice(1)) : ENT[e.toLowerCase()]);
 
+const POI_KINDS = { street_lamp: 'lamp', traffic_signals: 'signal', bus_stop: 'bus_stop', bench: 'bench', bicycle_parking: 'bikes',
+  waste_basket: 'bin', post_box: 'bin', fountain: 'fountain', telephone: 'bin' };
 export function parseOSM(text) {
-  const nodes = new Map(), ways = [], rels = [], trees = [];
+  const nodes = new Map(), ways = [], rels = [], trees = [], pois = [];
+  const poiKind = (t) => !t ? null : POI_KINDS[t.highway] || POI_KINDS[t.amenity] || (t.public_transport === 'platform' && !t.highway ? 'bus_stop' : null);
   let bounds = null;
   const t = text.trimStart();
   if (t[0] === '{') {
@@ -26,6 +29,7 @@ export function parseOSM(text) {
       if (e.type === 'node') {
         nodes.set(e.id, [e.lat, e.lon]);
         if (e.tags && e.tags.natural === 'tree') trees.push([e.lat, e.lon]);
+        const pk = poiKind(e.tags); if (pk) pois.push([e.lat, e.lon, pk]);
       } else if (e.type === 'way') ways.push({ id: e.id, nds: e.nodes || [], tags: e.tags || {} });
       else if (e.type === 'relation') rels.push({ id: e.id, members: e.members || [], tags: e.tags || {} });
     }
@@ -46,6 +50,7 @@ export function parseOSM(text) {
       if (m[1] === 'node') {
         nodes.set(+a.id, [+a.lat, +a.lon]);
         if (tags.natural === 'tree') trees.push([+a.lat, +a.lon]);
+        const pk = poiKind(tags); if (pk) pois.push([+a.lat, +a.lon, pk]);
       } else if (m[1] === 'way') {
         const nds = [];
         body.replace(/<nd\s+ref="(-?\d+)"/g, (_, r) => { nds.push(+r); return ''; });
@@ -60,7 +65,7 @@ export function parseOSM(text) {
     throw new Error('Onbekend bestandsformaat. Gebruik een .osm-bestand of Overpass-JSON.');
   }
   if (!nodes.size) throw new Error('Er staan geen kaartgegevens in dit bestand.');
-  return { nodes, ways, rels, trees, bounds };
+  return { nodes, ways, rels, trees, pois, bounds };
 }
 function attrs(s) {
   const o = {};
@@ -86,7 +91,8 @@ export async function fetchOSMBox(b, onStatus) {
   const q = `[out:json][timeout:180][bbox:${bb}];(` +
     W.map(k => `way["${k}"];`).join('') + 'way["amenity"="parking"];' +
     R.map(k => `relation["type"="multipolygon"]["${k}"];`).join('') + 'relation["type"="multipolygon"]["amenity"="parking"];' +
-    'node["natural"="tree"];);(._;>;);out body qt;';
+    'node["natural"="tree"];node["highway"~"^(street_lamp|traffic_signals|bus_stop)$"];' +
+    'node["amenity"~"^(bench|bicycle_parking|waste_basket|post_box|fountain)$"];node["public_transport"="platform"];);(._;>;);out body qt;';
   let lastErr;
   for (let attempt = 0; attempt < 4; attempt++) {
     for (const url of OVERPASS) {
@@ -274,6 +280,7 @@ function findLandmark(tags, h) {
 // Oude binnenstad van Frankfurt (Dom-Römer): vakwerkhuizen
 const ALTSTADT = { s: 50.1092, n: 50.1114, w: 8.6800, e: 8.6862 };
 
+const HOMES = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'apartments', 'residential', 'bungalow', 'dormitory']);
 const INHERIT = ['building', 'historic', 'heritage', 'heritage:operator', 'ref:OnroerendErfgoed', 'start_date', 'building:material',
   'building:colour', 'roof:colour', 'roof:material', 'tourism', 'name'];
 
@@ -534,6 +541,24 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   }
   roads.sort((a, b) => ROAD_ORDER.indexOf(a.hw) - ROAD_ORDER.indexOf(b.hw));
   const bridge = new Uint8Array(N);
+  const paths = [];          // voor verkeer: { type, pts: [x,z,...] } in tegelcoördinaten
+  const lampSpots = [];      // automatische straatlantaarns
+  const hasOsmLamps = (osm.pois || []).some(q => q[2] === 'lamp');
+  const NO_CARS = new Set(['footway', 'path', 'cycleway', 'steps', 'pedestrian', 'track', 'bridleway']);
+  const offsetLine = (l, off) => {
+    const out = [];
+    for (let i = 0; i < l.length; i++) {
+      const a = l[Math.max(0, i - 1)], b = l[Math.min(l.length - 1, i + 1)];
+      let dx = b[0] - a[0], dz = b[1] - a[1]; const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+      out.push(l[i][0] - dz * off, l[i][1] + dx * off);
+    }
+    return out;
+  };
+  const inTileLine = (l) => {
+    let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity;
+    for (const q of l) { a = Math.min(a, q[0]); b = Math.max(b, q[0]); c = Math.min(c, q[1]); d = Math.max(d, q[1]); }
+    return b > -20 && a < size + 20 && d > -20 && c < size + 20;
+  };
   for (const r of roads) {
     let width = parseLen(r.tags.width) || ROAD_W[r.hw];
     const lanes = parseLen(r.tags.lanes);
@@ -543,6 +568,24 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     const blk = r.hw === 'pedestrian' ? B.TILE : (r.hw === 'path' || r.hw === 'track' || r.hw === 'bridleway') ? B.GRAVEL : foot ? B.SIDEWALK : B.ASPHALT;
     const isBridge = r.tags.bridge && r.tags.bridge !== 'no';
     const marked = width >= 8 * scale && !foot && blk === B.ASPHALT;
+    if (inTileLine(r.l) && r.l.length >= 2) {
+      if (!NO_CARS.has(r.hw) && r.hw !== 'service') {
+        // rechts rijden: één rijstrook per richting
+        const lane = width / 4;
+        paths.push({ type: 'car', pts: offsetLine(r.l, lane) });
+        if (r.tags.oneway !== 'yes') paths.push({ type: 'car', pts: offsetLine(r.l.slice().reverse(), lane) });
+        paths.push({ type: 'walk', pts: offsetLine(r.l, width / 2 + 1.2 * scale) });
+      } else if (r.hw === 'footway' || r.hw === 'pedestrian' || r.hw === 'path') paths.push({ type: 'walk', pts: r.l.flat() });
+      if (!hasOsmLamps && !foot && blk === B.ASPHALT && !isBridge) {
+        let next = 12 * scale;
+        strokeLine(r.l, 1, size, (x, z, d, along) => {
+          if (along < next) return;
+          next = along + 28 * scale;
+          lampSpots.push([x, z, r.l, along]);
+        });
+        r.lampOff = width / 2 + 1.2 * scale;
+      }
+    }
     strokeLine(r.l, width, size, (x, z, d, along) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !isBridge) return;
@@ -568,6 +611,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (!l || !bboxOk(l, 5 * scale)) continue;
     rails.push(l);
     const tram = rw === 'tram';
+    if (inTileLine(l) && rw !== 'subway') paths.push({ type: tram ? 'tram' : 'train', pts: l.flat() });
     strokeLine(l, (tram ? 2 : 4) * scale, size, (x, z, d) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !(w.tags.bridge && w.tags.bridge !== 'no')) return;
@@ -878,7 +922,18 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         } else {
           // binnen: op elke verdieping een vloer (kleine open vide bij het atrium)
           const atrium = lm && lm.atrium && !bd.group && dIn > dMax - 3 * scale;
-          set(x, y, z, kind === -1 && !atrium ? B.TILE : 0);
+          if (kind === -1 && !atrium) { set(x, y, z, B.TILE); continue; }
+          // meubels op de vloer, vooral bij de ramen (zichtbaar van buiten)
+          if (r > 0 && grid.kind[r - 1] === -1 && dIn <= 4 * scale && !atrium) {
+            const hv = hash(x + OX, z + OZ, y * 7 + 3);
+            const home = HOMES.has(bd.tags.building);
+            let f = 0;
+            if (home) f = hv < 0.025 ? B.PAINT_WHITE : hv < 0.05 ? B.PLANKS : hv < 0.062 ? B.PAINT_RED : hv < 0.072 ? B.LEAVES : 0;
+            else f = hv < 0.06 ? B.PLANKS : hv < 0.075 ? B.LEAVES : hv < 0.085 ? B.PAINT_BLACK : 0;
+            set(x, y, z, f);
+            continue;
+          }
+          set(x, y, z, 0);
         }
       }
       // een ander deel van hetzelfde gebouw gaat hier verder omhoog: vloer in plaats van dak
@@ -897,6 +952,49 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
   onProgress?.(0.85);
+
+  // 4b. straatmeubilair
+  const free = (x, z) => x >= 0 && z >= 0 && x < size && z < size && !vox[(z * size + x) * H + G + 1] && vox[(z * size + x) * H + G] !== B.WATER;
+  const nearSidewalk = (x, z, rad) => {
+    for (let r = 0; r <= rad; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const xx = x + dx, zz = z + dz;
+      if (!free(xx, zz)) continue;
+      const b = vox[(zz * size + xx) * H + G];
+      if (b === B.SIDEWALK || b === B.TILE || b === B.GRASS || b === B.COBBLE) return [xx, zz];
+    }
+    return null;
+  };
+  const lamp = (x, z) => { for (let k = 1; k <= 4 * scale; k++) set(x, G + k, z, B.POST); set(x, G + 4 * scale + 1, z, B.LAMP); };
+  for (const [la, lo, kind] of (osm.pois || [])) {
+    const q = proj([la, lo]); let x = Math.floor(q[0]), z = Math.floor(q[1]);
+    if (x < 0 || z < 0 || x >= size || z >= size) continue;
+    if (kind === 'lamp') { const s2 = nearSidewalk(x, z, 2); if (s2) lamp(...s2); }
+    else if (kind === 'signal') {
+      const s2 = nearSidewalk(x, z, 8 * scale); if (!s2) continue; [x, z] = s2;
+      for (let k = 1; k <= 2 * scale; k++) set(x, G + k, z, B.POST);
+      set(x, G + 2 * scale + 1, z, B.PAINT_GREEN); set(x, G + 2 * scale + 2, z, B.PAINT_ORANGE); set(x, G + 2 * scale + 3, z, B.PAINT_RED); set(x, G + 2 * scale + 4, z, B.PAINT_BLACK);
+    } else if (kind === 'bench') { const s2 = nearSidewalk(x, z, 2); if (s2) { set(s2[0], G + 1, s2[1], B.PLANKS); if (free(s2[0] + 1, s2[1])) set(s2[0] + 1, G + 1, s2[1], B.PLANKS); } }
+    else if (kind === 'bin') { const s2 = nearSidewalk(x, z, 2); if (s2) set(s2[0], G + 1, s2[1], kind === 'bin' ? B.PAINT_GREEN : B.METAL); }
+    else if (kind === 'bikes') { const s2 = nearSidewalk(x, z, 3); if (s2) for (let k = 0; k < 4; k += 2) if (free(s2[0] + k, s2[1])) set(s2[0] + k, G + 1, s2[1], B.METAL); }
+    else if (kind === 'fountain') { if (free(x, z)) { set(x, G + 1, z, B.COBBLE); set(x, G + 2, z, B.WATER); } }
+    else if (kind === 'bus_stop') {
+      const s2 = nearSidewalk(x, z, 6 * scale); if (!s2) continue; [x, z] = s2;
+      // klein bushokje: glazen achterwand, dak, bankje
+      for (let k = 0; k < 4; k++) {
+        if (!free(x + k, z)) continue;
+        for (let y = 1; y <= 2 * scale + 1; y++) set(x + k, G + y, z, k === 0 || k === 3 ? B.POST : B.GLASS);
+        set(x + k, G + 2 * scale + 2, z, B.METAL);
+        if (free(x + k, z + 1)) set(x + k, G + 2 * scale + 2, z + 1, B.METAL);
+      }
+      if (free(x + 1, z + 1)) set(x + 1, G + 1, z + 1, B.PLANKS);
+    }
+  }
+  // automatische lantaarns langs wegen (als de kaart er geen heeft)
+  for (const [x, z] of lampSpots) {
+    const s2 = nearSidewalk(x, z, 7 * scale);
+    if (s2) lamp(...s2);
+  }
 
   // 5. bomen
   const tset = (x, y, z, b, force) => {
@@ -930,7 +1028,27 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (d > 0 && hash(GX, GZ, 13) < d) plant(x, z);
   }
   onProgress?.(1);
-  return { vox, H, ground: G, buildings: count };
+  // verkeerspaden compact maken
+  // knippen tot deze tegel (lange wegen zouden anders in elke tegel opnieuw meetellen)
+  const pathsOut = [];
+  const inBox = (x, z) => x >= -4 && z >= -4 && x <= size + 4 && z <= size + 4;
+  for (const q of paths) {
+    const src = q.pts; let run = [];
+    const flush = () => { if (run.length >= 4) pathsOut.push({ type: q.type, pts: new Float32Array(run) }); run = []; };
+    for (let i = 0; i + 1 < src.length; i += 2) {
+      const ax = src[i], az = src[i + 1];
+      if (i + 3 < src.length) {
+        const bx = src[i + 2], bz = src[i + 3];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 12));
+        for (let k = 0; k < steps; k++) {
+          const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
+          if (inBox(x, z)) run.push(x, z); else flush();
+        }
+      } else if (inBox(ax, az)) run.push(ax, az);
+    }
+    flush();
+  }
+  return { vox, H, ground: G, buildings: count, paths: pathsOut };
 }
 
 // Bovenaanzicht (RGBA) van een voxelvolume
@@ -978,5 +1096,6 @@ export function subsetOSM(osm, s, w, n, e) {
     ways: osm.ways.filter(x => hit(x.bb)),
     rels: osm.rels.filter(x => hit(x.bb)),
     trees: osm.trees.filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),
+    pois: (osm.pois || []).filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),
   };
 }

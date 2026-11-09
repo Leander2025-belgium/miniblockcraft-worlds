@@ -7,6 +7,7 @@ import { districtAt, GROUND } from './city.js';
 import { skyAt, makeClouds } from './environment.js';
 import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
+import { Traffic } from './traffic.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -217,6 +218,7 @@ export class Game {
     this.meta = meta;
     this.tiled = null;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -254,6 +256,8 @@ export class Game {
     this.lastAuto = performance.now();
     if (this.lod) this.lod.dispose();
     this.lod = new FarView(this.scene, spec);
+    if (this.traffic) this.traffic.dispose();
+    this.traffic = new Traffic(this.scene, spec.ground);
     this.mini = { canvas: this.lod.canvas, scale: this.lod.cell, size: this.world.size };
     const T = spec.tile;
     spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1);
@@ -299,6 +303,7 @@ export class Game {
         if (t.dirty) td.saveTile(t.tx, t.tz, t.w.vox, t.w.H);
         this.removeSource(t);
         W.tiles.delete(k);
+        this.trafficDirty = true;
       }
     }
     // ontbrekende tegels aanvragen, dichtstbij eerst
@@ -316,10 +321,11 @@ export class Game {
     for (const [, tx, tz, k] of want) {
       if (td.inFlight >= 3) break;
       td.inFlight++; td.pending.add(k);
-      td.provider(tx, tz).then(({ vox, H }) => {
+      td.provider(tx, tz).then(({ vox, H, paths }) => {
         if (this.world !== W) return;
         const w = new World({ size: T, H }, vox);
-        const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false };
+        const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
+        this.trafficDirty = true;
         w.src = src;
         W.tiles.set(k, src);
         this.addSource(src);
@@ -442,6 +448,7 @@ export class Game {
   stop() {
     this.running = false;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
     cancelAnimationFrame(this.raf);
     if (document.pointerLockElement) document.exitPointerLock();
     this.ui.root.hidden = true;
@@ -504,6 +511,10 @@ export class Game {
     this.clouds.material.color.setRGB(...env.sky.map((v, i) => Math.min(1, 0.55 + v * 0.5 + env.dusk * [0.3, 0.1, 0][i])));
     this.clouds.material.opacity = 0.35 + env.day * 0.55;
     if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z);
+    if (this.traffic && this.settings.traffic !== false) {
+      if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
+      this.traffic.update(dt, p.pos, env.day);
+    }
     this.camera.far = (this.tiled ? Math.max(far, this.settings.lod) : far) + 60; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {

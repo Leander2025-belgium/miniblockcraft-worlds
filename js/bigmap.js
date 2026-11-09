@@ -1,7 +1,7 @@
 // Grote kaarten (kilometers) die in tegels van 128 m laden. Werkt voor elke plek op aarde.
 import { REAL_GROUND } from './osm.js';
 
-export const MAP_VERSION = 3; // verhogen als de omzetting verandert, zodat tegels opnieuw gemaakt worden
+export const MAP_VERSION = 4; // verhogen als de omzetting verandert, zodat tegels opnieuw gemaakt worden
 export const MZ = 110574;
 
 // spec: { id, name, lat, lon, km }
@@ -34,7 +34,7 @@ export function spawnFor(m) {
   return { x: S / 2, y: REAL_GROUND + 45, z: S / 2, yaw: 0, pitch: 0.05, fly: true };
 }
 export const keys = {
-  osm: (m, sx, sz) => `${m.id}-osm${m.superTiles}-${sx}-${sz}`,
+  osm: (m, sx, sz) => `${m.id}-osm${m.superTiles}q2-${sx}-${sz}`,
   tile: (m, tx, tz) => `${m.id}-tile-v${m.version}-${tx}-${tz}`,
   edit: (m, tx, tz) => `${m.id}-edit-${tx}-${tz}`,
   player: (m) => `${m.id}-player`,
