@@ -104,7 +104,7 @@ const NAMED = {
 const WALL_CHOICES = [B.PLASTER, B.YELLOWBRICK, B.BRICK, B.CONCRETE, B.ASHLAR, B.LIMESTONE, B.PANEL_WHITE, B.PANEL_DARK,
   B.BRICK_DARK, B.PLASTER_BEIGE, B.PLASTER_GREY, B.TERRACOTTA, B.PLASTER_PINK, B.COPPER, B.METAL, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN,
   B.PAINT_ORANGE, B.PAINT_BLACK, B.PAINT_WHITE, B.STONE, B.PLANKS, B.DARKGLASS];
-const ROOF_CHOICES = [B.ROOF_RED, B.ROOF_DARK, B.CONCRETE, B.METAL, B.COPPER, B.PLASTER, B.PAINT_BLACK, B.BRICK, B.TERRACOTTA, B.PANEL_DARK];
+const ROOF_CHOICES = [B.ROOF_RED, B.ROOF_DARK, B.CONCRETE, B.METAL, B.COPPER, B.PLASTER, B.BRICK, B.TERRACOTTA];
 const GLASS_CHOICES = [B.GLASS, B.GLASS_BLUE, B.GLASS_GREEN, B.MIRROR, B.DARKGLASS];
 const TOWER_LOOKS = [[B.GLASS_GREEN, B.PANEL_WHITE], [B.GLASS_BLUE, B.METAL], [B.MIRROR, B.PANEL_WHITE], [B.DARKGLASS, B.PANEL_DARK], [B.GLASS, B.PANEL_WHITE], [B.GLASS_BLUE, B.PANEL_DARK]];
 const lum = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
@@ -170,7 +170,7 @@ function roofShape(tags) {
   if (s) return 'hipped';
   const lv = parseLen(tags['building:levels']);
   if (HOUSE.has(tags.building) && !(lv > 4)) return 'gabled';
-  if (isHistoric(tags) && !(lv > 8) && !(parseLen(tags.height) > 40)) return 'hipped';
+  if (isHistoric(tags) && !(lv > 8) && !(parseLen(tags.height) > 40)) return lv >= 3 || OLD_TYPES.has(tags.building) ? 'mansard' : 'hipped';
   return 'flat';
 }
 function wallStyle(tags, h, id) {
@@ -196,7 +196,7 @@ function wallStyle(tags, h, id) {
   else if (mat === 'wood') wall = B.PLANKS;
   else if (mat === 'metal' || mat === 'steel' || mat === 'aluminium') wall = r < 0.5 ? B.METAL : B.PANEL_DARK;
   else if (mat === 'plaster') wall = [B.PLASTER, B.PLASTER_BEIGE, B.PLASTER_GREY][Math.floor(r * 3)];
-  else if (isHistoric(tags)) wall = [B.ASHLAR, B.ASHLAR, B.LIMESTONE, B.BRICK, B.YELLOWBRICK][Math.floor(r * 5)];
+  else if (isHistoric(tags)) wall = [B.BRICK, B.YELLOWBRICK, B.LIMESTONE, B.ASHLAR, B.TERRACOTTA][Math.floor(r * 5)];
   else if (tower) curtainFrom(null);
   else if (t === 'industrial' || t === 'warehouse' || t === 'garage' || t === 'garages') wall = [B.METAL, B.CONCRETE, B.PANEL_DARK][Math.floor(r * 3)];
   else if (t === 'church' || t === 'cathedral' || t === 'chapel') wall = r < 0.5 ? B.BRICK : B.YELLOWBRICK;
@@ -215,7 +215,11 @@ function wallStyle(tags, h, id) {
   else if (shape && shape !== 'flat') roof = r < 0.6 ? B.ROOF_RED : B.ROOF_DARK;
   else roof = h >= 45 ? B.METAL : r < 0.5 ? B.ROOF_DARK : B.CONCRETE;
   // bij een mooie gevelkleur andere ramen: donkere gevels krijgen helder glas
-  return { wall, glass, curtain, roof };
+  const historic = isHistoric(tags) && !curtain;
+  const base = historic ? B.ASHLAR : wall;
+  const trim = historic ? (wall === B.ASHLAR ? B.LIMESTONE : B.ASHLAR) : wall;
+  if (historic && glass === B.GLASS) glass = B.GLASS;
+  return { wall, glass, curtain, roof, historic, base, trim };
 }
 
 // ---------- geometrie ----------
@@ -479,6 +483,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
       const c = centroids[i];
       if (!b.rings.some(r => inPoly(r, c[0], c[1]))) return;
       has = true;
+      if (p.styleId == null) p.styleId = b.id; // zelfde materiaal als het hoofdgebouw
       const extra = {};
       for (const k of INHERIT) if (b.tags[k] != null && p.tags[k] == null) extra[k] = b.tags[k];
       p.tags = { ...extra, ...p.tags };
@@ -595,22 +600,28 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     }
     const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
 
-    const st = wallStyle(bd.tags, bd.hm.h, bd.id);
+    const st = wallStyle(bd.tags, bd.hm.h, bd.styleId ?? bd.id);
     const pitched = shape !== 'flat';
     // verdiepingen: verdeel de muurhoogte over het echte aantal verdiepingen (anders 3 m per verdieping)
     const wallH = wallTop - yb;
     const lv = parseLen(bd.tags['building:levels']);
-    let storey = 3 * scale;
-    if (lv >= 1) storey = Math.max(2.6 * scale, Math.min(3.6 * scale, wallH / lv));
+    const hist = st.historic;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    let storey = (hist ? 4.8 : 3) * scale;
+    if (lv >= 1) storey = hist ? clamp(wallH / lv, 3 * scale, 7 * scale) : clamp(wallH / lv, 2.6 * scale, 3.6 * scale);
+    // hoge begane grond bij historische en grotere gebouwen (arcades, winkels)
+    const firstMul = (hist || (wallH > 14 * scale && !HOUSE.has(bd.tags.building))) ? 1.4 : 1;
     const rowKind = new Int8Array(Math.max(0, wallH)); // -1 vloer, 1 raamrij, 0 muur
+    const rowStorey = new Int16Array(Math.max(0, wallH));
     {
       let start = 0;
       for (let i = 1; start < wallH; i++) {
-        const end = Math.min(wallH, Math.max(start + 2, Math.round(i * storey)));
+        const end = Math.min(wallH, Math.max(start + 2, Math.round(storey * firstMul + (i - 1) * storey)));
         const hs = end - start;
         for (let rr = start; rr < end; rr++) {
           const l = rr - start;
           rowKind[rr] = l === hs - 1 ? -1 : (hs <= 3 ? 1 : (l >= 1 && l <= hs - 2 ? 1 : 0));
+          rowStorey[rr] = i - 1;
         }
         start = end;
       }
@@ -629,13 +640,20 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
         const kind = rowKind[y - yb];
         if (edge) {
           let win;
+          let blk = st.wall;
           if (st.curtain) win = kind !== -1 && t % winEvery !== 0;
-          else win = kind === 1 && (t % winEvery) >= 1 && (t % winEvery) <= scale;
-          set(x, y, z, win ? st.glass : st.wall);
+          else if (hist) {
+            const p = t % (4 * scale);
+            win = kind === 1 && p >= scale && p < 3 * scale; // brede, hoge ramen
+            if (kind === -1) blk = st.trim;                   // stenen band tussen verdiepingen
+            else if (rowStorey[y - yb] === 0) blk = st.base;  // stenen sokkel
+          } else win = kind === 1 && (t % winEvery) >= 1 && (t % winEvery) <= scale;
+          set(x, y, z, win ? st.glass : blk);
         } else set(x, y, z, kind === -1 ? B.TILE : 0);
       }
+      if (hist && edge && wallTop - 1 > yb) set(x, wallTop - 1, z, st.trim);
       if (!pitched) {
-        set(x, wallTop, z, edge && hTot > 6 * scale ? st.wall : st.roof);
+        set(x, wallTop, z, edge && hTot > 6 * scale ? (hist ? st.trim : st.wall) : st.roof);
         continue;
       }
       const ry = roofY[mi];
