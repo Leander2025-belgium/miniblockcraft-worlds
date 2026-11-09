@@ -83,6 +83,10 @@
   .city-name { font-weight: 700; font-size: 16px; }
   .city-card .help { margin: 8px 0 0; }
   .tp-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .resume { margin-bottom: 10px; }
+  #map-wrap { display: grid; justify-items: center; align-content: start; gap: 10px; padding: 10px; }
+  #metro-map { width: min(100%, 680px); height: auto; aspect-ratio: 25 / 30; image-rendering: pixelated; border-radius: 10px; border: 1px solid var(--line); cursor: crosshair; background: #1b2230; }
+  .metro-legend { width: min(100%, 680px); }
   .tabs { display: flex; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; margin-bottom: 6px; }
   .tabs button { flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: 7px; padding: 8px; cursor: pointer; font-weight: 600; }
   .tabs button.on { background: var(--panel2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
@@ -248,22 +252,29 @@
 
   <section class="map-col" id="map-col">
     <div class="map-tools">
-      <button class="btn" id="zoom-out" title="Uitzoomen">−</button>
-      <span id="zoom-label" class="small">1×</span>
-      <button class="btn" id="zoom-in" title="Inzoomen">+</button>
+      <span class="small muted">Nova Metropool · 25 × 30 km · tik op de kaart om daar te starten</span>
       <span class="sp"></span>
       <span id="hover"></span>
     </div>
     <div id="map-wrap">
-      <span id="map-status">Kaart tekenen…</span>
-      <div id="map-stack">
-        <canvas id="map"></canvas>
-        <canvas id="map-overlay"></canvas>
+      <canvas id="metro-map" aria-label="Kaart van Nova Metropool"></canvas>
+      <div class="legend metro-legend">
+        <span style="--c:#4a4f5a">Centrum (wolkenkrabbers)</span>
+        <span style="--c:#6d7380">Zakendistrict</span>
+        <span style="--c:#9a8f80">Stadswijken</span>
+        <span style="--c:#7fae6a">Woonwijken en parken</span>
+        <span style="--c:#8c8f94">Industrie en haven</span>
+        <span style="--c:#c9c3b2">Luchthavens</span>
+        <span style="--c:#3264be">Water</span>
       </div>
     </div>
   </section>
 
+
   <aside>
+    <div id="resume" class="resume" hidden>
+      <button class="btn primary big" id="btn-resume-last">▶ Verder spelen</button>
+    </div>
     <div class="tabs" role="tablist">
       <button data-mode="real" class="on" role="tab">Echte wereld</button>
       <button data-mode="fantasy" role="tab">Fantasiestad</button>
@@ -336,52 +347,12 @@
       <p class="help">Een enorm centrum met supermoderne torens, een haven met cruiseschepen, twee luchthavens, een rivier, parken en voorsteden. Alles wordt meteen gemaakt terwijl je rondvliegt: niets te downloaden.</p>
     </div>
 
-    <h2>1 · Kies een stuk stad</h2>
-    <p class="help" style="margin-top:0">Klik op de kaart (noord boven, de stad is 25 km lang — scroll naar beneden) of spring naar:</p>
-    <div id="jumps"></div>
-    <form id="goto">
-      <input id="goto-x" inputmode="numeric" placeholder="x (0–2500)">
-      <input id="goto-z" inputmode="numeric" placeholder="z (0–25000)">
-      <button class="btn">Ga</button>
-    </form>
-
-    <h2>2 · Grootte</h2>
-    <div class="seg">
-      <button data-size="64">64 m</button>
-      <button data-size="128" class="on">128 m</button>
-      <button data-size="256">256 m</button>
-    </div>
-    <p class="help">Groter = meer stad, maar zwaarder voor je toestel. 128 m werkt overal vlot.</p>
-
-    <div id="selection" hidden>
-      <div id="sel-info"></div>
-      <canvas id="preview"></canvas>
-      <input id="sel-name" maxlength="60" placeholder="Naam voor dit stuk">
-      <button class="btn primary big" id="btn-download">⬇ Download dit stuk</button>
-      <div id="dl-progress" hidden>
-        <div class="bar"><div id="dl-bar"></div></div>
-        <div id="dl-text"></div>
-      </div>
-    </div>
-
     </div>
 
     <h2>Mijn stukken</h2>
     <p id="menu-msg" class="help" role="status" hidden></p>
     <div id="regions"></div>
     <label class="file btn"><input type="file" id="import" accept=".blokstad,.blokstad-bouw,application/octet-stream">Bestand importeren…</label>
-
-    <h2>Legende</h2>
-    <div class="legend">
-      <span style="--c:#3a3c40">Wegen</span>
-      <span style="--c:#60a040">Parken & tuinen</span>
-      <span style="--c:#3c5a78">Glazen torens</span>
-      <span style="--c:#a04836">Baksteen</span>
-      <span style="--c:#a83c2c">Daken (huizen)</span>
-      <span style="--c:#969ea6">Industrie</span>
-      <span style="--c:#3264be">Water</span>
-      <span style="--c:#dccd96">Strand</span>
-    </div>
 
     <h2>Besturing</h2>
     <div class="keys">
@@ -398,7 +369,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-09 · Nova Metropool</p>
+    <p class="help" id="app-version">Versie 2026-11-09b · Nova Metropool</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>

@@ -1,10 +1,9 @@
 // Hoofdmenu: stadskaart, gebied kiezen, downloaden, beheren en spelen.
-import { WIDTH, LENGTH, HEIGHT, districtAt, riverX } from './city.js';
 import * as store from './storage.js';
 import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
-import { META as METRO, PLACES as METRO_PLACES } from './metropolis.js';
+import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -51,167 +50,40 @@ function ask(msg, handler, wi = 0) {
 // naar elke werker sturen (bv. de achtergrond-taak rond de speler)
 function askAll(msg, handler) { for (let i = 0; i < POOL; i++) ask({ ...msg, pool: POOL, poolIndex: i }, handler, i); }
 
-const state = { size: 128, sel: null, regions: [], zoom: 1, busy: false };
+const state = { regions: [], busy: false };
 let game = null;
 
-// ---------- overzichtskaart ----------
-const mapCanvas = $('#map'), overlay = $('#map-overlay'), mapWrap = $('#map-wrap');
-const MW = Math.floor(WIDTH / MAP_SCALE), MH = Math.floor(LENGTH / MAP_SCALE);
-mapCanvas.width = overlay.width = MW;
-mapCanvas.height = overlay.height = MH;
-const mctx = mapCanvas.getContext('2d'), octx = overlay.getContext('2d');
-mctx.fillStyle = '#1b2230'; mctx.fillRect(0, 0, MW, MH);
-
-ask({ type: 'map', scale: MAP_SCALE }, (m) => {
-  if (m.type === 'mapRows') {
-    mctx.putImageData(new ImageData(m.data, m.w, m.rows), 0, m.y0);
-    $('#map-status').textContent = `Kaart tekenen… ${Math.round((m.y0 + m.rows) / MH * 100)}%`;
-  } else if (m.type === 'mapDone') {
-    $('#map-status').textContent = '';
+// ---------- overzichtskaart van Nova Metropool ----------
+const ZONE_COLORS = { 1: [50, 100, 190], 2: [220, 205, 150], 3: [60, 110, 200], 4: [201, 195, 178], 5: [140, 143, 148], 6: [110, 170, 90],
+  7: [74, 79, 90], 8: [109, 115, 128], 9: [154, 143, 128], 10: [127, 174, 106], 11: [140, 143, 148] };
+function drawMetroMap() {
+  const c = $('#metro-map');
+  if (!c || c.dataset.done) return;
+  c.dataset.done = '1';
+  const S = 25, W = Math.round(METRO_W / S), H = Math.round(METRO_L / S);
+  c.width = W; c.height = H;
+  const img = new ImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const wx = x * S + S / 2, wz = y * S + S / 2;
+    const zn = metroZone(wx, wz);
+    let col = ZONE_COLORS[zn] || [90, 90, 90];
+    // straten zichtbaar maken in de stad
+    const road = (wx % 400 < 40 || wz % 400 < 40) && zn >= 7;
+    if (road) col = col.map(v => v * 0.7);
+    const i = (y * W + x) * 4;
+    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255;
   }
-});
-
-function setZoom(z) {
-  state.zoom = z;
-  const base = Math.min(mapWrap.clientWidth - 4, 520);
-  const w = Math.round(base * z);
-  for (const c of [mapCanvas, overlay]) { c.style.width = w + 'px'; c.style.height = Math.round(w * MH / MW) + 'px'; }
-  $('#map-stack').style.width = w + 'px';
-  $('#zoom-label').textContent = `${z}×`;
+  const ctx = c.getContext('2d');
+  ctx.putImageData(img, 0, 0);
+  ctx.font = 'bold 22px system-ui, sans-serif'; ctx.textAlign = 'center';
+  for (const [name, x, z] of METRO_PLACES) {
+    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillText(name, x / S + 1, z / S + 1);
+    ctx.fillStyle = '#fff'; ctx.fillText(name, x / S, z / S);
+  }
+  const pos = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * METRO_W, (e.clientY - r.top) / r.height * METRO_L]; };
+  c.addEventListener('mousemove', (e) => { const [x, z] = pos(e); $('#hover').textContent = `${metroZoneName(x, z)} · x ${Math.round(x)} · z ${Math.round(z)}`; });
+  c.addEventListener('click', (e) => { const [x, z] = pos(e); playMap(METRO.id, { x, z }); });
 }
-$('#zoom-in').onclick = () => setZoom(Math.min(4, state.zoom * 2));
-$('#zoom-out').onclick = () => setZoom(Math.max(1, state.zoom / 2));
-window.addEventListener('resize', () => setZoom(state.zoom));
-
-function drawOverlay() {
-  octx.clearRect(0, 0, MW, MH);
-  // km-markeringen
-  octx.font = 'bold 11px system-ui, sans-serif';
-  for (let km = 1; km < LENGTH / 1000; km++) {
-    const y = km * 1000 / MAP_SCALE;
-    octx.fillStyle = 'rgba(255,255,255,0.35)';
-    octx.fillRect(0, y, 14, 1);
-    octx.fillStyle = 'rgba(0,0,0,0.55)'; octx.fillRect(16, y - 7, 34, 14);
-    octx.fillStyle = '#fff'; octx.fillText(`${km} km`, 18, y + 4);
-  }
-  for (const r of state.regions) {
-    if (r.real || r.kind === 'map') continue;
-    octx.fillStyle = 'rgba(80, 220, 120, 0.35)';
-    octx.strokeStyle = 'rgba(80, 220, 120, 0.95)'; octx.lineWidth = 1;
-    const x = r.x0 / MAP_SCALE, y = r.z0 / MAP_SCALE, s = r.size / MAP_SCALE;
-    octx.fillRect(x, y, s, s); octx.strokeRect(x + 0.5, y + 0.5, s - 1, s - 1);
-  }
-  if (state.sel) {
-    const { x0, z0, size } = state.sel;
-    octx.strokeStyle = '#ffd34d'; octx.lineWidth = 2;
-    octx.strokeRect(x0 / MAP_SCALE, z0 / MAP_SCALE, size / MAP_SCALE, size / MAP_SCALE);
-    octx.strokeStyle = 'rgba(0,0,0,0.7)'; octx.lineWidth = 1;
-    octx.strokeRect(x0 / MAP_SCALE - 2, z0 / MAP_SCALE - 2, size / MAP_SCALE + 4, size / MAP_SCALE + 4);
-  }
-}
-
-overlay.addEventListener('click', (e) => {
-  const rect = overlay.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width * WIDTH;
-  const z = (e.clientY - rect.top) / rect.height * LENGTH;
-  select(x, z);
-});
-overlay.addEventListener('mousemove', (e) => {
-  const rect = overlay.getBoundingClientRect();
-  const x = Math.floor((e.clientX - rect.left) / rect.width * WIDTH);
-  const z = Math.floor((e.clientY - rect.top) / rect.height * LENGTH);
-  const d = districtAt(x, z);
-  $('#hover').textContent = `x ${x} · z ${z} — ${d.wijk} (${d.typeName})`;
-});
-overlay.addEventListener('mouseleave', () => { $('#hover').textContent = ''; });
-
-function select(x, z, scroll = false) {
-  const s = state.size;
-  const x0 = Math.max(0, Math.min(WIDTH - s, Math.round(x - s / 2)));
-  const z0 = Math.max(0, Math.min(LENGTH - s, Math.round(z - s / 2)));
-  state.sel = { x0, z0, size: s };
-  drawOverlay();
-  const d = districtAt(x0 + s / 2, z0 + s / 2);
-  $('#sel-info').innerHTML = `<b>${d.wijk}</b> · ${d.typeName}<br><span class="muted">x ${x0}–${x0 + s} m · z ${z0}–${z0 + s} m · ${s}×${s} m</span>`;
-  $('#sel-name').value = `${d.wijk} (${d.typeName})`;
-  $('#btn-download').disabled = state.busy;
-  $('#selection').hidden = false;
-  const pv = $('#preview'), pctx = pv.getContext('2d');
-  pv.width = pv.height = s;
-  pctx.fillStyle = '#222'; pctx.fillRect(0, 0, s, s);
-  ask({ type: 'preview', x0, z0, size: s }, (m) => {
-    if (state.sel && state.sel.x0 === x0 && state.sel.z0 === z0 && state.sel.size === s) pctx.putImageData(new ImageData(m.data, m.size, m.size), 0, 0);
-  });
-  if (scroll) {
-    const rect = overlay.getBoundingClientRect();
-    const y = (z0 + s / 2) / LENGTH * rect.height;
-    const xx = (x0 + s / 2) / WIDTH * rect.width;
-    mapWrap.scrollTo({ top: y - mapWrap.clientHeight / 2, left: xx - mapWrap.clientWidth / 2, behavior: 'smooth' });
-  }
-}
-
-document.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
-  state.size = +b.dataset.size;
-  document.querySelectorAll('[data-size]').forEach(o => o.classList.toggle('on', o === b));
-  if (state.sel) select(state.sel.x0 + state.sel.size / 2, state.sel.z0 + state.sel.size / 2);
-}));
-
-// snelkoppelingen
-const JUMPS = [
-  ['Centrum', 1050, 12500], ['Rivier & brug', null, 12250], ['Stadspark', 500, 13850],
-  ['Zuidcentrum', 1100, 5200], ['Noordcentrum', 1100, 19800], ['Stadswijk', 1125, 4125],
-  ['Woonwijk', 375, 1125], ['Industrie', 1125, 1125],
-  ['Haven Noord', 900, 420], ['Haven Zuid', 900, 24580],
-];
-const jumps = $('#jumps');
-for (const [label, x, z] of JUMPS) {
-  const b = document.createElement('button');
-  b.className = 'chip'; b.textContent = label;
-  b.onclick = () => select(x ?? riverX(z), z, true);
-  jumps.appendChild(b);
-}
-$('#goto').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const x = +$('#goto-x').value, z = +$('#goto-z').value;
-  if (Number.isFinite(x) && Number.isFinite(z)) select(x, z, true);
-});
-
-// ---------- downloaden ----------
-$('#btn-download').addEventListener('click', () => {
-  if (!state.sel || state.busy) return;
-  const sel = { ...state.sel };
-  const name = $('#sel-name').value.trim() || 'Mijn stuk stad';
-  state.busy = true;
-  $('#btn-download').disabled = true;
-  const bar = $('#dl-bar'), wrap = $('#dl-progress');
-  wrap.hidden = false; bar.style.width = '0%';
-  $('#dl-text').textContent = 'Downloaden…';
-  ask({ type: 'region', x0: sel.x0, z0: sel.z0, size: sel.size }, async (m) => {
-    if (m.type === 'progress') {
-      bar.style.width = Math.round(m.p * 90) + '%';
-      $('#dl-text').textContent = `Downloaden… ${Math.round(m.p * 100)}%`;
-    } else if (m.type === 'region') {
-      $('#dl-text').textContent = 'Opslaan op dit toestel…';
-      bar.style.width = '95%';
-      const d = districtAt(sel.x0 + sel.size / 2, sel.z0 + sel.size / 2);
-      const meta = {
-        id: 'r' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
-        name, x0: sel.x0, z0: sel.z0, size: sel.size, H: HEIGHT, created: Date.now(), wijk: d.wijk, type: d.typeName,
-      };
-      try {
-        await store.saveRegion(meta, m.vox);
-        bar.style.width = '100%';
-        $('#dl-text').textContent = 'Klaar! Je vindt het hieronder bij “Mijn stukken”.';
-      } catch (err) {
-        $('#dl-text').textContent = 'Opslaan mislukt: ' + err.message;
-      }
-      state.busy = false;
-      $('#btn-download').disabled = false;
-      refreshList();
-      setTimeout(() => { wrap.hidden = true; }, 2500);
-    }
-  });
-});
 
 function notify(t) {
   const el = $('#menu-msg'); el.textContent = t; el.hidden = false;
@@ -224,12 +96,12 @@ const regionMeters = (r) => Math.round(r.size / ((r.real && r.real.scale) || 1))
 function fmtBytes(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' kB'; }
 async function refreshList() {
   try { state.regions = await store.listRegions(); } catch { state.regions = []; }
-  drawOverlay();
   drawSavedOnMap();
+  updateResume();
   const list = $('#regions');
   list.innerHTML = '';
   if (!state.regions.length) {
-    list.innerHTML = '<p class="muted">Nog niets gedownload. Klik op de kaart en download een stuk stad.</p>';
+    list.innerHTML = '<p class="muted">Nog niets gedownload. Kies een plek op de kaart en download een stuk stad.</p>';
     return;
   }
   for (const r of state.regions) {
@@ -242,13 +114,13 @@ async function refreshList() {
       <div class="muted small">${regionMeters(r)}×${regionMeters(r)} m${r.real && r.real.scale > 1 ? ' (fijn detail)' : ''} · ${r.real ? `📍 ${r.real.lat.toFixed(4)}, ${r.real.lon.toFixed(4)}` : `x ${r.x0} · z ${r.z0}`}${r.bytes ? ' · ' + fmtBytes(r.bytes) : ''}${edited}</div>
       <div class="r-actions">
         <button class="btn primary" data-a="play">▶ Spelen</button>
-        <button class="btn" data-a="show">Toon</button>
+        ${r.real ? '<button class="btn" data-a="show">Toon</button>' : ''}
         <button class="btn" data-a="export">Bestand</button>
         <button class="btn danger" data-a="del">✕</button>
       </div>`;
     card.querySelector('.r-title').textContent = r.name;
     card.querySelector('[data-a=play]').onclick = () => play(r.id);
-    card.querySelector('[data-a=show]').onclick = () => r.real ? showReal(r) : (setMode('fantasy'), state.size = r.size, select(r.x0 + r.size / 2, r.z0 + r.size / 2, true));
+    if (r.real) card.querySelector('[data-a=show]').onclick = () => showReal(r);
     card.querySelector('[data-a=export]').onclick = () => exportRegion(r);
     const del = card.querySelector('[data-a=del]');
     del.onclick = async () => {
@@ -325,10 +197,22 @@ async function ensureGame() {
         move: $('#t-move'), look: $('#t-look'), stick: $('#t-stick'), knob: $('#t-knob'), jump: $('#t-jump'), down: $('#t-down'),
         brk: $('#t-break'), put: $('#t-place'), fly: $('#t-fly'), speed: $('#t-speed'), inv: $('#t-inv'), menu: $('#t-menu'),
       },
-      onSave: (full) => saveGame(full),
+      onSave: (quiet) => saveGame(quiet),
     });
   }
   return game;
+}
+
+// laatst gespeelde wereld onthouden (na een herstart van de pagina meteen verder)
+function rememberLast(kind, id, name) { try { localStorage.setItem('blokstad-last', JSON.stringify({ kind, id, name })); } catch { /* geen opslag */ } }
+function updateResume() {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem('blokstad-last') || 'null'); } catch { /* geen opslag */ }
+  const ok = last && (last.id === METRO.id || last.id === CITY.id || state.regions.some(r => r.id === last.id));
+  $('#resume').hidden = !ok;
+  if (!ok) return;
+  $('#btn-resume-last').textContent = `▶ Verder spelen: ${last.name}`;
+  $('#btn-resume-last').onclick = () => { phoneFullscreen(); last.kind === 'map' ? playMap(last.id) : play(last.id); };
 }
 
 async function play(id) {
@@ -339,6 +223,7 @@ async function play(id) {
   $('#menu').hidden = true;
   $('#tp-wrap').hidden = true;
   $('#game-title').textContent = meta.name;
+  rememberLast('region', id, meta.name);
   game.load(meta, vox);
   game.start();
 }
@@ -362,7 +247,7 @@ function mapMeta(map) {
   return { id: map.id, kind: 'map', name: map.name, map, size: mapSize(map), ground: map.ground,
     real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
 }
-async function playMap(id) {
+async function playMap(id, at) {
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
   if (!meta && id === METRO.id) { meta = { id: METRO.id, kind: 'map', name: METRO.name, map: { ...METRO }, size: METRO.tilesX * METRO.tile, ground: METRO.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
@@ -402,12 +287,14 @@ async function playMap(id) {
     onLod(m);
   }); };
   const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
-  const spawn = isMetro ? { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true } : isCity ? SPAWN : spawnFor(map);
+  let spawn = isMetro ? { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true } : isCity ? SPAWN : spawnFor(map);
+  if (at) { spawn = { x: at.x, y: map.ground + 90, z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
+  rememberLast('map', id, meta.name);
   game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
-$('#btn-metro').addEventListener('click', () => playMap(METRO.id));
+$('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 function fillTeleports(list) {
   const box = $('#tp-list');
   box.innerHTML = '';
@@ -490,6 +377,7 @@ function showPrefetch(job) {
     : `Downloaden… ${job.done} van ${job.total} stukken (${pct}%)${job.failed ? ` · ${job.failed} mislukt` : ''}${liveStatus.get(job.id) ? ' · ' + liveStatus.get(job.id) : ''}`;
 }
 function mapCard(r) {
+  if (r.map && r.map.kind === 'proc') return procCard(r);
   const card = document.createElement('div');
   card.className = 'region';
   const map = r.map, km = (mapSize(map) / 1000).toLocaleString('nl-BE', { maximumFractionDigits: 1 });
@@ -542,6 +430,36 @@ function mapCard(r) {
   if (running) setTimeout(() => showPrefetch(prefetch.job), 0);
   return card;
 }
+// zelfgegenereerde wereld (Nova Metropool): spelen, kaart tonen, bouwwerken delen
+function procCard(r) {
+  const card = document.createElement('div');
+  card.className = 'region';
+  card.innerHTML = `
+    <div class="r-title"></div>
+    <div class="muted small">Fantasiewereld · 25 × 30 km · wordt gemaakt terwijl je speelt</div>
+    <div class="r-actions">
+      <button class="btn primary" data-a="play">▶ Spelen</button>
+      <button class="btn" data-a="show">Kaart</button>
+      <button class="btn" data-a="share" title="Bewaar je bouwwerken als bestand om te delen">Delen</button>
+    </div>`;
+  card.querySelector('.r-title').textContent = r.name;
+  card.querySelector('[data-a=play]').onclick = () => { phoneFullscreen(); playMap(r.id); };
+  card.querySelector('[data-a=show]').onclick = () => setMode('fantasy');
+  card.querySelector('[data-a=share]').onclick = () => shareBuilds(r);
+  return card;
+}
+async function shareBuilds(r) {
+  const meta = await store.getRegionMeta(r.id);
+  const { blob, count } = await store.exportBuilds(meta);
+  if (!count) return notify('Je hebt in deze wereld nog niets gebouwd. Bouw iets en probeer opnieuw.');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = r.name.replace(/[^\w\- ()]+/g, '_') + '.blokstad-bouw';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  notify(`Bestand met ${count} stukken bouwwerk gemaakt. Stuur het door; de ander opent het met “Bestand importeren…”.`);
+}
+
 async function createBigMap() {
   const lat = parseFloat($('#lat').value), lon = parseFloat($('#lon').value);
   if (!(Math.abs(lat) <= 85) || !(Math.abs(lon) <= 180)) return;
@@ -558,7 +476,7 @@ async function createBigMap() {
 }
 
 let saving = null;
-async function saveGame() {
+async function saveGame(quiet) {
   if (!game || !game.meta) return;
   if (saving) return saving;
   if (game.tiled) {
@@ -567,7 +485,7 @@ async function saveGame() {
     const meta = { ...game.meta, player: game.playerState() };
     game.meta = meta;
     saving = store.saveMeta(meta)
-      .then(() => flash('Opgeslagen ✓')).catch(err => flash('Opslaan mislukt: ' + err.message)).finally(() => { saving = null; });
+      .then(() => { if (!quiet) flash('Opgeslagen ✓'); }).catch(err => flash('Opslaan mislukt: ' + err.message)).finally(() => { saving = null; });
     return saving;
   }
   const meta = { ...game.meta, player: game.playerState() };
@@ -602,7 +520,7 @@ function setMode(mode) {
   $('#fantasy-panel').hidden = mode !== 'fantasy';
   $('#real-col').hidden = mode !== 'real';
   $('#map-col').hidden = mode !== 'fantasy';
-  if (mode === 'fantasy') { setZoom(state.zoom); if (!state.sel) select(1050, 12500, true); }
+  if (mode === 'fantasy') drawMetroMap();
   if (mode === 'real') initMap();
   try { localStorage.setItem('blokstad-mode', mode); } catch { /* geen opslag */ }
 }
@@ -842,7 +760,6 @@ async function showReal(r) {
 }
 
 // start
-setZoom(1);
 let startMode = 'real';
 try { startMode = localStorage.getItem('blokstad-mode') || 'real'; } catch { /* geen opslag */ }
 setPlace('Frankfurt – Skyline', 50.1113, 8.6718);

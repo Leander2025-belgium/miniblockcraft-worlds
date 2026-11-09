@@ -99,20 +99,29 @@ export class FarView {
   }
   build(tx, tz, lod) {
     const n = lod.n, s = this.T / n, G = this.G;
-    const pos = [], col = [], side = [];
+    const pos = [], col = [], side = [], idx = [];
     const H = (x, z) => (x < 0 || z < 0 || x >= n || z >= n) ? G : lod.h[z * n + x];
     const quad = (a, b, c, d, rgb, shade, isSide) => {
-      for (const v of [a, b, c, a, c, d]) { pos.push(v[0], v[1], v[2]); col.push(rgb[0] * shade, rgb[1] * shade, rgb[2] * shade); side.push(isSide); }
+      const o = pos.length / 3;
+      for (const v of [a, b, c, d]) { pos.push(v[0], v[1], v[2]); col.push(rgb[0] * shade, rgb[1] * shade, rgb[2] * shade); side.push(isSide); }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
     };
+    // grond (weg, gras, water) als vlakke stroken: aaneengesloten vakken met dezelfde kleur en hoogte samen
+    for (let z = 0; z < n; z++) {
+      for (let x = 0; x < n;) {
+        const i = z * n + x, h = lod.h[i];
+        if (h > G + 2) { x++; continue; }
+        let e = x + 1;
+        while (e < n && lod.h[z * n + e] === h && lod.c[(z * n + e) * 3] === lod.c[i * 3] && lod.c[(z * n + e) * 3 + 1] === lod.c[i * 3 + 1] && lod.c[(z * n + e) * 3 + 2] === lod.c[i * 3 + 2]) e++;
+        const rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
+        const x0 = tx * this.T + x * s, x1 = tx * this.T + e * s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
+        quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
+        x = e;
+      }
+    }
     for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
       const h = lod.h[z * n + x];
-      if (h <= G + 2) {
-        // grond (weg, gras, water) als plat vlak, zodat er geen gaten zijn
-        const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
-        const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
-        quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
-        continue;
-      }
+      if (h <= G + 2) continue;
       const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
       const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
       quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
@@ -128,7 +137,11 @@ export class FarView {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    g.setIndex(idx);
     g.computeBoundingSphere();
+    const free = function () { this.array = null; };
+    for (const a of Object.values(g.attributes)) a.onUpload(free);
+    g.index.onUpload(free);
     return g;
   }
   // verberg verre blokken waar de echte tegel geladen is

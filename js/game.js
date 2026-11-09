@@ -408,6 +408,9 @@ export class Game {
     g.setAttribute('light', new THREE.Float32BufferAttribute(buf.light, 1));
     g.setIndex(buf.n > 65535 ? new THREE.Uint32BufferAttribute(buf.idx, 1) : new THREE.Uint16BufferAttribute(buf.idx, 1));
     g.computeBoundingSphere();
+    // na het doorsturen naar de grafische kaart de kopie in het geheugen vrijgeven (scheelt veel op telefoons)
+    for (const a of Object.values(g.attributes)) a.onUpload(freeArray);
+    g.index.onUpload(freeArray);
     const m = new THREE.Mesh(g, mat);
     m.position.set(src.ox, 0, src.oz);
     m.updateMatrix();
@@ -718,7 +721,10 @@ export class Game {
       if ((hr >= 23 || hr < 1) && !this.missions.stats.night) this.missions.max('night', 1);
     }
     const now = performance.now();
-    if (this.dirty && now - this.lastAuto > 30000) { this.lastAuto = now; this.ui.onSave?.(false); }
+    if (this.dirty && now - this.lastAuto > 30000) { this.lastAuto = now; this.ui.onSave?.(true); }
+    // grote kaarten: elke 20 s stil bewaren waar je bent (valt de pagina weg, dan kan je verder)
+    if (this.tiled && now - (this.lastPosSave || now) > 20000) { this.lastPosSave = now; this.ui.onSave?.(true); }
+    if (this.tiled && !this.lastPosSave) this.lastPosSave = now;
   }
 
   // ---------- blokken aanwijzen ----------
@@ -1085,13 +1091,16 @@ export class Game {
   }
 }
 
+function freeArray() { this.array = null; }
 const FLY_SPEEDS = [12, 40, 120];
 const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (120 m/s)'];
 
 function loadSettings() {
   const phone = matchMedia('(pointer: coarse)').matches;
-  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1400 : 2000, quality: phone ? 'normal' : 'sharp' };
-  try { return { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
-  catch { return def; }
+  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1000 : 2000, quality: phone ? 'normal' : 'sharp' };
+  let st = def;
+  try { st = { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; } catch { /* standaard */ }
+  if (phone) st.lod = Math.min(st.lod, 1200); // telefoons: verre gebouwen beperken (geheugen)
+  return st;
 }
 function saveSettings(s) { try { localStorage.setItem('blokstad-settings', JSON.stringify(s)); } catch { /* geen opslag */ } }

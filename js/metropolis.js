@@ -9,7 +9,7 @@ export const MW = 25000, ML = 30000, G = 12, T = 128;
 export const META = {
   id: 'metropool', name: 'Nova Metropool', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 1, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
+  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
 };
 const CBD = [12500, 13500];
 export const PLACES = [
@@ -50,6 +50,7 @@ function zoneAt(x, z) {
   if (noise(x / 2600, z / 2600, 71) > 0.66) return Z.INDUSTRY;
   return Z.SUBURB;
 }
+export const zoneAtExport = (x, z) => zoneAt(x, z);
 export function zoneName(x, z) {
   const zn = zoneAt(x, z);
   if (zn === Z.AIRPORT) return AIRPORTS.find(a => x >= a.x0 && x < a.x1 && z >= a.z0 && z < a.z1).name;
@@ -277,9 +278,9 @@ function towerColumn(x, z, t, col) {
     if (!inn) { if (towerInside(t, u, v, k - 1)) { col[y] = k > t.podH + 1 ? t.frame : B.CONCRETE; top = y; } continue; }
     const ext = !towerInside(t, u - 1, v, k) || !towerInside(t, u + 1, v, k) || !towerInside(t, u, v - 1, k) || !towerInside(t, u, v + 1, k);
     if (ext) {
-      if (k <= (t.podH || 0)) col[y] = k % 4 === 0 ? t.frame : ((x + z) % 6 === 0 ? t.frame : B.GLASS);           // winkels/lobby
-      else if (k > t.h - 3 && (x + z) % 2 === 0) col[y] = B.LAMP;                                                  // verlichte kroon
-      else col[y] = (k % 4 === 0 || (x + z) % 3 === 0) ? t.frame : t.glass;
+      if (k <= (t.podH || 0)) col[y] = k % 4 === 0 ? t.frame : B.GLASS;            // winkels/lobby
+      else if (k > t.h - 3) col[y] = B.LAMP;                                         // verlichte kroon
+      else col[y] = k % 4 === 0 ? t.frame : t.glass;                                 // glasvlak per verdieping
     } else col[y] = k % 4 === 0 ? B.TILE : 0;
     top = y;
   }
