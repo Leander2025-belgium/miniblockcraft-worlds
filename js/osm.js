@@ -101,7 +101,7 @@ const NAMED = {
   orange: [230, 130, 30], blue: [40, 80, 180], lightblue: [170, 210, 235], navy: [30, 40, 100], green: [40, 140, 70],
   darkgreen: [30, 90, 40], pink: [230, 170, 180], salmon: [230, 140, 120], gold: [220, 180, 60], teal: [40, 128, 128],
 };
-const WALL_CHOICES = [B.PLASTER, B.YELLOWBRICK, B.BRICK, B.CONCRETE, B.METAL, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN,
+const WALL_CHOICES = [B.PLASTER, B.YELLOWBRICK, B.BRICK, B.CONCRETE, B.ASHLAR, B.LIMESTONE, B.METAL, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN,
   B.PAINT_ORANGE, B.PAINT_BLACK, B.PAINT_WHITE, B.STONE, B.PLANKS, B.DARKGLASS];
 const ROOF_CHOICES = [B.ROOF_RED, B.ROOF_DARK, B.CONCRETE, B.METAL, B.PAINT_GREEN, B.PLASTER, B.PAINT_BLACK, B.BRICK];
 function parseColour(v) {
@@ -149,6 +149,13 @@ function buildingHeights(tags) {
   return { h: Math.max(2, h), min: Math.max(0, Math.min(min, h - 1)), explicit: parseLen(tags.height) > 0 };
 }
 const HOUSE = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'farm', 'cabin', 'church', 'chapel', 'cathedral', 'barn']);
+const OLD_TYPES = new Set(['train_station', 'church', 'cathedral', 'chapel', 'castle', 'palace', 'townhall', 'civic', 'museum', 'government', 'monastery', 'basilica', 'mosque', 'synagogue', 'temple']);
+function isHistoric(tags) {
+  if (tags.historic || tags.heritage || tags['heritage:operator'] || tags['ref:OnroerendErfgoed'] || tags.tourism === 'museum') return true;
+  if (OLD_TYPES.has(tags.building) || OLD_TYPES.has(tags['building:part'])) return true;
+  const y = parseInt(tags.start_date || tags['building:year'] || '', 10);
+  return y > 0 && y < 1940;
+}
 function roofShape(tags) {
   let s = (tags['roof:shape'] || '').toLowerCase();
   if (s === 'hipped' || s === 'half-hipped' || s === 'side_hipped' || s === 'pyramidal' || s === 'gabled' || s === 'skillion' ||
@@ -159,6 +166,7 @@ function roofShape(tags) {
   if (s) return 'hipped';
   const lv = parseLen(tags['building:levels']);
   if (HOUSE.has(tags.building) && !(lv > 4)) return 'gabled';
+  if (isHistoric(tags) && !(lv > 8) && !(parseLen(tags.height) > 40)) return 'hipped';
   return 'flat';
 }
 function wallStyle(tags, h, id) {
@@ -170,10 +178,12 @@ function wallStyle(tags, h, id) {
   else if (col) { wall = nearest(col, WALL_CHOICES); if (wall === B.DARKGLASS) { curtain = true; wall = B.METAL; glass = B.DARKGLASS; } }
   else if (mat === 'brick') wall = B.BRICK;
   else if (mat === 'concrete') wall = B.CONCRETE;
-  else if (mat === 'stone' || mat === 'sandstone') wall = B.YELLOWBRICK;
+  else if (mat === 'stone' || mat === 'granite' || mat === 'marble') wall = B.ASHLAR;
+  else if (mat === 'sandstone' || mat === 'limestone') wall = B.LIMESTONE;
   else if (mat === 'wood') wall = B.PLANKS;
   else if (mat === 'metal' || mat === 'steel') wall = B.METAL;
   else if (mat === 'plaster') wall = B.PLASTER;
+  else if (isHistoric(tags)) wall = [B.ASHLAR, B.ASHLAR, B.LIMESTONE, B.BRICK, B.YELLOWBRICK][Math.floor(r * 5)];
   else if (h >= 45) { curtain = true; wall = r < 0.5 ? B.METAL : B.CONCRETE; glass = r < 0.3 || r > 0.75 ? B.DARKGLASS : B.GLASS; }
   else {
     const t = tags.building;
@@ -185,7 +195,12 @@ function wallStyle(tags, h, id) {
   const rc = parseColour(tags['roof:colour'] || tags['roof:color']);
   const shape = tags['roof:shape'];
   let roof;
+  const rm = (tags['roof:material'] || '').toLowerCase();
+  const RM = { glass: B.GLASS, metal: B.METAL, metal_sheet: B.METAL, steel: B.METAL, zinc: B.METAL, copper: B.PAINT_GREEN,
+    slate: B.ROOF_DARK, roof_tiles: B.ROOF_RED, tiles: B.ROOF_RED, tile: B.ROOF_RED, concrete: B.CONCRETE, tar_paper: B.ROOF_DARK, grass: B.GRASS };
   if (rc) roof = nearest(rc, ROOF_CHOICES);
+  else if (RM[rm]) roof = RM[rm];
+  else if (isHistoric(tags) || shape === 'dome' || shape === 'onion' || shape === 'mansard') roof = B.ROOF_DARK;
   else if (shape && shape !== 'flat') roof = r < 0.6 ? B.ROOF_RED : B.ROOF_DARK;
   else roof = h >= 45 ? B.METAL : B.ROOF_DARK;
   return { wall, glass, curtain, roof };
@@ -444,7 +459,20 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     for (const q of r) { x += q[0]; z += q[1]; }
     return [x / r.length, z / r.length];
   });
-  const shown = buildings.filter(b => !centroids.some(c => b.rings.some(r => inPoly(r, c[0], c[1]))));
+  const INHERIT = ['building', 'historic', 'heritage', 'heritage:operator', 'ref:OnroerendErfgoed', 'start_date', 'building:material',
+    'building:colour', 'roof:colour', 'roof:material', 'tourism', 'name'];
+  const shown = buildings.filter(b => {
+    let has = false;
+    parts.forEach((p, i) => {
+      const c = centroids[i];
+      if (!b.rings.some(r => inPoly(r, c[0], c[1]))) return;
+      has = true;
+      const extra = {};
+      for (const k of INHERIT) if (b.tags[k] != null && p.tags[k] == null) extra[k] = b.tags[k];
+      p.tags = { ...extra, ...p.tags };
+    });
+    return !has;
+  });
   const all = shown.concat(parts);
   let maxTop = 30;
   for (const b of all) { b.hm = buildingHeights(b.tags); maxTop = Math.max(maxTop, b.hm.h); }
@@ -520,7 +548,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
       const tagH = parseLen(bd.tags['roof:height']), tagL = parseLen(bd.tags['roof:levels']);
       if (tagH > 0) roofH = tagH * scale;
       else if (tagL > 0) roofH = tagL * 3 * scale;
-      else if (shape === 'dome' || shape === 'onion' || shape === 'round') roofH = dMax;
+      else if (shape === 'dome' || shape === 'onion') roofH = dMax;
+      else if (shape === 'round') roofH = halfShort;
       else if (shape === 'pyramidal') roofH = halfShort * 1.2;
       else roofH = Math.min(halfShort * 0.85, 9 * scale);
       // hoogte uit verdiepingen of standaardwaarde: het dak komt bovenop de muren
@@ -538,12 +567,16 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
       if (shape === 'gabled' || shape === 'gambrel' || shape === 'saltbox') {
         const pr = (x - cx) * bx + (z - cz) * bz;
         f = 1 - Math.abs(pr - (pmin + pmax) / 2) / halfShort;
+      } else if (shape === 'round') {
+        const pr = (x - cx) * bx + (z - cz) * bz;
+        const u = Math.min(1, Math.abs(pr - (pmin + pmax) / 2) / halfShort);
+        f = Math.sqrt(1 - u * u);
       } else if (shape === 'skillion') {
         const pr = (x - cx) * bx + (z - cz) * bz;
         f = (pr - pmin) / Math.max(1, pmax - pmin);
       } else if (shape !== 'flat') {
         const t = Math.min(1, Math.max(0, (dist[i] - 0.5) / Math.max(0.5, dMax - 0.5)));
-        if (shape === 'dome' || shape === 'onion' || shape === 'round') f = Math.sqrt(1 - (1 - t) * (1 - t));
+        if (shape === 'dome' || shape === 'onion') f = Math.sqrt(1 - (1 - t) * (1 - t));
         else if (shape === 'mansard') f = Math.min(1, t * 1.7);
         else f = t; // schilddak, piramide, ...
       }

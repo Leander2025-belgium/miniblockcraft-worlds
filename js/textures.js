@@ -95,6 +95,19 @@ function brickPainter(base, mortar) {
 }
 painters.brick = brickPainter([160, 72, 54], [190, 180, 170]);
 painters.yellowbrick = brickPainter([204, 170, 110], [150, 140, 125]);
+function ashlarPainter(base, line) {
+  return (px, r) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const row = y >> 2, off = row % 2 ? 4 : 0;
+      const m = y % 4 === 0 || (x + off) % 8 === 0;
+      const n = (r() - 0.5) * 12, tone = ((row * 7 + ((x + off) >> 3) * 3) % 5) * 3;
+      if (m) px(x, y, line[0] + n * 0.4, line[1] + n * 0.4, line[2] + n * 0.4);
+      else px(x, y, base[0] + n + tone, base[1] + n + tone, base[2] + n + tone);
+    }
+  };
+}
+painters.ashlar = ashlarPainter([150, 150, 146], [112, 112, 110]);
+painters.limestone = ashlarPainter([200, 186, 156], [160, 148, 124]);
 painters.cobble = (px, r) => {
   for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
     const cx = ((x + (((y >> 2) % 2) * 2)) % 5), cy = y % 4;

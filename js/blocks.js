@@ -7,7 +7,7 @@ export const B = {
   LEAVES: 14, WATER: 15, SAND: 16, ROOF_RED: 17, ROOF_DARK: 18, METAL: 19, BEDROCK: 20,
   LAMP: 21, PLASTER: 22, YELLOWBRICK: 23, PAINT_RED: 24, PAINT_BLUE: 25, PAINT_GREEN: 26,
   GRAVEL: 27, COBBLE: 28, TILE: 29, POST: 30, PAINT_ORANGE: 31, PAINT_BLACK: 32, FLOWERS: 33,
-  PAINT_WHITE: 34, HEDGE: 35,
+  PAINT_WHITE: 34, HEDGE: 35, ASHLAR: 36, LIMESTONE: 37,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -48,6 +48,8 @@ export const BLOCKS = [
   { id: 33, name: 'Bloemen', color: [120, 170, 70], tex: ['flowers', 'grass_side', 'dirt'] },
   { id: 34, name: 'Witte verf', color: [235, 235, 235], tex: ['paint_white'] },
   { id: 35, name: 'Haag', color: [44, 100, 36], tex: ['hedge'] },
+  { id: 36, name: 'Natuursteen', color: [150, 150, 146], tex: ['ashlar'] },
+  { id: 37, name: 'Zandsteen', color: [200, 186, 156], tex: ['limestone'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
