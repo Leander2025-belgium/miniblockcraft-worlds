@@ -83,16 +83,19 @@ export function bboxFor(lat, lon, size, margin = 25) {
 export async function fetchOSM(lat, lon, size, onStatus) {
   return fetchOSMBox(bboxFor(lat, lon, size), onStatus);
 }
-export async function fetchOSMBox(b, onStatus) {
+export function overpassQuery(b) {
   const bb = `${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)}`;
   // alleen wat de game gebruikt: veel kleinere downloads dan "alles"
   const W = ['building', 'building:part', 'highway', 'railway', 'waterway', 'natural', 'landuse', 'leisure', 'water', 'place', 'area:highway'];
   const R = ['building', 'building:part', 'natural', 'landuse', 'leisure', 'water', 'waterway', 'place'];
-  const q = `[out:json][timeout:180][bbox:${bb}];(` +
+  return `[out:json][timeout:180][bbox:${bb}];(` +
     W.map(k => `way["${k}"];`).join('') + 'way["amenity"="parking"];' +
     R.map(k => `relation["type"="multipolygon"]["${k}"];`).join('') + 'relation["type"="multipolygon"]["amenity"="parking"];' +
     'node["natural"="tree"];node["highway"~"^(street_lamp|traffic_signals|bus_stop)$"];' +
     'node["amenity"~"^(bench|bicycle_parking|waste_basket|post_box|fountain)$"];node["public_transport"="platform"];);(._;>;);out body qt;';
+}
+export async function fetchOSMBox(b, onStatus) {
+  const q = overpassQuery(b);
   let lastErr;
   for (let attempt = 0; attempt < 4; attempt++) {
     for (const url of OVERPASS) {
@@ -1098,4 +1101,45 @@ export function subsetOSM(osm, s, w, n, e) {
     trees: osm.trees.filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),
     pois: (osm.pois || []).filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),
   };
+}
+
+// eenvoudige versie per tegel (verre gebouwen + minikaart): per vak van 8 m de hoogte en kleur
+export function computeLod(vox, T, H) {
+  const c8 = 8, n = T / c8;
+  const h = new Int16Array(n * n), c = new Uint8Array(n * n * 3);
+  for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
+    let best = 0, bestB = 0, sumY = 0, cnt = 0;
+    for (let z = cz * c8; z < cz * c8 + c8; z++) for (let x = cx * c8; x < cx * c8 + c8; x++) {
+      const base = (z * T + x) * H;
+      let y = H - 1;
+      while (y > 0 && !vox[base + y]) y--;
+      sumY += y; cnt++;
+      if (y > best) { best = y; bestB = vox[base + y]; }
+    }
+    const i = cz * n + cx;
+    const avg = sumY / cnt;
+    h[i] = Math.round(best - avg > 30 ? avg + (best - avg) * 0.5 : best);
+    const col = BLOCKS[bestB] ? BLOCKS[bestB].color : [90, 90, 90];
+    c[i * 3] = col[0]; c[i * 3 + 1] = col[1]; c[i * 3 + 2] = col[2];
+  }
+  return { n, h, c };
+}
+
+// kant-en-klare tegel (voorbereid bestand): 'BT1' + H + json(paden) + RLE
+export function packTile(rle, H, paths) {
+  const json = new TextEncoder().encode(JSON.stringify(paths.map(p => ({ t: p.type, p: Array.from(p.pts, v => Math.round(v * 10) / 10) }))));
+  const out = new Uint8Array(3 + 8 + json.length + rle.length);
+  out.set([66, 84, 49], 0);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(3, H, true); dv.setUint32(7, json.length, true);
+  out.set(json, 11); out.set(rle, 11 + json.length);
+  return out;
+}
+export function unpackTile(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 66 || b[1] !== 84 || b[2] !== 49) throw new Error('ongeldig tegelbestand');
+  const dv = new DataView(b.buffer, b.byteOffset);
+  const H = dv.getUint32(3, true), jl = dv.getUint32(7, true);
+  const paths = JSON.parse(new TextDecoder().decode(b.subarray(11, 11 + jl))).map(p => ({ type: p.t, pts: new Float32Array(p.p) }));
+  return { H, paths, rle: b.slice(11 + jl) };
 }

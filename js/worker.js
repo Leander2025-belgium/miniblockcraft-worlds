@@ -1,7 +1,7 @@
 // Web Worker: berekent de stadskaart, voorbeelden en volledige 3D-gebieden.
 import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './city.js';
 import { BLOCKS } from './blocks.js';
-import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor } from './osm.js';
+import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
 import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
 import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
 
@@ -182,6 +182,18 @@ async function cityTileInner(m) {
     if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
     return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, paths: cached.paths || [] };
   }
+  // kant-en-klare tegel van de website (sneller dan zelf omzetten)
+  if (map.baked) {
+    try {
+      const res = await fetch(`${map.baked}${tx}_${tz}.bin`);
+      if (res.ok) {
+        const t = unpackTile(await gunzipMaybe(await res.arrayBuffer()));
+        await cachePut(key, { rle: t.rle, H: t.H, paths: t.paths });
+        if (m.prefetch) return { H: t.H, bytes: t.rle.length };
+        return { vox: rleDecode(t.rle, map.tile * map.tile * t.H), H: t.H, paths: t.paths };
+      }
+    } catch { /* dan zelf omzetten */ }
+  }
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
   const b = bboxFor(c.lat, c.lon, map.tile, 30);
@@ -195,31 +207,31 @@ async function cityTileInner(m) {
 
 // ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------
 const lodKey = (map, tx, tz) => `${map.id}-lod-v${map.version}-${tx}-${tz}`;
-function computeLod(vox, T, H) {
-  const c8 = 8, n = T / c8;
-  const h = new Int16Array(n * n), c = new Uint8Array(n * n * 3);
-  for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
-    let best = 0, bestB = 0, sumY = 0, cnt = 0;
-    for (let z = cz * c8; z < cz * c8 + c8; z++) for (let x = cx * c8; x < cx * c8 + c8; x++) {
-      const base = (z * T + x) * H;
-      let y = H - 1;
-      while (y > 0 && !vox[base + y]) y--;
-      sumY += y; cnt++;
-      if (y > best) { best = y; bestB = vox[base + y]; }
+async function gunzipMaybe(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 0x1f || b[1] !== 0x8b) return buf;
+  return await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+}
+let bakedLods = null;
+async function loadBakedLods(map) {
+  if (bakedLods !== null || !map.baked) return;
+  bakedLods = new Map();
+  try {
+    const b = new Uint8Array(await gunzipMaybe(await (await fetch(`${map.baked}lod.bin`)).arrayBuffer()));
+    const n = 16, rec = 4 + n * n * 2 + n * n * 3;
+    for (let o = 0; o + rec <= b.length; o += rec) {
+      const dv = new DataView(b.buffer, o);
+      const tx = dv.getUint16(0, true), tz = dv.getUint16(2, true);
+      const h = new Int16Array(b.slice(o + 4, o + 4 + n * n * 2).buffer), c = b.slice(o + 4 + n * n * 2, o + rec);
+      bakedLods.set(tz * 1000 + tx, { n, h, c });
     }
-    const i = cz * n + cx;
-    // hoogte: hoogste punt als het vak grotendeels bebouwd is, anders gemiddelde (spitsen niet opblazen)
-    const avg = sumY / cnt;
-    h[i] = Math.round(best - avg > 30 ? avg + (best - avg) * 0.5 : best);
-    const col = BLOCKS[bestB] ? BLOCKS[bestB].color : [90, 90, 90];
-    c[i * 3] = col[0]; c[i * 3 + 1] = col[1]; c[i * 3 + 2] = col[2];
-  }
-  return { n, h, c };
+  } catch { /* geen voorbereide data */ }
 }
 async function getLod(map, tx, tz) {
   const k = lodKey(map, tx, tz);
   let l = await cacheGet(k);
   if (l) return l;
+  if (map.baked) { await loadBakedLods(map); const bl = bakedLods.get(tz * 1000 + tx); if (bl) return bl; }
   const t = await cacheGet(keys.tile(map, tx, tz));
   if (!t || !t.rle) return null;
   l = computeLod(rleDecode(t.rle, map.tile * map.tile * t.H), map.tile, t.H);

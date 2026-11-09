@@ -316,6 +316,20 @@ async function play(id) {
 }
 
 // ---------- grote kaarten (kilometers, in tegels) ----------
+// Kant-en-klare tegels op de website (gemaakt met tools/bake-frankfurt.mjs)?
+const bakedCache = new Map();
+async function bakedBase(map) {
+  if (map.id !== CITY.id) return null;
+  if (bakedCache.has(map.id)) return bakedCache.get(map.id);
+  let base = null;
+  try {
+    const url = new URL(`data/${map.id}/v${map.version}/`, location.href).href;
+    const res = await fetch(url + 'manifest.json', { cache: 'no-cache' });
+    if (res.ok) base = url;
+  } catch { /* geen voorbereide data */ }
+  bakedCache.set(map.id, base);
+  return base;
+}
 function mapMeta(map) {
   return { id: map.id, kind: 'map', name: map.name, map, size: mapSize(map), ground: map.ground,
     real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
@@ -327,6 +341,8 @@ async function playMap(id) {
   await ensureGame();
   const map = meta.map, T = map.tile;
   map.superTiles = 4;
+  map.version = CITY.version;
+  map.baked = await bakedBase(map);
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
       if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
@@ -373,6 +389,8 @@ async function startPrefetch(meta) {
   stopPrefetch();
   try { await navigator.storage?.persist?.(); } catch { /* niet ondersteund */ }
   meta.map.superTiles = 4;
+  meta.map.version = CITY.version;
+  meta.map.baked = await bakedBase(meta.map);
   const map = meta.map, n = map.tiles, sc = superCount(map);
   const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0 };
   prefetch.job = job;
