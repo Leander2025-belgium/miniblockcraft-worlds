@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Blokstad</title>
+<meta name="description" content="Blokstad: een blokkenbouwspel in echte steden (OpenStreetMap) of een fantasiestad. Download een stuk stad en speel en bouw erin.">
+<meta name="theme-color" content="#141a24">
+<style>
+  :root {
+    --bg: #11161f; --panel: #1a212d; --panel2: #222b3a; --line: #2e3a4d; --text: #e8edf4; --muted: #8e9bb0;
+    --accent: #5fd27a; --accent-d: #3ea85a; --warn: #ffd34d; --danger: #e5604f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input { font: inherit; }
+  [hidden] { display: none !important; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  /* ---------- menu ---------- */
+  #menu { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100%; }
+  header.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .logo { width: 34px; height: 34px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+  .logo i { display: block; border-radius: 2px; }
+  .logo i:nth-child(1) { background: #5fd27a; } .logo i:nth-child(2) { background: #8b5e3c; }
+  .logo i:nth-child(3) { background: #a3a9b4; } .logo i:nth-child(4) { background: #5aa8e0; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  header.top p { margin: 0; color: var(--muted); font-size: 13px; }
+  #menu { grid-template-rows: auto minmax(0, 1fr); }
+  .map-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
+  .map-tools { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .map-tools .sp { flex: 1; }
+  #hover { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+  #map-wrap { flex: 1; overflow: auto; position: relative; background: #0c1017; padding: 2px; }
+  #map-stack { position: relative; margin: 0 auto; }
+  #map, #map-overlay { display: block; image-rendering: pixelated; }
+  #map-overlay { position: absolute; left: 0; top: 0; cursor: crosshair; }
+  #map-status { position: sticky; top: 6px; left: 6px; display: inline-block; z-index: 2; background: rgba(0,0,0,.6); padding: 2px 8px; border-radius: 6px; font-size: 13px; }
+  #map-status:empty { display: none; }
+
+  aside { overflow: auto; padding: 14px 16px 30px; background: var(--panel); }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 18px 0 8px; }
+  aside h2:first-child { margin-top: 2px; }
+  .seg { display: flex; gap: 6px; }
+  .seg button, .btn, .chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
+  .btn:hover, .chip:hover, .seg button:hover { border-color: #4a5c78; }
+  .btn.primary { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: #74e08d; }
+  .btn.big { width: 100%; padding: 11px; font-size: 16px; }
+  .btn.danger { color: var(--danger); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .chip { padding: 4px 10px; font-size: 13px; border-radius: 999px; }
+  #jumps { display: flex; flex-wrap: wrap; gap: 6px; }
+  #goto { display: flex; gap: 6px; margin-top: 8px; }
+  #goto input { width: 0; flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  #selection { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  #preview { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; display: block; margin: 10px 0; background: #222; }
+  #sel-name { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  #dl-progress { margin-top: 10px; }
+  .bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  #dl-bar { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #dl-text { font-size: 13px; margin-top: 4px; color: var(--muted); }
+  .region { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .r-title { font-weight: 600; }
+  .r-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .r-actions .btn { padding: 5px 10px; font-size: 13px; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; font-size: 13px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; background: var(--c); vertical-align: -1px; }
+  label.file { display: inline-block; }
+  label.file input { display: none; }
+  .help { font-size: 13px; color: var(--muted); }
+  .help kbd, .keys kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; color: var(--text); }
+
+  .tabs { display: flex; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; margin-bottom: 6px; }
+  .tabs button { flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: 7px; padding: 8px; cursor: pointer; font-weight: 600; }
+  .tabs button.on { background: var(--panel2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  #search { display: flex; gap: 6px; }
+  #search input, .latlon input, #real-name { width: 100%; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  #search input { flex: 1; }
+  #search-results { display: grid; gap: 4px; margin: 6px 0; }
+  #search-results button { text-align: left; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; cursor: pointer; font-size: 13px; }
+  #search-results button:hover { border-color: var(--accent); }
+  #real-jumps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .latlon { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .latlon label { font-size: 12px; color: var(--muted); display: grid; gap: 2px; }
+  #real-progress { margin-top: 10px; }
+  #real-bar { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  #real-text { font-size: 13px; margin-top: 4px; color: var(--muted); }
+  aside a { color: var(--accent); }
+  .real-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
+  .real-body { flex: 1; min-height: 0; position: relative; background: #0c1017; }
+  #realmap { position: absolute; inset: 0; background: #1b2230; }
+  .leaflet-container { font: inherit; }
+  #map-hint, #map-note, #real-result { position: absolute; z-index: 900; background: rgba(17,22,31,.88); color: var(--text); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+  #map-hint { top: 10px; left: 50%; transform: translateX(-50%); padding: 5px 12px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 120px); overflow: hidden; text-overflow: ellipsis; }
+  #map-note { left: 16px; right: 16px; top: 50px; padding: 10px 12px; max-width: 520px; margin: 0 auto; }
+  #real-result { left: 10px; bottom: 26px; padding: 8px; width: 196px; display: grid; gap: 6px; }
+  #real-preview { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 6px; display: block; }
+
+  @media (max-width: 800px) {
+    .real-col { border-right: 0; border-bottom: 1px solid var(--line); }
+    #menu { grid-template-columns: 1fr; grid-template-rows: auto 55vh auto; height: auto; min-height: 100%; }
+    .map-col { border-right: 0; border-bottom: 1px solid var(--line); }
+    aside { overflow: visible; }
+    header.top p { display: none; }
+  }
+
+  /* ---------- game ---------- */
+  #game { position: fixed; inset: 0; background: #9ecdf5; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #game-canvas { width: 100%; height: 100%; display: block; }
+  .hud { position: absolute; z-index: 8; pointer-events: none; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+  #hud-tl { left: 12px; top: 10px; font-size: 14px; }
+  #game-title { font-weight: 700; font-size: 16px; }
+  #crosshair { left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 2px #000; }
+  #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
+  #crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
+  #hotbar-wrap { left: 50%; bottom: 10px; transform: translateX(-50%); text-align: center; }
+  #block-name { font-size: 13px; margin-bottom: 4px; }
+  #hotbar { display: flex; gap: 3px; background: rgba(0,0,0,.45); padding: 4px; border-radius: 8px; pointer-events: auto; }
+  .slot { position: relative; width: 46px; height: 46px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.3); border-radius: 6px; padding: 0; cursor: pointer; display: grid; place-items: center; color: #fff; }
+  .slot.sel { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+  .slot .ic { display: block; width: 36px; height: 36px; border-radius: 2px; }
+  .slot .num { position: absolute; left: 3px; top: 0; font-size: 10px; opacity: .8; }
+  #loading { left: 50%; top: 38%; transform: translateX(-50%); background: rgba(0,0,0,.55); padding: 8px 16px; border-radius: 8px; font-weight: 600; }
+  #toast { right: 14px; top: 12px; background: rgba(0,0,0,.6); padding: 6px 12px; border-radius: 8px; font-size: 14px; }
+  .ov { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,12,18,.62); z-index: 20; padding: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; width: min(460px, 100%); max-height: 100%; overflow: auto; }
+  .card h2 { margin: 0 0 10px; font-size: 20px; }
+  .card .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; color: var(--muted); margin: 10px 0; }
+  .card label { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); }
+  .card input[type=range] { width: 100%; accent-color: var(--accent); }
+  #ov-inv .card { width: min(640px, 100%); }
+  #inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  #inv-grid .slot { width: 100%; height: 76px; grid-template-rows: 44px auto; gap: 2px; }
+  #inv-grid .slot .ic { width: 40px; height: 40px; }
+  #inv-grid .lbl { font-size: 11px; line-height: 1.1; }
+
+  /* aanraakbediening */
+  .touch { display: none; }
+  .is-touch .touch { display: block; }
+  .is-touch .desk-only { display: none; }
+  #t-move, #t-look { position: absolute; top: 0; bottom: 0; z-index: 5; }
+  #t-move { left: 0; width: 45%; }
+  #t-look { right: 0; width: 55%; }
+  #t-stick { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; background: rgba(255,255,255,.15); border: 2px solid rgba(255,255,255,.35); z-index: 6; pointer-events: none; }
+  #t-knob { position: absolute; left: 30px; top: 30px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.55); }
+  .tbtn { position: absolute; z-index: 7; width: 58px; height: 58px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); background: rgba(0,0,0,.35); color: #fff; font-size: 22px; display: grid; place-items: center; touch-action: none; }
+  #t-jump { right: 22px; bottom: 96px; }
+  #t-down { right: 22px; bottom: 164px; font-size: 18px; }
+  #t-break { right: 92px; bottom: 140px; }
+  #t-place { right: 92px; bottom: 72px; }
+  #t-fly { right: 22px; top: 70px; font-size: 18px; width: 48px; height: 48px; }
+  #t-inv { right: 76px; top: 70px; font-size: 18px; width: 48px; height: 48px; }
+  #t-menu { right: 22px; top: 14px; font-size: 18px; width: 48px; height: 48px; }
+  .is-touch #toast { top: auto; bottom: 90px; right: 50%; transform: translateX(50%); }
+  .is-touch #hotbar-wrap { bottom: 6px; }
+  .is-touch .slot { width: 38px; height: 38px; }
+  .is-touch .slot .ic { width: 30px; height: 30px; }
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <header class="top">
+    <div class="logo"><i></i><i></i><i></i><i></i></div>
+    <div>
+      <h1>Blokstad</h1>
+      <p>Speel en bouw in echte steden met hun echte gebouwen (OpenStreetMap), of in een fantasiestad van 2,5 × 25 km.</p>
+    </div>
+  </header>
+
+  <section class="real-col" id="real-col">
+    <div class="map-tools">
+      <button class="btn" data-move="n" title="Stuk naar het noorden">↑ Noord</button>
+      <button class="btn" data-move="s" title="Stuk naar het zuiden">↓ Zuid</button>
+      <button class="btn" data-move="w" title="Stuk naar het westen">← West</button>
+      <button class="btn" data-move="e" title="Stuk naar het oosten">→ Oost</button>
+      <span class="sp"></span>
+      <span id="real-where" class="small muted"></span>
+    </div>
+    <div class="real-body">
+      <div id="realmap" aria-label="Wereldkaart om een gebied te kiezen"></div>
+      <div id="map-hint">Klik op de kaart of sleep het gele vierkant naar het gebied dat je wilt.</div>
+      <div id="map-note" hidden>De kaartbeelden kunnen op deze pagina niet laden, omdat ze geen verbinding met openstreetmap.org mag maken. Klikken om een plek te kiezen werkt wel. Open de game op je eigen website voor de volledige kaart.</div>
+      <div id="real-result" hidden>
+        <canvas id="real-preview" width="256" height="256"></canvas>
+        <div id="real-info" class="small"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="map-col" id="map-col">
+    <div class="map-tools">
+      <button class="btn" id="zoom-out" title="Uitzoomen">−</button>
+      <span id="zoom-label" class="small">1×</span>
+      <button class="btn" id="zoom-in" title="Inzoomen">+</button>
+      <span class="sp"></span>
+      <span id="hover"></span>
+    </div>
+    <div id="map-wrap">
+      <span id="map-status">Kaart tekenen…</span>
+      <div id="map-stack">
+        <canvas id="map"></canvas>
+        <canvas id="map-overlay"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="tabs" role="tablist">
+      <button data-mode="real" class="on" role="tab">Echte wereld</button>
+      <button data-mode="fantasy" role="tab">Fantasiestad</button>
+    </div>
+
+    <div id="real-panel">
+      <h2>1 · Kies een plek</h2>
+      <form id="search">
+        <input id="search-q" placeholder="Zoek een plaats, bv. Frankfurt Hauptbahnhof" autocomplete="off">
+        <button class="btn">Zoek</button>
+      </form>
+      <div id="search-results"></div>
+      <div id="real-jumps"></div>
+      <div class="latlon">
+        <label>Breedtegraad<input id="lat" inputmode="decimal" value="50.1113"></label>
+        <label>Lengtegraad<input id="lon" inputmode="decimal" value="8.6718"></label>
+      </div>
+      <input id="real-name" maxlength="60" placeholder="Naam voor dit stuk" value="Frankfurt – Skyline">
+
+      <h2>2 · Grootte</h2>
+      <div class="seg">
+        <button data-rsize="128">128 m</button>
+        <button data-rsize="256" class="on">256 m</button>
+        <button data-rsize="384">384 m</button>
+      </div>
+      <p class="help">Wolkenkrabbers maken het stuk hoger en zwaarder. 256 m is een goede keuze.</p>
+      <button class="btn primary big" id="btn-real">⬇ Download echte gebouwen</button>
+      <div id="real-progress" hidden>
+        <div class="bar"><div id="real-bar"></div></div>
+        <div id="real-text"></div>
+      </div>
+
+      <h2>Of: een kaartbestand gebruiken</h2>
+      <p class="help">Lukt downloaden niet (bv. in een testomgeving zonder internet)? Ga naar <a href="https://www.openstreetmap.org/export" target="_blank" rel="noopener">openstreetmap.org/export</a>, kies een klein gebied (een paar straten) en klik op <b>Exporteren</b>. Laad het bestand <code>map.osm</code> hier in.</p>
+      <label class="file btn"><input type="file" id="osm-file" accept=".osm,.xml,.json,.osm.json">OSM-bestand openen…</label>
+    </div>
+
+    <div id="fantasy-panel" hidden>
+    <h2>1 · Kies een stuk stad</h2>
+    <p class="help" style="margin-top:0">Klik op de kaart (noord boven, de stad is 25 km lang — scroll naar beneden) of spring naar:</p>
+    <div id="jumps"></div>
+    <form id="goto">
+      <input id="goto-x" inputmode="numeric" placeholder="x (0–2500)">
+      <input id="goto-z" inputmode="numeric" placeholder="z (0–25000)">
+      <button class="btn">Ga</button>
+    </form>
+
+    <h2>2 · Grootte</h2>
+    <div class="seg">
+      <button data-size="64">64 m</button>
+      <button data-size="128" class="on">128 m</button>
+      <button data-size="256">256 m</button>
+    </div>
+    <p class="help">Groter = meer stad, maar zwaarder voor je toestel. 128 m werkt overal vlot.</p>
+
+    <div id="selection" hidden>
+      <div id="sel-info"></div>
+      <canvas id="preview"></canvas>
+      <input id="sel-name" maxlength="60" placeholder="Naam voor dit stuk">
+      <button class="btn primary big" id="btn-download">⬇ Download dit stuk</button>
+      <div id="dl-progress" hidden>
+        <div class="bar"><div id="dl-bar"></div></div>
+        <div id="dl-text"></div>
+      </div>
+    </div>
+
+    </div>
+
+    <h2>Mijn stukken</h2>
+    <p id="menu-msg" class="help" role="status" hidden></p>
+    <div id="regions"></div>
+    <label class="file btn"><input type="file" id="import" accept=".blokstad,application/octet-stream">Bestand importeren…</label>
+
+    <h2>Legende</h2>
+    <div class="legend">
+      <span style="--c:#3a3c40">Wegen</span>
+      <span style="--c:#60a040">Parken & tuinen</span>
+      <span style="--c:#3c5a78">Glazen torens</span>
+      <span style="--c:#a04836">Baksteen</span>
+      <span style="--c:#a83c2c">Daken (huizen)</span>
+      <span style="--c:#969ea6">Industrie</span>
+      <span style="--c:#3264be">Water</span>
+      <span style="--c:#dccd96">Strand</span>
+    </div>
+
+    <h2>Besturing</h2>
+    <div class="keys">
+      <kbd>W A S D</kbd><span>lopen</span>
+      <kbd>Spatie</kbd><span>springen / omhoog vliegen</span>
+      <kbd>Shift</kbd><span>sprinten / omlaag vliegen</span>
+      <kbd>F</kbd><span>vliegen aan/uit</span>
+      <kbd>Linkerklik</kbd><span>blok breken</span>
+      <kbd>Rechterklik</kbd><span>blok plaatsen</span>
+      <kbd>Middelklik</kbd><span>blok oppakken</span>
+      <kbd>1–9 / wiel</kbd><span>blok kiezen</span>
+      <kbd>E</kbd><span>alle blokken</span>
+      <kbd>Esc</kbd><span>pauze & opslaan</span>
+    </div>
+    <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
+  </aside>
+</div>
+
+<div id="game" hidden>
+  <canvas id="game-canvas"></canvas>
+  <div class="hud" id="hud-tl">
+    <div id="game-title"></div>
+    <div id="hud-place"></div>
+    <div id="hud-coords" class="small"></div>
+  </div>
+  <div class="hud" id="crosshair"></div>
+  <div class="hud" id="loading" hidden></div>
+  <div class="hud" id="toast" hidden></div>
+  <div class="hud" id="hotbar-wrap">
+    <div id="block-name"></div>
+    <div id="hotbar"></div>
+  </div>
+
+  <div class="touch" id="t-move"></div>
+  <div class="touch" id="t-look"></div>
+  <div id="t-stick" hidden><div id="t-knob"></div></div>
+  <button class="touch tbtn" id="t-jump" aria-label="Springen">⤒</button>
+  <button class="touch tbtn" id="t-down" aria-label="Omlaag">⤓</button>
+  <button class="touch tbtn" id="t-break" aria-label="Breken">⛏</button>
+  <button class="touch tbtn" id="t-place" aria-label="Plaatsen">▣</button>
+  <button class="touch tbtn" id="t-fly" aria-label="Vliegen">✈</button>
+  <button class="touch tbtn" id="t-inv" aria-label="Blokken">▦</button>
+  <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
+
+  <div class="ov" id="ov-start" hidden>
+    <div class="card" style="cursor:pointer;text-align:center">
+      <h2>Klik om te spelen</h2>
+      <p class="muted">Je muis wordt vastgezet in het spel. Druk op <kbd>Esc</kbd> om te pauzeren.</p>
+    </div>
+  </div>
+  <div class="ov" id="ov-pause" hidden>
+    <div class="card">
+      <h2>Pauze</h2>
+      <div class="row">
+        <button class="btn primary" id="btn-resume">Verder spelen</button>
+        <button class="btn" id="btn-save">Opslaan</button>
+        <button class="btn" id="btn-exit">Opslaan & terug naar kaart</button>
+      </div>
+      <label>Kijkafstand: <span id="set-view-label"></span>
+        <input type="range" id="set-view" min="48" max="320" step="16"></label>
+      <label>Gevoeligheid
+        <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1"></label>
+      <div class="keys desk-only">
+        <kbd>W A S D</kbd><span>lopen</span>
+        <kbd>Spatie</kbd><span>springen / omhoog vliegen</span>
+        <kbd>Shift</kbd><span>sprinten / omlaag vliegen</span>
+        <kbd>F</kbd><span>vliegen aan/uit</span>
+        <kbd>Links / rechts</kbd><span>breken / plaatsen</span>
+        <kbd>E</kbd><span>alle blokken</span>
+      </div>
+      <p class="help">Je zit in een gedownload stuk stad. Aan de rand staat een onzichtbare muur — download het stuk ernaast om verder te verkennen.</p>
+    </div>
+  </div>
+  <div class="ov" id="ov-inv" hidden>
+    <div class="card">
+      <h2>Blokken</h2>
+      <p class="help" style="margin-top:0">Kies een blok voor het geselecteerde vakje in je balk.</p>
+      <div id="inv-grid"></div>
+      <div class="row"><button class="btn primary" id="btn-inv-close">Klaar</button></div>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="./vendor/leaflet.css">
+<script src="./vendor/leaflet.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
