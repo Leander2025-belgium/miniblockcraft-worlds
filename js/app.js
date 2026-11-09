@@ -264,7 +264,17 @@ $('#import').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!f) return;
   try {
-    const { meta, vox } = await store.importFile(f);
+    const bytes = await store.readMaybeGzip(f);
+    const builds = await store.importBuilds(bytes);
+    if (builds) {
+      // bouwwerken voor een grote kaart: kaart aanmaken als die nog niet bestaat
+      const m = builds.meta;
+      if (!(await store.getRegionMeta(m.id))) { delete m.player; delete m.done; delete m.complete; await store.saveMeta(m); }
+      notify(`${builds.entries.length} stukken met bouwwerken geïmporteerd in “${m.name}”.`);
+      refreshList();
+      return;
+    }
+    const { meta, vox } = await store.importFile(f, bytes);
     meta.id = 'r' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
     meta.name = (meta.name || 'Geïmporteerd') + ' (import)';
     await store.saveRegion(meta, vox);
@@ -427,10 +437,22 @@ function mapCard(r) {
       <button class="btn primary" data-a="play">▶ Spelen</button>
       ${r.complete ? '' : `<button class="btn" data-a="dl">${running ? '⏸ Pauzeren' : r.done ? '⬇ Verder downloaden' : '⬇ Alles downloaden'}</button>`}
       <button class="btn" data-a="show">Toon</button>
+      <button class="btn" data-a="share" title="Bewaar je bouwwerken als bestand om te delen">Delen</button>
       <button class="btn danger" data-a="del">✕</button>
     </div>`;
   card.querySelector('.r-title').textContent = r.name;
   card.querySelector('[data-a=play]').onclick = () => playMap(r.id);
+  card.querySelector('[data-a=share]').onclick = async () => {
+    const meta = await store.getRegionMeta(r.id);
+    const { blob, count } = await store.exportBuilds(meta);
+    if (!count) return notify('Je hebt in deze kaart nog niets gebouwd. Bouw iets en probeer opnieuw.');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = r.name.replace(/[^\w\- ()]+/g, '_') + '.blokstad-bouw';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    notify(`Bestand met ${count} stukken bouwwerk gemaakt. Stuur het door; de ander opent het met “Bestand importeren…”.`);
+  };
   const dl = card.querySelector('[data-a=dl]');
   if (dl) dl.onclick = () => {
     if (prefetch.job && prefetch.job.id === r.id && !prefetch.job.stop) { stopPrefetch(); dl.textContent = '⬇ Verder downloaden'; }

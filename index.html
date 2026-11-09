@@ -148,6 +148,16 @@
   .is-touch #minimap { left: auto; right: 14px; bottom: auto; top: 130px; width: 110px; height: 110px; }
   .map-card { width: min(720px, 100%); }
   #bigmap { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; cursor: crosshair; display: block; }
+  .missions { display: grid; gap: 4px; margin-top: 6px; max-height: 220px; overflow: auto; }
+  .mission { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  .mission.ok { border-color: var(--accent-d); }
+  .mission .mi { font-size: 16px; color: var(--muted); }
+  .mission.ok .mi { color: var(--accent); }
+  .mp { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #t-shot, #t-photo-exit { display: none; right: 22px; bottom: 22px; }
+  #t-photo-exit { bottom: 92px; }
+  .photo .hud:not(#toast), .photo #minimap, .photo .touch { display: none !important; }
+  .is-touch.photo #t-shot, .is-touch.photo #t-photo-exit { display: grid; }
   #inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
   #inv-grid .slot { width: 100%; height: 76px; grid-template-rows: 44px auto; gap: 2px; }
   #inv-grid .slot .ic { width: 40px; height: 40px; }
@@ -320,7 +330,7 @@
     <h2>Mijn stukken</h2>
     <p id="menu-msg" class="help" role="status" hidden></p>
     <div id="regions"></div>
-    <label class="file btn"><input type="file" id="import" accept=".blokstad,application/octet-stream">Bestand importeren…</label>
+    <label class="file btn"><input type="file" id="import" accept=".blokstad,.blokstad-bouw,application/octet-stream">Bestand importeren…</label>
 
     <h2>Legende</h2>
     <div class="legend">
@@ -379,6 +389,8 @@
   <button class="touch tbtn" id="t-speed" aria-label="Vliegsnelheid">⏩</button>
   <button class="touch tbtn" id="t-inv" aria-label="Blokken">▦</button>
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
+  <button class="tbtn" id="t-shot" aria-label="Foto opslaan">📷</button>
+  <button class="tbtn" id="t-photo-exit" aria-label="Fotomodus sluiten">✕</button>
 
   <canvas id="minimap" width="170" height="170" title="Kaart (M)"></canvas>
   <div class="ov" id="ov-map" hidden>
@@ -402,7 +414,10 @@
         <button class="btn primary" id="btn-resume">Verder spelen</button>
         <button class="btn" id="btn-save">Opslaan</button>
         <button class="btn" id="btn-exit">Opslaan & terug naar kaart</button>
+        <button class="btn" id="btn-photo">📷 Fotomodus</button>
       </div>
+      <label>Opdrachten</label>
+      <div id="missions" class="missions"></div>
       <p class="help" id="pause-load"></p>
       <div id="tp-wrap" hidden>
         <label>Snel naar</label>
@@ -428,6 +443,7 @@
         <kbd>E</kbd><span>alle blokken</span>
         <kbd>T</kbd><span>tijd +3 uur (dag/nacht)</span>
         <kbd>M</kbd><span>kaart: klik om erheen te vliegen</span>
+        <kbd>P</kbd><span>fotomodus (Enter = foto opslaan)</span>
       </div>
       <p class="help">Je zit in een gedownload stuk stad. Aan de rand staat een onzichtbare muur — download het stuk ernaast om verder te verkennen.</p>
     </div>

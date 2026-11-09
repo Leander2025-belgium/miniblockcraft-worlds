@@ -48,6 +48,15 @@ De stad wordt procedureel en deterministisch opgebouwd: elk stuk past dus naadlo
 - Industrie met hallen en schoorstenen, havens met containers en dokken
 - Parken met vijvers, paden en bomen, een rivier met kades en bruggen, en strand aan beide uiteinden
 
+## Nieuw
+
+- **Dag en nacht** (pauzemenu of T): verlichte ramen, gloeiende lantaarns, weerspiegelend glas en water, wolken.
+- **Skyline van ver**: verre gebouwen als eenvoudige blokken, tot 4 km (instelbaar).
+- **Minikaart** linksonder en **grote kaart** (M): klik om erheen te vliegen.
+- **Straatmeubilair** uit OpenStreetMap, **inrichting** in gebouwen, **verkeer**: auto's, trams, treinen en voetgangers.
+- **Opdrachten** in het pauzemenu, **fotomodus** (P, Enter = foto opslaan).
+- **Bouwwerken delen**: knop *Delen* bij een grote kaart maakt een `.blokstad-bouw`-bestand; de ander opent het met *Bestand importeren…*.
+
 ## Besturing
 
 | Toets | Actie |
@@ -60,6 +69,10 @@ De stad wordt procedureel en deterministisch opgebouwd: elk stuk past dus naadlo
 | Middelklik | blok oppakken |
 | 1–9, muiswiel | blok kiezen |
 | E | alle blokken |
+| 2× Spatie / R | vliegen aan/uit / vliegsnelheid |
+| T | tijd +3 uur |
+| M | kaart |
+| P | fotomodus |
 | Esc | pauze, opslaan, terug naar kaart |
 
 Op telefoon en tablet verschijnen een joystick en knoppen.

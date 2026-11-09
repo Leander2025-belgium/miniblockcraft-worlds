@@ -100,6 +100,49 @@ export async function cacheHas(key) {
   } catch { return false; }
 }
 
+export async function cacheGetPrefix(prefix) {
+  try {
+    const d = await db();
+    const range = IDBKeyRange.bound(prefix, prefix + '\uffff');
+    const st = d.transaction('cache').objectStore('cache');
+    const [ks, vs] = await Promise.all([reqP(st.getAllKeys(range)), reqP(st.getAll(range))]);
+    return ks.map((k, i) => ({ key: k, value: vs[i] }));
+  } catch { return []; }
+}
+
+// ---------- bouwwerken van een grote kaart delen ----------
+const MAGIC_B = 'BLOKBOUW1';
+export async function exportBuilds(meta) {
+  const edits = await cacheGetPrefix(`${meta.map.id}-edit-`);
+  const head = { meta, entries: edits.map(e => ({ key: e.key, H: e.value.H, len: e.value.rle.length })) };
+  const hb = new TextEncoder().encode(JSON.stringify(head)), mg = new TextEncoder().encode(MAGIC_B);
+  const total = mg.length + 4 + hb.length + edits.reduce((n, e) => n + e.value.rle.length, 0);
+  const buf = new Uint8Array(total);
+  buf.set(mg, 0); new DataView(buf.buffer).setUint32(mg.length, hb.length, true); buf.set(hb, mg.length + 4);
+  let o = mg.length + 4 + hb.length;
+  for (const e of edits) { buf.set(e.value.rle, o); o += e.value.rle.length; }
+  let blob = new Blob([buf]);
+  if (typeof CompressionStream !== 'undefined') blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  return { blob, count: edits.length };
+}
+export async function readMaybeGzip(file) {
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  return bytes;
+}
+export async function importBuilds(bytes) {
+  const mg = new TextDecoder().decode(bytes.subarray(0, MAGIC_B.length));
+  if (mg !== MAGIC_B) return null;
+  const len = new DataView(bytes.buffer, bytes.byteOffset).getUint32(MAGIC_B.length, true);
+  const head = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC_B.length + 4, MAGIC_B.length + 4 + len)));
+  let o = MAGIC_B.length + 4 + len;
+  for (const e of head.entries) {
+    await cachePut(e.key, { rle: bytes.slice(o, o + e.len), H: e.H });
+    o += e.len;
+  }
+  return head;
+}
+
 // ---------- RLE: [waarde, lengte als varint]... ----------
 export function rleEncode(src) {
   let out = new Uint8Array(Math.max(1024, src.length >> 4));
@@ -160,8 +203,8 @@ export async function exportFile(meta, vox) {
   }
   return blob;
 }
-export async function importFile(file) {
-  let bytes = new Uint8Array(await file.arrayBuffer());
+export async function importFile(file, pre) {
+  let bytes = pre || new Uint8Array(await file.arrayBuffer());
   if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     if (typeof DecompressionStream === 'undefined') throw new Error('Deze browser kan het bestand niet uitpakken.');
     bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());

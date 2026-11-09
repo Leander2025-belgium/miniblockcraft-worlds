@@ -8,6 +8,7 @@ import { skyAt, makeClouds } from './environment.js';
 import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
+import { Missions } from './missions.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -204,6 +205,7 @@ export class Game {
     this.buildHotbar();
     this.buildInventory();
     this.applySettings();
+    this.missions = new Missions((m) => this.toast(`🏆 Opdracht voltooid: ${m.name}`));
     window.addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
       if (!this.running || !this.tiled) return;
@@ -690,6 +692,18 @@ export class Game {
 
     this.updateTarget();
     this.updateHud();
+    // opdrachten: hoogte, afstand, nacht
+    {
+      const G = this.meta.ground ?? GROUND, sc = (this.meta.real && this.meta.real.scale) || 1;
+      this.missions.max('maxH', (p.pos.y - G) / sc);
+      if (this.lastPos) {
+        const d = Math.hypot(p.pos.x - this.lastPos.x, p.pos.z - this.lastPos.z) / sc;
+        if (d < 50) { this.distAcc = (this.distAcc || 0) + d; if (this.distAcc > 10) { this.missions.add('dist', this.distAcc); this.distAcc = 0; } }
+      }
+      this.lastPos = { x: p.pos.x, z: p.pos.z };
+      const hr = this.settings.hour;
+      if ((hr >= 23 || hr < 1) && !this.missions.stats.night) this.missions.max('night', 1);
+    }
     const now = performance.now();
     if (this.dirty && now - this.lastAuto > 30000) { this.lastAuto = now; this.ui.onSave?.(false); }
   }
@@ -728,6 +742,7 @@ export class Game {
       if (t.b === B.BEDROCK) return;
       this.world.set(t.x, t.y, t.z, 0);
       this.remeshAround(t.x, t.z);
+      this.missions.add('broken');
     } else if (kind === 'place') {
       const x = t.x + t.n[0], y = t.y + t.n[1], z = t.z + t.n[2];
       if (!this.world.inside(x, z) || y < 0) return;
@@ -740,6 +755,18 @@ export class Game {
         if (this.collides(p.x, p.y, p.z)) { this.world.set(x, y, z, cur); return; }
       }
       this.remeshAround(x, z);
+      // opdrachten bijhouden
+      const G = this.meta.ground ?? GROUND, sc = (this.meta.real && this.meta.real.scale) || 1;
+      this.missions.add('placed');
+      this.missions.max('maxPlaceH', (y - G) / sc);
+      if (b === B.GRASS || b === B.LEAVES || b === B.HEDGE || b === B.FLOWERS) this.missions.add('green');
+      if (b === B.GLASS || b === B.DARKGLASS || b === B.GLASS_BLUE || b === B.GLASS_GREEN || b === B.MIRROR) this.missions.add('glass');
+      for (let yy = y - 1; yy >= Math.max(0, G - 4); yy--) {
+        const below = this.world.get(x, yy, z);
+        if (!below) continue;
+        if (below === B.WATER) this.missions.add('overWater');
+        break;
+      }
     } else if (kind === 'pick') {
       if (PLACEABLE.includes(t.b)) { this.hotbar[this.slot] = t.b; this.buildHotbar(); }
       return;
@@ -808,7 +835,7 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
   }
   resume() {
@@ -870,7 +897,7 @@ export class Game {
       else {
         this.keys.clear(); this.holding = null;
         if (this.invOpen) this.showOverlay(this.invWhich || 'inv');
-        else { this.showOverlay('pause'); this.ui.onSave?.(false); }
+        else { this.missions.render(document.getElementById('missions')); this.showOverlay('pause'); this.ui.onSave?.(false); }
       }
     });
     window.addEventListener('keydown', (e) => {
@@ -895,6 +922,8 @@ export class Game {
       }
       if (e.code === 'KeyR' && !e.repeat) this.cycleFlySpeed();
       if (e.code === 'KeyM' && !e.repeat) { e.preventDefault(); this.openMap(); }
+      if (e.code === 'KeyP' && !e.repeat) this.togglePhoto();
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter') && this.photo) this.savePhoto();
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
     });
@@ -974,7 +1003,10 @@ export class Game {
     ui.touch.fly.addEventListener('click', () => this.toggleFly());
     ui.touch.speed?.addEventListener('click', () => this.cycleFlySpeed());
     ui.touch.inv.addEventListener('click', () => this.openInventory());
-    ui.touch.menu.addEventListener('click', () => this.setPaused(true));
+    ui.touch.menu.addEventListener('click', () => { if (this.photo) { this.togglePhoto(false); return; } this.setPaused(true); });
+    document.getElementById('btn-photo')?.addEventListener('click', () => { this.togglePhoto(true); this.resume(); });
+    document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
+    document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));
     ui.minimap?.addEventListener('click', () => this.openMap());
     ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });
     ui.root.classList.toggle('is-touch', this.touch);
@@ -990,6 +1022,22 @@ export class Game {
     if (!this.player.fly) { this.player.fly = true; this.player.vel.y = 0; }
     this.toast(`✈ ${FLY_NAMES[this.flyLevel]}`);
     this.updateHud(true);
+  }
+  togglePhoto(on) {
+    this.photo = on ?? !this.photo;
+    this.ui.root.classList.toggle('photo', this.photo);
+    this.toast(this.photo ? '📷 Fotomodus · Enter = foto opslaan · P = terug' : 'Fotomodus uit');
+  }
+  savePhoto() {
+    const t = document.getElementById('toast');
+    if (t) t.hidden = true;
+    this.render();
+    const url = this.ui.canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    const d = new Date();
+    a.href = url; a.download = `blokstad-${d.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    this.toast('📷 Foto opgeslagen');
   }
   toast(t) {
     const el = document.getElementById('toast');
