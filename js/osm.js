@@ -255,6 +255,69 @@ function findLandmark(tags, h) {
 // Oude binnenstad van Frankfurt (Dom-Römer): vakwerkhuizen
 const ALTSTADT = { s: 50.1092, n: 50.1114, w: 8.6800, e: 8.6862 };
 
+const INHERIT = ['building', 'historic', 'heritage', 'heritage:operator', 'ref:OnroerendErfgoed', 'start_date', 'building:material',
+  'building:colour', 'roof:colour', 'roof:material', 'tourism', 'name'];
+
+// Bepaalt voor de hele kaart welke gebouwdelen bij welk gebouw horen (in lengte/breedtegraad, dus los van tegels).
+export function resolveParts(osm) {
+  if (osm.groups) return osm;
+  const wayById = osm.wayById || new Map(osm.ways.map(w => [w.id, w]));
+  const llRing = (nds) => { const out = []; for (const id of nds) { const ll = osm.nodes.get(id); if (!ll) return null; out.push(ll); } return out; };
+  const outlines = [], parts = [];
+  const add = (key, tags, rings) => {
+    if (!rings.length) return;
+    const isB = tags.building && tags.building !== 'no';
+    const isP = tags['building:part'] && tags['building:part'] !== 'no' && !isB;
+    if (!isB && !isP) return;
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const q of rings[0]) { a = Math.min(a, q[0]); b = Math.min(b, q[1]); c = Math.max(c, q[0]); d = Math.max(d, q[1]); }
+    (isP ? parts : outlines).push({ key, tags, rings, bb: [a, b, c, d] });
+  };
+  for (const w of osm.ways) {
+    if (w.nds.length < 4 || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
+    if (!w.tags.building && !w.tags['building:part']) continue;
+    const r = llRing(w.nds); if (r) add('w' + w.id, w.tags, [r]);
+  }
+  for (const r of osm.rels) {
+    if (r.tags.type !== 'multipolygon' || !(r.tags.building || r.tags['building:part'])) continue;
+    const lists = r.members.filter(m => m.type === 'way' && wayById.has(m.ref)).map(m => wayById.get(m.ref).nds);
+    add('r' + r.id, r.tags, assembleRings(lists).map(llRing).filter(Boolean));
+  }
+  const pip = (rings, la, lo) => {
+    let c = false;
+    for (const ring of rings) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const A = ring[i], Bq = ring[j];
+      if ((A[0] > la) !== (Bq[0] > la) && lo < (Bq[1] - A[1]) * (la - A[0]) / (Bq[0] - A[0]) + A[1]) c = !c;
+    }
+    return c;
+  };
+  osm.groupOf = new Map(); osm.hasParts = new Set(); osm.groups = new Map();
+  for (const p of parts) {
+    const r0 = p.rings[0]; let la = 0, lo = 0;
+    for (const q of r0) { la += q[0]; lo += q[1]; }
+    la /= r0.length; lo /= r0.length;
+    let best = null, bestA = Infinity;
+    for (const o of outlines) {
+      if (la < o.bb[0] || la > o.bb[2] || lo < o.bb[1] || lo > o.bb[3]) continue;
+      if (!pip(o.rings, la, lo)) continue;
+      const area = (o.bb[2] - o.bb[0]) * (o.bb[3] - o.bb[1]);
+      if (area < bestA) { bestA = area; best = o; }
+    }
+    if (!best) continue;
+    osm.hasParts.add(best.key); osm.groupOf.set(p.key, best.key);
+    let g = osm.groups.get(best.key);
+    if (!g) {
+      let ga = 0, go = 0; const ro = best.rings[0];
+      for (const q of ro) { ga += q[0]; go += q[1]; }
+      g = { key: best.key, id: +best.key.slice(1), tags: best.tags, lat: ga / ro.length, lon: go / ro.length, maxH: 0, maxKey: null };
+      osm.groups.set(best.key, g);
+    }
+    const h = buildingHeights(p.tags).h;
+    if (h > g.maxH) { g.maxH = h; g.maxKey = p.key; }
+  }
+  return osm;
+}
+
 // ---------- geometrie ----------
 function assembleRings(lists) {
   const rings = [];
@@ -413,7 +476,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (!rings.length) continue;
     if (!rings.some(rr => bboxOk(rr))) continue;
     if (r.tags.building || r.tags['building:part']) {
-      (r.tags['building:part'] && !r.tags.building ? parts : buildings).push({ id: r.id, tags: r.tags, rings });
+      buildings.push({ id: r.id, key: 'r' + r.id, tags: r.tags, rings });
     } else {
       const info = areaInfo(r.tags);
       if (info) areas.push({ info, rings });
@@ -505,30 +568,25 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (w.nds.length < 4 || w.nds[0] !== w.nds[w.nds.length - 1]) continue;
     const r = line(w.nds);
     if (!r || !bboxOk(r)) continue;
-    (tp && (!tb || tb === 'no') ? parts : buildings).push({ id: w.id, tags: w.tags, rings: [r] });
+    buildings.push({ id: w.id, key: 'w' + w.id, tags: w.tags, rings: [r] });
   }
-  // omtrekken met onderdelen (building:part) weglaten: de onderdelen beschrijven het gebouw
-  const centroids = parts.map(p => {
-    const r = p.rings[0]; let x = 0, z = 0;
-    for (const q of r) { x += q[0]; z += q[1]; }
-    return [x / r.length, z / r.length];
-  });
-  const INHERIT = ['building', 'historic', 'heritage', 'heritage:operator', 'ref:OnroerendErfgoed', 'start_date', 'building:material',
-    'building:colour', 'roof:colour', 'roof:material', 'tourism', 'name'];
-  const shown = buildings.filter(b => {
-    let has = false;
-    parts.forEach((p, i) => {
-      const c = centroids[i];
-      if (!b.rings.some(r => inPoly(r, c[0], c[1]))) return;
-      has = true;
-      if (p.styleId == null) p.styleId = b.id; // zelfde materiaal als het hoofdgebouw
+  // Omtrekken met onderdelen (building:part) weglaten: de onderdelen beschrijven het gebouw.
+  // Welk deel bij welk gebouw hoort, is één keer voor de hele kaart bepaald (resolveParts).
+  resolveParts(osm);
+  const all = [];
+  for (const b of buildings) {
+    if (osm.hasParts.has(b.key)) continue;
+    const isPart = b.tags['building:part'] && b.tags['building:part'] !== 'no' && (!b.tags.building || b.tags.building === 'no');
+    const gk = osm.groupOf.get(b.key);
+    if (gk) {
+      const g = osm.groups.get(gk);
+      b.group = g; b.styleId = g.id;
       const extra = {};
-      for (const k of INHERIT) if (b.tags[k] != null && p.tags[k] == null) extra[k] = b.tags[k];
-      p.tags = { ...extra, ...p.tags };
-    });
-    return !has;
-  });
-  const all = shown.concat(parts);
+      for (const k of INHERIT) if (g.tags[k] != null && b.tags[k] == null) extra[k] = g.tags[k];
+      b.tags = { ...extra, ...b.tags };
+    } else if (isPart && !b.tags.building) b.tags = { building: 'yes', ...b.tags };
+    all.push(b);
+  }
   let maxTop = 30;
   for (const b of all) { b.hm = buildingHeights(b.tags); maxTop = Math.max(maxTop, b.hm.h); }
   const H = Math.min(640, Math.ceil((G + maxTop * scale + 14 + 14 * scale) / 8) * 8);
@@ -551,14 +609,50 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
 
   all.sort((a, b) => a.hm.min - b.hm.min);
   const set = (x, y, z, b) => { if (y > 0 && y < H && x >= 0 && z >= 0 && x < size && z < size) vox[(z * size + x) * H + y] = b; };
-  let count = 0;
-  for (const bd of all) {
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // verdiepingsraster (absolute rijen vanaf straatniveau), gedeeld door alle delen van één gebouw
+  const gridCache = new Map();
+  const makeGrid = (storey, firstMul) => {
+    const n = H - G;
+    const kind = new Int8Array(n), idx = new Int16Array(n);
+    let start = 0;
+    for (let i = 1; start < n; i++) {
+      const end = Math.min(n, Math.max(start + 2, Math.round(storey * firstMul + (i - 1) * storey)));
+      const hs = end - start;
+      for (let r = start; r < end; r++) {
+        const l = r - start;
+        kind[r] = l === hs - 1 ? -1 : (hs <= 3 ? 1 : (l >= 1 && l <= hs - 2 ? 1 : 0));
+        idx[r] = i - 1;
+      }
+      start = end;
+    }
+    return { kind, idx };
+  };
+  const gridFor = (bd, hist, wallH) => {
+    const src = bd.group ? bd.group.tags : bd.tags;
+    const gh = parseLen(src.height), glv = parseLen(src['building:levels']);
+    let storey = (hist ? 4.8 : 3) * scale;
+    if (bd.group && gh > 0 && glv > 0) storey = hist ? clamp(gh * scale / glv, 3 * scale, 7 * scale) : clamp(gh * scale / glv, 2.6 * scale, 3.6 * scale);
+    else if (!bd.group) {
+      const lv = parseLen(bd.tags['building:levels']);
+      if (lv >= 1) storey = hist ? clamp(wallH / lv, 3 * scale, 7 * scale) : clamp(wallH / lv, 2.6 * scale, 3.6 * scale);
+    }
+    const tall = bd.group ? (gh > 14 || bd.group.maxH > 14) : wallH > 14 * scale;
+    const firstMul = (hist || (tall && !HOUSE.has(bd.tags.building))) ? 1.4 : 1;
+    const k = storey.toFixed(2) + ':' + firstMul;
+    if (!gridCache.has(k)) gridCache.set(k, makeGrid(storey, firstMul));
+    return gridCache.get(k);
+  };
+
+  // stap 1: elk gebouw(deel) opmeten
+  const prep = (bd) => {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const r of bd.rings) for (const p of r) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-    // het hele gebouw wordt berekend (ook het deel buiten deze tegel), zodat daken en details over tegelgrenzen kloppen
+    // het hele gebouw wordt berekend (ook buiten deze tegel), zodat daken en details over tegelgrenzen kloppen
     x0 = Math.floor(x0) - 1; z0 = Math.floor(z0) - 1; x1 = Math.ceil(x1) + 1; z1 = Math.ceil(z1) + 1;
-    if (x1 < 0 || z1 < 0 || x0 >= size || z0 >= size) continue;
-    if (x1 - x0 > 1200 || z1 - z0 > 1200) continue;
+    if (x1 < 0 || z1 < 0 || x0 >= size || z0 >= size) return null;
+    if (x1 - x0 > 1200 || z1 - z0 > 1200) return null;
     const bw = x1 - x0 + 1, bh = z1 - z0 + 1;
     const mask = new Uint8Array(bw * bh);
     let cells = 0, sx = 0, sz = 0, inTile = 0;
@@ -566,11 +660,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       mask[(z - z0) * bw + (x - x0)] = 1; cells++; sx += x; sz += z;
       if (x >= 0 && z >= 0 && x < size && z < size) inTile++;
     }, { x0, x1, z0, z1 });
-    if (!inTile) continue;
-    count++;
+    if (!inTile) return null;
     const inM = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1 && mask[(z - z0) * bw + (x - x0)] === 1;
-
-    // vorm van het grondvlak: hoofdas (voor zadeldaken) en afstand tot de gevel (voor schild- en koepeldaken)
     const cx = sx / cells, cz = sz / cells;
     let cxx = 0, czz = 0, cxz = 0;
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mask[(z - z0) * bw + (x - x0)]) {
@@ -578,7 +669,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
     let th = 0.5 * Math.atan2(2 * cxz, cxx - czz);
     if ((bd.tags['roof:orientation'] || '') === 'across') th += Math.PI / 2;
-    const bx = -Math.sin(th), bz = Math.cos(th); // korte as
+    const bx = -Math.sin(th), bz = Math.cos(th);
     let pmin = Infinity, pmax = -Infinity;
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mask[(z - z0) * bw + (x - x0)]) {
       const pr = (x - cx) * bx + (z - cz) * bz; if (pr < pmin) pmin = pr; if (pr > pmax) pmax = pr;
@@ -599,20 +690,21 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       if (dist[i] > dMax) dMax = dist[i];
     }
 
+    const grp = bd.group;
+    const lm = grp ? findLandmark(grp.tags, grp.maxH) : findLandmark(bd.tags, bd.hm.h);
+    const tallest = !grp || grp.maxKey === bd.key;
     const hTot = bd.hm.h * scale, minH = bd.hm.min * scale;
-    const lm = findLandmark(bd.tags, bd.hm.h);
-    const shape = (lm && lm.roofShape && !bd.tags['roof:shape']) ? lm.roofShape : roofShape(bd.tags);
+    const shape = (lm && lm.roofShape && tallest && !bd.tags['roof:shape']) ? lm.roofShape : roofShape(bd.tags);
     let roofH = 0;
     if (shape !== 'flat') {
       const tagH = parseLen(bd.tags['roof:height']), tagL = parseLen(bd.tags['roof:levels']);
       if (tagH > 0) roofH = tagH * scale;
-      else if (lm && lm.roofH) roofH = lm.roofH * scale;
+      else if (lm && lm.roofH && tallest) roofH = lm.roofH * scale;
       else if (tagL > 0) roofH = tagL * 3 * scale;
       else if (shape === 'dome' || shape === 'onion') roofH = dMax;
       else if (shape === 'round') roofH = halfShort;
       else if (shape === 'pyramidal') roofH = halfShort * 1.2;
       else roofH = Math.min(halfShort * 0.85, 9 * scale);
-      // hoogte uit verdiepingen of standaardwaarde: het dak komt bovenop de muren
       if (!bd.hm.explicit) roofH = Math.min(roofH, 14 * scale);
       else roofH = Math.max(0, Math.min(roofH, hTot - minH - 1));
     }
@@ -638,50 +730,60 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         const t = Math.min(1, Math.max(0, (dist[i] - 0.5) / Math.max(0.5, dMax - 0.5)));
         if (shape === 'dome' || shape === 'onion') f = Math.sqrt(1 - (1 - t) * (1 - t));
         else if (shape === 'mansard') f = Math.min(1, t * 1.7);
-        else f = t; // schilddak, piramide, ...
+        else f = t;
       }
       roofY[i] = wallTop + Math.round(roofH * Math.max(0, Math.min(1, f)));
     }
-    const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
 
-    const st = wallStyle(bd.tags, bd.hm.h, bd.styleId ?? bd.id);
+    const st = wallStyle(bd.tags, grp ? grp.maxH : bd.hm.h, bd.styleId ?? bd.id);
     if (lm) { Object.assign(st, lm.look); if (lm.look.historic) { st.base = B.ASHLAR; st.trim = lm.look.wall === B.RED_SANDSTONE ? B.RED_SANDSTONE : B.ASHLAR; } }
-    // vakwerkhuizen in de oude binnenstad
     const cll = unproj(cx, cz);
-    const altstadt = cll[0] > ALTSTADT.s && cll[0] < ALTSTADT.n && cll[1] > ALTSTADT.w && cll[1] < ALTSTADT.e && !lm && bd.hm.h < 25 * 1;
+    const altstadt = cll[0] > ALTSTADT.s && cll[0] < ALTSTADT.n && cll[1] > ALTSTADT.w && cll[1] < ALTSTADT.e && !lm && bd.hm.h < 25;
     if (altstadt && (shape !== 'flat' || st.historic)) {
       st.historic = true; st.wall = B.HALF_TIMBER; st.base = B.RED_SANDSTONE; st.trim = B.PLANKS; st.roof = B.ROOF_DARK; st.curtain = false;
     }
-    const pitched = shape !== 'flat';
-    // verdiepingen: verdeel de muurhoogte over het echte aantal verdiepingen (anders 3 m per verdieping)
-    const wallH = wallTop - yb;
-    const lv = parseLen(bd.tags['building:levels']);
-    const hist = st.historic;
-    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-    let storey = (hist ? 4.8 : 3) * scale;
-    if (lv >= 1) storey = hist ? clamp(wallH / lv, 3 * scale, 7 * scale) : clamp(wallH / lv, 2.6 * scale, 3.6 * scale);
-    // hoge begane grond bij historische en grotere gebouwen (arcades, winkels)
-    const firstMul = (hist || (wallH > 14 * scale && !HOUSE.has(bd.tags.building))) ? 1.4 : 1;
-    const rowKind = new Int8Array(Math.max(0, wallH)); // -1 vloer, 1 raamrij, 0 muur
-    const rowStorey = new Int16Array(Math.max(0, wallH));
-    {
-      let start = 0;
-      for (let i = 1; start < wallH; i++) {
-        const end = Math.min(wallH, Math.max(start + 2, Math.round(storey * firstMul + (i - 1) * storey)));
-        const hs = end - start;
-        for (let rr = start; rr < end; rr++) {
-          const l = rr - start;
-          rowKind[rr] = l === hs - 1 ? -1 : (hs <= 3 ? 1 : (l >= 1 && l <= hs - 2 ? 1 : 0));
-          rowStorey[rr] = i - 1;
-        }
-        start = end;
-      }
+    // middelpunt van het hele gebouw (voor tuinen en antenne)
+    let gcx = cx, gcz = cz;
+    if (grp) { const pp = proj([grp.lat, grp.lon]); gcx = pp[0]; gcz = pp[1]; }
+    const grid = gridFor(bd, st.historic, wallTop - yb);
+    return { bd, x0, z0, x1, z1, bw, bh, mask, inM, dist, dMax, cx, cz, gcx, gcz, shape, roofH, top, wallTop, yb, roofY, st, lm, tallest, grid, hTot };
+  };
+
+  const covLo = new Int16Array(N).fill(32767), covHi = new Int16Array(N).fill(-1), covGrp = new Int32Array(N).fill(-1);
+  const grpNum = new Map();
+  const preps = [];
+  for (const bd of all) {
+    const g = prep(bd);
+    if (!g) continue;
+    const gk = bd.group ? bd.group.key : 'own:' + bd.key;
+    if (!grpNum.has(gk)) grpNum.set(gk, grpNum.size + 1);
+    g.gnum = grpNum.get(gk);
+    preps.push(g);
+    for (let z = Math.max(0, g.z0); z <= Math.min(size - 1, g.z1); z++) for (let x = Math.max(0, g.x0); x <= Math.min(size - 1, g.x1); x++) {
+      if (!g.mask[(z - g.z0) * g.bw + (x - g.x0)]) continue;
+      const i = z * size + x;
+      if (g.yb < covLo[i]) covLo[i] = g.yb;
+      if (g.wallTop - 1 > covHi[i]) covHi[i] = g.wallTop - 1;
+      covGrp[i] = g.gnum;
     }
-    const winEvery = 2 + scale;
-    // antenne, kroon of spits
-    if (lm && (lm.antenna || lm.crown || lm.spire)) {
-      const ax = Math.round(cx), az = Math.round(cz);
-      const peak = Math.max(...Array.from(roofY.filter((v, i) => mask[i])));
+  }
+
+  // stap 2: bouwen
+  let count = 0;
+  const winEvery = 2 + scale;
+  for (const g of preps) {
+    count++;
+    const { bd, x0, z0, x1, z1, bw, mask, inM, dist, dMax, st, lm, grid, yb, wallTop, roofY } = g;
+    const hist = st.historic;
+    const pitched = g.shape !== 'flat';
+    const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
+    const topRow = grid.idx[Math.max(0, Math.min(grid.idx.length - 1, wallTop - G - 2))];
+
+    // antenne, kroon (alleen op het hoogste deel)
+    if (lm && g.tallest && (lm.antenna || lm.crown)) {
+      const ax = Math.round(g.cx), az = Math.round(g.cz);
+      let peak = wallTop;
+      for (let i = 0; i < mask.length; i++) if (mask[i] && roofY[i] > peak) peak = roofY[i];
       if (lm.antenna && inM(ax, az)) {
         const len = Math.round(lm.antenna * scale);
         for (let k = 1; k <= len; k++) set(ax, peak + k, az, lm.redWhite ? (Math.floor(k / (3 * scale)) % 2 ? B.PAINT_RED : B.PAINT_WHITE) : B.POST);
@@ -691,67 +793,88 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
           const mi2 = (z - z0) * bw + (x - x0);
           if (!mask[mi2] || dist[mi2] > 1.5 || (x + z) % 2) continue;
-          const len = Math.round(lm.crown * scale * (0.6 + 0.4 * (1 - Math.abs(Math.cos(Math.atan2(z - cz, x - cx) * 3)))));
+          const len = Math.round(lm.crown * scale * (0.6 + 0.4 * (1 - Math.abs(Math.cos(Math.atan2(z - g.cz, x - g.cx) * 3)))));
           for (let k = 1; k <= len; k++) set(x, wallTop + k, z, B.POST);
         }
       }
     }
-    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+
+    // toestand van een buurcel op hoogte y: 0 = buiten, 1 = zelfde gebouw (open), 2 = ander gebouw (gesloten muur)
+    const nState = (nx, nz, y) => {
+      if (inM(nx, nz)) return 1;
+      if (nx < 0 || nz < 0 || nx >= size || nz >= size) return 0;
+      const j = nz * size + nx;
+      if (covLo[j] <= y && covHi[j] >= y) return covGrp[j] === g.gnum ? 1 : 2;
+      return 0;
+    };
+
+    for (let z = Math.max(0, z0); z <= Math.min(size - 1, z1); z++) for (let x = Math.max(0, x0); x <= Math.min(size - 1, x1); x++) {
       const mi = (z - z0) * bw + (x - x0);
       if (!mask[mi]) continue;
-      if (x < 0 || z < 0 || x >= size || z >= size) continue; // buiten deze tegel
-      const edge = !inM(x - 1, z) || !inM(x + 1, z) || !inM(x, z - 1) || !inM(x, z + 1);
-      const ex = !inM(x - 1, z) || !inM(x + 1, z);
-      const t = ex ? z + OZ : x + OX;
       const i = z * size + x;
       marks[i] = 1; treeD[i] = 0;
-      if (yb === G + 1) set(x, G, z, B.TILE); else set(x, yb - 1, z, st.wall);
-      // hangende tuinen (Commerzbank): per 4 verdiepingen draait de tuin naar een andere zijde
-      let gardenHere = -1;
-      if (lm && lm.gardens) {
-        const sector = Math.floor(((Math.atan2(z - cz, x - cx) + Math.PI) / (2 * Math.PI)) * 3) % 3;
-        gardenHere = sector;
-      }
       const dIn = dist[mi];
+      // vloer onder het onderste niveau
+      if (yb === G + 1) set(x, G, z, B.TILE);
+      else set(x, yb - 1, z, covLo[i] < yb ? B.TILE : st.wall);
+      let sector = -1;
+      if (lm && lm.gardens) sector = Math.floor(((Math.atan2(z - g.gcz, x - g.gcx) + Math.PI) / (2 * Math.PI)) * 3) % 3;
+      let lastExt = false;
       for (let y = yb; y < wallTop; y++) {
-        const kind = rowKind[y - yb];
-        const si = rowStorey[y - yb];
-        if (gardenHere >= 0 && si >= 4 && si < rowStorey[wallH - 1] - 1) {
+        const r = y - G - 1;
+        const kind = r >= 0 && r < grid.kind.length ? grid.kind[r] : 0;
+        const si = r >= 0 && r < grid.idx.length ? grid.idx[r] : 0;
+        let ext = false, extX = false, party = false;
+        const s0 = nState(x - 1, z, y), s1 = nState(x + 1, z, y), s2 = nState(x, z - 1, y), s3 = nState(x, z + 1, y);
+        if (s0 === 0 || s1 === 0) { ext = true; extX = true; }
+        if (s2 === 0 || s3 === 0) ext = true;
+        if (s0 === 2 || s1 === 2 || s2 === 2 || s3 === 2) party = true;
+        lastExt = ext;
+        const t = extX ? z + OZ : x + OX;
+        // hangende tuinen (Commerzbank): per 4 verdiepingen draait de tuin naar een andere zijde
+        if (sector >= 0 && si >= 4 && si < topRow - 1) {
           const band = Math.floor((si - 4) / 4), inBand = (si - 4) % 4;
-          if (band % 3 === gardenHere && dIn <= 9 * scale) {
-            const firstRow = inBand === 0 && (y - yb === 0 || rowStorey[y - yb - 1] !== si);
-            if (edge) set(x, y, z, (t % 4 === 0) ? st.wall : B.GLASS);           // hoge glazen wand
-            else if (firstRow) set(x, y, z, B.GRASS);                              // tuinvloer
-            else if (inBand === 0 && hash(x + OX, z + OZ, si) < 0.18) set(x, y, z, B.LEAVES); // struiken
+          if (band % 3 === sector && dIn <= 9 * scale) {
+            const firstRow = inBand === 0 && (r === 0 || grid.idx[r - 1] !== si);
+            if (ext) set(x, y, z, (t % 4 === 0) ? st.wall : B.GLASS);
+            else if (firstRow) set(x, y, z, B.GRASS);
+            else if (inBand === 0 && hash(x + OX, z + OZ, si) < 0.18) set(x, y, z, B.LEAVES);
             else set(x, y, z, 0);
             continue;
           }
         }
-        if (lm && lm.atrium && !edge && dIn > dMax - 5 * scale) { set(x, y, z, 0); continue; } // open atrium in het midden
-        if (edge) {
-          let win;
-          let blk = st.wall;
+        if (ext) {
+          let win, blk = st.wall;
           if (st.curtain) win = kind !== -1 && t % winEvery !== 0;
-          else if (lm && lm.strips) win = kind !== -1 && t % 3 !== 0;        // verticale raamstroken
+          else if (lm && lm.strips) win = kind !== -1 && t % 3 !== 0;
           else if (hist) {
             const p = t % (4 * scale);
-            win = kind === 1 && p >= scale && p < 3 * scale; // brede, hoge ramen
-            if (kind === -1) blk = st.trim;                   // stenen band tussen verdiepingen
-            else if (rowStorey[y - yb] === 0) blk = st.base;  // stenen sokkel
+            win = kind === 1 && p >= scale && p < 3 * scale;
+            if (kind === -1) blk = st.trim;
+            else if (si === 0) blk = st.base;
           } else win = kind === 1 && (t % winEvery) >= 1 && (t % winEvery) <= scale;
           set(x, y, z, win ? st.glass : blk);
-        } else set(x, y, z, kind === -1 ? B.TILE : 0);
+        } else if (party) {
+          set(x, y, z, kind === -1 ? B.TILE : st.wall);           // gesloten muur tegen het buurgebouw
+        } else {
+          // binnen: op elke verdieping een vloer (kleine open vide bij het atrium)
+          const atrium = lm && lm.atrium && !bd.group && dIn > dMax - 3 * scale;
+          set(x, y, z, kind === -1 && !atrium ? B.TILE : 0);
+        }
       }
+      // een ander deel van hetzelfde gebouw gaat hier verder omhoog: vloer in plaats van dak
+      if (covHi[i] > wallTop) { set(x, wallTop, z, B.TILE); continue; }
+      const edge = lastExt || wallTop <= yb;
       if (hist && edge && wallTop - 1 > yb) set(x, wallTop - 1, z, st.trim);
       if (!pitched) {
-        set(x, wallTop, z, edge && hTot > 6 * scale ? (hist ? st.trim : st.wall) : st.roof);
+        set(x, wallTop, z, edge && g.hTot > 6 * scale ? (hist ? st.trim : st.wall) : st.roof);
         continue;
       }
       const ry = roofY[mi];
       const low = Math.min(ryAt(x - 1, z), ryAt(x + 1, z), ryAt(x, z - 1), ryAt(x, z + 1));
-      if (edge) for (let y = wallTop; y < ry; y++) set(x, y, z, st.wall); // gevel onder het dak
+      if (edge) for (let y = wallTop; y < ry; y++) set(x, y, z, st.wall);
       for (let y = Math.max(wallTop, Math.min(ry, low + 1)); y <= ry; y++) set(x, y, z, st.roof);
-      if (wallTop > yb && !edge) set(x, wallTop, z, B.PLANKS); // zoldervloer
+      if (wallTop > yb && !edge) set(x, wallTop, z, B.PLANKS);
     }
   }
   onProgress?.(0.85);
@@ -826,12 +949,13 @@ export function indexOSM(osm) {
     }
     r.bb = [a, b, c, d];
   }
-  return osm;
+  return resolveParts(osm);
 }
 export function subsetOSM(osm, s, w, n, e) {
   const hit = (bb) => bb && bb[0] <= n && bb[2] >= s && bb[1] <= e && bb[3] >= w;
   return {
     nodes: osm.nodes, wayById: osm.wayById, bounds: null,
+    groups: osm.groups, groupOf: osm.groupOf, hasParts: osm.hasParts,
     ways: osm.ways.filter(x => hit(x.bb)),
     rels: osm.rels.filter(x => hit(x.bb)),
     trees: osm.trees.filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),

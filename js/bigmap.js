@@ -1,7 +1,7 @@
 // Grote kaarten (kilometers) die in tegels van 128 m laden. Werkt voor elke plek op aarde.
 import { REAL_GROUND } from './osm.js';
 
-export const MAP_VERSION = 2; // verhogen als de omzetting verandert, zodat tegels opnieuw gemaakt worden
+export const MAP_VERSION = 3; // verhogen als de omzetting verandert, zodat tegels opnieuw gemaakt worden
 export const MZ = 110574;
 
 // spec: { id, name, lat, lon, km }
