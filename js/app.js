@@ -19,7 +19,7 @@ function startWorker() {
     if (d.type === 'status') { liveStatus.set(d.map, d.text); if (prefetch.job) showPrefetch(prefetch.job); return; }
     const h = pending.get(d.id);
     if (h) {
-      if (d.type !== 'progress' && d.type !== 'areaProgress' && d.type !== 'mapRows') pending.delete(d.id);
+      if (!['progress', 'areaProgress', 'mapRows', 'lodTile'].includes(d.type)) pending.delete(d.id);
       h(d);
     }
   };
@@ -279,7 +279,8 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv') },
+      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map') },
+      minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
       touch: {
@@ -330,10 +331,13 @@ async function playMap(id) {
   $('#menu').hidden = true;
   $('#tp-wrap').hidden = !isCity;
   $('#game-title').textContent = meta.name;
+  const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
   const prefetchArea = (tx, tz, radius) => ask({ type: 'area', map, tx, tz, radius }, (m) => {
     if (m.type === 'areaProgress' && game && game.tiled) game.aheadProgress = m;
+    onLod(m);
   });
-  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map), prefetchArea }, provider, saveTile);
+  const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
+  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map), prefetchArea, requestLods }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));

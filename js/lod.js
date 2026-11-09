@@ -1,0 +1,129 @@
+// Verre gebouwen (eenvoudige blokken per 8 × 8 m) en de minikaart.
+import * as THREE from 'three';
+
+const VERT = `
+attribute vec3 color;
+varying vec3 vColor;
+varying vec3 vWorld;
+varying float vDist;
+varying float vSide;
+attribute float side;
+void main() {
+  vColor = color; vSide = side;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  vec4 mv = viewMatrix * wp;
+  vDist = length(mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const FRAG = `
+uniform vec3 fogColor;
+uniform float fogNear;
+uniform float fogFar;
+uniform float day;
+varying vec3 vColor;
+varying vec3 vWorld;
+varying float vDist;
+varying float vSide;
+float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+void main() {
+  vec3 col = vColor * mix(0.16, 1.0, day);
+  if (vSide > 0.5) {
+    // gevel: raamraster, 's nachts deels verlicht
+    vec3 cell = floor(vWorld / vec3(2.0, 3.0, 2.0));
+    float win = step(0.35, fract(vWorld.y / 3.0)) * step(0.3, fract((vWorld.x + vWorld.z) / 2.0));
+    col *= 1.0 - win * 0.18;
+    float lit = win * step(0.66, h3(cell)) * (1.0 - day);
+    col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
+  }
+  float fog = smoothstep(fogNear, fogFar, vDist);
+  gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
+}`;
+
+export class FarView {
+  constructor(scene, spec) {
+    this.scene = scene; this.spec = spec;
+    this.T = spec.tile; this.n = spec.tiles; this.G = spec.ground;
+    this.meshes = new Map();
+    this.data = new Map();
+    this.mat = new THREE.ShaderMaterial({
+      vertexShader: VERT, fragmentShader: FRAG,
+      uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 400 }, fogFar: { value: 2000 }, day: { value: 1 } },
+    });
+    // minikaart: 1 pixel per vak van 8 m
+    this.cell = 8;
+    this.px = this.n * (this.T / this.cell);
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.canvas.height = this.px;
+    const ctx = this.canvas.getContext('2d');
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.px, this.px);
+  }
+  key(tx, tz) { return tz * 1000 + tx; }
+  add(tx, tz, lod) {
+    const k = this.key(tx, tz);
+    if (!lod || this.data.has(k)) return;
+    this.data.set(k, lod);
+    this.drawMini(tx, tz, lod);
+    const old = this.meshes.get(k);
+    if (old) { this.scene.remove(old); old.geometry.dispose(); }
+    const g = this.build(tx, tz, lod);
+    if (!g) return;
+    const m = new THREE.Mesh(g, this.mat);
+    m.matrixAutoUpdate = false;
+    this.scene.add(m);
+    this.meshes.set(k, m);
+  }
+  drawMini(tx, tz, lod) {
+    const n = lod.n, img = new ImageData(n, n);
+    for (let i = 0; i < n * n; i++) {
+      const hgt = Math.max(0, lod.h[i] - this.G);
+      const f = 0.82 + Math.min(0.45, hgt / 250);
+      img.data[i * 4] = lod.c[i * 3] * f; img.data[i * 4 + 1] = lod.c[i * 3 + 1] * f; img.data[i * 4 + 2] = lod.c[i * 3 + 2] * f; img.data[i * 4 + 3] = 255;
+    }
+    this.canvas.getContext('2d').putImageData(img, tx * n, tz * n);
+  }
+  build(tx, tz, lod) {
+    const n = lod.n, s = this.T / n, G = this.G;
+    const pos = [], col = [], side = [];
+    const H = (x, z) => (x < 0 || z < 0 || x >= n || z >= n) ? G : lod.h[z * n + x];
+    const quad = (a, b, c, d, rgb, shade, isSide) => {
+      for (const v of [a, b, c, a, c, d]) { pos.push(v[0], v[1], v[2]); col.push(rgb[0] * shade, rgb[1] * shade, rgb[2] * shade); side.push(isSide); }
+    };
+    for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+      const h = lod.h[z * n + x];
+      if (h <= G + 2) continue;
+      const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
+      const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
+      quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
+      const sideRgb = rgb.map(v => v * 0.85 + 0.08);
+      const yb = (nh) => Math.max(G + 1, nh + 1);
+      if (H(x - 1, z) < h) quad([x0, yb(H(x - 1, z)), z0], [x0, yb(H(x - 1, z)), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, 1);
+      if (H(x + 1, z) < h) quad([x1, yb(H(x + 1, z)), z1], [x1, yb(H(x + 1, z)), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, 1);
+      if (H(x, z - 1) < h) quad([x1, yb(H(x, z - 1)), z0], [x0, yb(H(x, z - 1)), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, 1);
+      if (H(x, z + 1) < h) quad([x0, yb(H(x, z + 1)), z1], [x1, yb(H(x, z + 1)), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, 1);
+    }
+    if (!pos.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    g.computeBoundingSphere();
+    return g;
+  }
+  // verberg verre blokken waar de echte tegel geladen is
+  update(env, far, tiles, px, pz) {
+    const u = this.mat.uniforms;
+    u.fogColor.value.set(...env.sky); u.day.value = env.day;
+    u.fogNear.value = far * 0.35; u.fogFar.value = far;
+    const lim = (far + this.T) ** 2;
+    for (const [k, m] of this.meshes) {
+      const tx = k % 1000, tz = Math.floor(k / 1000);
+      const dx = (tx + 0.5) * this.T - px, dz = (tz + 0.5) * this.T - pz;
+      m.visible = !tiles.has(k) && dx * dx + dz * dz < lim;
+    }
+  }
+  dispose() {
+    for (const m of this.meshes.values()) { this.scene.remove(m); m.geometry.dispose(); }
+    this.meshes.clear(); this.data.clear();
+  }
+}

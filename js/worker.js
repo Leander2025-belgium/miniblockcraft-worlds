@@ -63,6 +63,8 @@ self.onmessage = (e) => {
       if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
       else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
+  } else if (m.type === 'lods') {
+    sendLods(m);
   } else if (m.type === 'area') {
     areaPrefetch(m);
   } else if (m.type === 'dropSuper') {
@@ -163,7 +165,11 @@ async function areaPrefetch(m) {
   let done = 0;
   for (const [, tx, tz] of list) {
     if (job.stop) return;
-    try { await cityTile({ map, tx, tz, prefetch: true }); } catch { /* volgende keer opnieuw */ }
+    try {
+      await cityTile({ map, tx, tz, prefetch: true });
+      const lod = await getLod(map, tx, tz);
+      if (lod) self.postMessage({ type: 'lodTile', id: m.id, tx, tz, lod });
+    } catch { /* volgende keer opnieuw */ }
     done++;
     if (done % 4 === 0 || done === list.length) self.postMessage({ type: 'areaProgress', id: m.id, done, total: list.length });
   }
@@ -183,5 +189,53 @@ async function cityTileInner(m) {
   const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile });
   const rle = rleEncode(r.vox);
   await cachePut(key, { rle, H: r.H });
+  await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
   return { vox: r.vox, H: r.H, bytes: rle.length };
+}
+
+// ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------
+const lodKey = (map, tx, tz) => `${map.id}-lod-v${map.version}-${tx}-${tz}`;
+function computeLod(vox, T, H) {
+  const c8 = 8, n = T / c8;
+  const h = new Int16Array(n * n), c = new Uint8Array(n * n * 3);
+  for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
+    let best = 0, bestB = 0, sumY = 0, cnt = 0;
+    for (let z = cz * c8; z < cz * c8 + c8; z++) for (let x = cx * c8; x < cx * c8 + c8; x++) {
+      const base = (z * T + x) * H;
+      let y = H - 1;
+      while (y > 0 && !vox[base + y]) y--;
+      sumY += y; cnt++;
+      if (y > best) { best = y; bestB = vox[base + y]; }
+    }
+    const i = cz * n + cx;
+    // hoogte: hoogste punt als het vak grotendeels bebouwd is, anders gemiddelde (spitsen niet opblazen)
+    const avg = sumY / cnt;
+    h[i] = Math.round(best - avg > 30 ? avg + (best - avg) * 0.5 : best);
+    const col = BLOCKS[bestB] ? BLOCKS[bestB].color : [90, 90, 90];
+    c[i * 3] = col[0]; c[i * 3 + 1] = col[1]; c[i * 3 + 2] = col[2];
+  }
+  return { n, h, c };
+}
+async function getLod(map, tx, tz) {
+  const k = lodKey(map, tx, tz);
+  let l = await cacheGet(k);
+  if (l) return l;
+  const t = await cacheGet(keys.tile(map, tx, tz));
+  if (!t || !t.rle) return null;
+  l = computeLod(rleDecode(t.rle, map.tile * map.tile * t.H), map.tile, t.H);
+  await cachePut(k, l);
+  return l;
+}
+async function sendLods(m) {
+  const { map, tx: cx, tz: cz, radius: R } = m;
+  const list = [];
+  for (let tz = Math.max(0, cz - R); tz <= Math.min(map.tiles - 1, cz + R); tz++)
+    for (let tx = Math.max(0, cx - R); tx <= Math.min(map.tiles - 1, cx + R); tx++)
+      list.push([(tx - cx) ** 2 + (tz - cz) ** 2, tx, tz]);
+  list.sort((a, b) => a[0] - b[0]);
+  for (const [, tx, tz] of list) {
+    const lod = await getLod(map, tx, tz);
+    if (lod) self.postMessage({ type: 'lodTile', id: m.id, tx, tz, lod });
+  }
+  self.postMessage({ type: 'lodDone', id: m.id });
 }

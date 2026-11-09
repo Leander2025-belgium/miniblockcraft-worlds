@@ -6,6 +6,7 @@ import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle } from './textures.js';
 import { districtAt, GROUND } from './city.js';
 import { skyAt, makeClouds } from './environment.js';
 import { TILE_INDEX } from './textures.js';
+import { FarView } from './lod.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -215,6 +216,8 @@ export class Game {
     this.clearChunks();
     this.meta = meta;
     this.tiled = null;
+    if (this.lod) { this.lod.dispose(); this.lod = null; }
+    this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
     this.dirty = false;
@@ -249,6 +252,11 @@ export class Game {
     Object.assign(this.player, { yaw: pl.yaw || 0, pitch: pl.pitch || 0, fly: pl.fly ?? true });
     this.player.pos.set(pl.x, pl.y, pl.z);
     this.lastAuto = performance.now();
+    if (this.lod) this.lod.dispose();
+    this.lod = new FarView(this.scene, spec);
+    this.mini = { canvas: this.lod.canvas, scale: this.lod.cell, size: this.world.size };
+    const T = spec.tile;
+    spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1);
     this.updateTiles(true);
     this.updateHud(true);
   }
@@ -280,7 +288,7 @@ export class Game {
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
     const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
     // de worker werkt alvast verder vooruit (ook als het tabblad verborgen is)
-    const ahead = R + (document.hidden || !this.active() ? 4 : 2);
+    const ahead = Math.max(R + (document.hidden || !this.active() ? 4 : 2), Math.ceil(this.settings.lod / T));
     if (td.prefetchArea && (td.aheadKey !== ptx + ',' + ptz + ',' + ahead)) {
       td.aheadKey = ptx + ',' + ptz + ',' + ahead;
       td.prefetchArea(ptx, ptz, ahead);
@@ -433,6 +441,7 @@ export class Game {
   }
   stop() {
     this.running = false;
+    if (this.lod) { this.lod.dispose(); this.lod = null; }
     cancelAnimationFrame(this.raf);
     if (document.pointerLockElement) document.exitPointerLock();
     this.ui.root.hidden = true;
@@ -486,23 +495,92 @@ export class Game {
     this.renderer.setClearColor(new THREE.Color(...env.sky));
     for (const m of [this.matOpaque, this.matTrans]) {
       const u = m.uniforms;
-      u.fogNear.value = far * 0.45; u.fogFar.value = far;
+      if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
+      else { u.fogNear.value = far * 0.45; u.fogFar.value = far; }
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
     this.clouds.material.color.setRGB(...env.sky.map((v, i) => Math.min(1, 0.55 + v * 0.5 + env.dusk * [0.3, 0.1, 0][i])));
     this.clouds.material.opacity = 0.35 + env.day * 0.55;
-    if (this.lod) this.lod.update(env, far);
-    this.camera.far = far + 20; this.camera.updateProjectionMatrix();
+    if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z);
+    this.camera.far = (this.tiled ? Math.max(far, this.settings.lod) : far) + 60; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
       const dx = c.wx - pcx, dz = c.wz - pcz;
-      const vis = dx * dx + dz * dz < lim;
+      const vis = !!this.tiled || dx * dx + dz * dz < lim; // in grote kaarten: alle geladen tegels tonen (geen gat met de verre blokken)
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
     this.renderer.render(this.scene, this.camera);
+    this.drawMinimap();
+  }
+
+  // ---------- minikaart ----------
+  ensureMini() {
+    if (this.mini || !this.world || this.tiled) return;
+    // los stuk: kleuren van de bovenste blokken
+    const w = this.world, S = w.size, c = document.createElement('canvas');
+    c.width = c.height = S;
+    const img = new ImageData(S, S);
+    for (let z = 0; z < S; z++) for (let x = 0; x < S; x++) {
+      const y = w.columnTop(x, z), col = BLOCKS[w.get(x, y, z)].color, i = (z * S + x) * 4;
+      const f = 0.82 + Math.min(0.45, (y - (this.meta.ground ?? GROUND)) / 250);
+      img.data[i] = col[0] * f; img.data[i + 1] = col[1] * f; img.data[i + 2] = col[2] * f; img.data[i + 3] = 255;
+    }
+    c.getContext('2d').putImageData(img, 0, 0);
+    this.mini = { canvas: c, scale: 1, size: S };
+  }
+  drawMinimap() {
+    const el = this.ui.minimap;
+    if (!el || el.hidden) return;
+    const now = performance.now();
+    if (now - (this.miniT || 0) < 200) return;
+    this.miniT = now;
+    this.ensureMini();
+    if (!this.mini) return;
+    const ctx = el.getContext('2d'), W = el.width, p = this.player.pos;
+    const metersPerPx = 4, span = W * metersPerPx, sc = this.mini.scale;
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, W, W);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.mini.canvas, (p.x - span / 2) / sc, (p.z - span / 2) / sc, span / sc, span / sc, 0, 0, W, W);
+    this.drawArrow(ctx, W / 2, W / 2, 7);
+  }
+  drawArrow(ctx, x, y, r) {
+    const a = -this.player.yaw;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+    ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.7, r); ctx.lineTo(0, r * 0.5); ctx.lineTo(-r * 0.7, r); ctx.closePath();
+    ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  // grote kaart (M): klik om erheen te vliegen
+  openMap() {
+    this.ensureMini();
+    if (!this.mini) return;
+    const c = this.ui.bigmap, S = this.mini.canvas.width;
+    c.width = c.height = Math.min(1024, Math.max(512, S));
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(this.mini.canvas, 0, 0, c.width, c.height);
+    const k = c.width / this.mini.size;
+    this.drawArrow(ctx, this.player.pos.x * k, this.player.pos.z * k, 9);
+    if (!c.dataset.bound) {
+      c.dataset.bound = '1';
+      c.addEventListener('click', (e) => {
+        const r = c.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width * this.mini.size, z = (e.clientY - r.top) / r.height * this.mini.size;
+        const p = this.player;
+        p.pos.set(x, (this.meta.ground ?? GROUND) + 60, z); p.vel.set(0, 0, 0); p.fly = true; p.pitch = -0.3;
+        if (this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
+        this.invOpen = false;
+        this.resume();
+      });
+    }
+    this.invOpen = true; this.invWhich = 'map'; // zelfde gedrag als de inventaris: muis vrij, spel pauzeert
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.paused = true;
+    this.showOverlay('map');
   }
 
   resize() {
@@ -729,7 +807,7 @@ export class Game {
     if (r && r.catch) r.catch(() => this.showOverlay('start'));
   }
   openInventory() {
-    this.invOpen = true;
+    this.invOpen = true; this.invWhich = 'inv';
     if (document.pointerLockElement) document.exitPointerLock();
     this.paused = true;
     this.showOverlay('inv');
@@ -756,6 +834,19 @@ export class Game {
       cyc.addEventListener('change', () => { this.settings.cycle = cyc.checked; saveSettings(this.settings); });
     }
     if (cyc) cyc.checked = !!this.settings.cycle;
+    const lodR = document.getElementById('set-lod');
+    if (lodR) {
+      lodR.value = this.settings.lod;
+      document.getElementById('set-lod-label').textContent = `${(this.settings.lod / 1000).toLocaleString('nl-BE')} km`;
+      if (!lodR.dataset.bound) {
+        lodR.dataset.bound = '1';
+        lodR.addEventListener('input', () => {
+          this.settings.lod = +lodR.value; saveSettings(this.settings);
+          document.getElementById('set-lod-label').textContent = `${(this.settings.lod / 1000).toLocaleString('nl-BE')} km`;
+          if (this.tiled) { this.tiled.aheadKey = null; const T = this.world.T; this.tiled.spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1); }
+        });
+      }
+    }
     this.syncTimeUi();
   }
 
@@ -767,7 +858,7 @@ export class Game {
       if (document.pointerLockElement) { this.showOverlay(null); this.paused = false; }
       else {
         this.keys.clear(); this.holding = null;
-        if (this.invOpen) this.showOverlay('inv');
+        if (this.invOpen) this.showOverlay(this.invWhich || 'inv');
         else { this.showOverlay('pause'); this.ui.onSave?.(false); }
       }
     });
@@ -792,6 +883,7 @@ export class Game {
         this.lastW = now;
       }
       if (e.code === 'KeyR' && !e.repeat) this.cycleFlySpeed();
+      if (e.code === 'KeyM' && !e.repeat) { e.preventDefault(); this.openMap(); }
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
     });
@@ -872,6 +964,8 @@ export class Game {
     ui.touch.speed?.addEventListener('click', () => this.cycleFlySpeed());
     ui.touch.inv.addEventListener('click', () => this.openInventory());
     ui.touch.menu.addEventListener('click', () => this.setPaused(true));
+    ui.minimap?.addEventListener('click', () => this.openMap());
+    ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });
     ui.root.classList.toggle('is-touch', this.touch);
   }
 
