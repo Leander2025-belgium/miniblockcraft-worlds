@@ -484,6 +484,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   if (!wayById) { wayById = new Map(); for (const w of osm.ways) wayById.set(w.id, w); }
 
   const N = size * size;
+  // grondhoogte per kolom uit de hoogtekaart (opts.elev: meter boven het nulpunt van de kaart)
+  const elev = opts.elev;
+  const gyAt = (x, z) => elev ? G + Math.max(0, Math.round(elev(...unproj(x + 0.5, z + 0.5)) * scale)) : G;
+  const gy = new Int16Array(N);
+  let gMax = G;
+  for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) { const v = gyAt(x, z); gy[z * size + x] = v; if (v > gMax) gMax = v; }
+  const bridgeY = new Int16Array(N);
   const surf = new Uint8Array(N).fill(B.SIDEWALK);
   const prio = new Uint8Array(N);
   const treeD = new Float32Array(N);
@@ -570,6 +577,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     width *= scale;
     const blk = r.hw === 'pedestrian' ? B.TILE : (r.hw === 'path' || r.hw === 'track' || r.hw === 'bridleway') ? B.GRAVEL : foot ? B.SIDEWALK : B.ASPHALT;
     const isBridge = r.tags.bridge && r.tags.bridge !== 'no';
+    // brugdek op de hoogte van de oevers
+    const deck = isBridge ? Math.max(...r.l.map(q => gyAt(Math.floor(q[0]), Math.floor(q[1])))) : 0;
     const marked = width >= 8 * scale && !foot && blk === B.ASPHALT;
     if (inTileLine(r.l) && r.l.length >= 2) {
       if (!NO_CARS.has(r.hw) && r.hw !== 'service') {
@@ -592,7 +601,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     strokeLine(r.l, width, size, (x, z, d, along) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !isBridge) return;
-      if (isBridge && surf[i] === B.WATER) bridge[i] = 1;
+      if (isBridge && (surf[i] === B.WATER || bridge[i])) { bridge[i] = 1; bridgeY[i] = Math.max(bridgeY[i], deck); }
       surf[i] = marked && d < 0.5 * scale && (along % (7 * scale)) < 3.5 * scale ? B.LINE_WHITE : blk;
       marks[i] = 1; treeD[i] = 0;
       if (prio[i] < 5) prio[i] = 5;
@@ -606,6 +615,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
   const rails = [];
+  const poles = [];
   for (const w of osm.ways) {
     const rw = w.tags.railway;
     if (!rw || !['rail', 'light_rail', 'narrow_gauge', 'tram', 'subway'].includes(rw)) continue;
@@ -615,15 +625,32 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     rails.push(l);
     const tram = rw === 'tram';
     if (inTileLine(l) && rw !== 'subway') paths.push({ type: tram ? 'tram' : 'train', pts: l.flat() });
-    strokeLine(l, (tram ? 2 : 4) * scale, size, (x, z, d) => {
+    const rb = w.tags.bridge && w.tags.bridge !== 'no';
+    const rdeck = rb ? Math.max(...l.map(q => gyAt(Math.floor(q[0]), Math.floor(q[1])))) : 0;
+    let nextPole = 20 * scale;
+    strokeLine(l, (tram ? 2 : 5) * scale, size, (x, z, d, along) => {
       const i = z * size + x;
-      if (surf[i] === B.WATER && !(w.tags.bridge && w.tags.bridge !== 'no')) return;
-      if (surf[i] === B.WATER) bridge[i] = 1;
+      if (surf[i] === B.WATER && !rb) return;
+      if (rb && (surf[i] === B.WATER || bridge[i])) { bridge[i] = 1; bridgeY[i] = Math.max(bridgeY[i], rdeck); }
       const ds = d / scale;
       if (tram) { if (ds > 0.3 && ds < 0.8) surf[i] = B.METAL; }
-      else surf[i] = (ds > 0.45 && ds < 1.0) ? B.METAL : B.GRAVEL;
+      else if (ds > 0.45 && ds < 1.0) surf[i] = B.METAL;                                         // twee rails
+      else if (ds <= 0.45) surf[i] = Math.floor(along / scale) % 2 === 0 ? B.PLANKS : B.GRAVEL;     // dwarsliggers
+      else surf[i] = B.GRAVEL;
       marks[i] = 1; treeD[i] = 0;
+      // bovenleidingpaal om de 40 m, naast het spoor
+      if (!tram && ds > 2.0 && ds < 2.6 && along >= nextPole) { nextPole = along + 40 * scale; poles.push([x, z, l, along]); }
     });
+  }
+  // perrons (verhoogd, met overkapping)
+  const platform = new Uint8Array(N);
+  for (const w of osm.ways) {
+    if (w.tags.railway !== 'platform' && !(w.tags.public_transport === 'platform' && (w.tags.train === 'yes' || w.tags.railway))) continue;
+    const l = line(w.nds);
+    if (!l || !bboxOk(l, 10)) continue;
+    const mark = (x, z) => { const i = z * size + x; platform[i] = w.tags.covered === 'no' ? 1 : 2; surf[i] = B.CONCRETE; marks[i] = 1; treeD[i] = 0; };
+    if (w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length - 1]) fillRings([l], size, mark);
+    else strokeLine(l, (parseLen(w.tags.width) || 5) * scale, size, (x, z) => mark(x, z));
   }
   onProgress?.(0.35);
 
@@ -655,21 +682,22 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   }
   let maxTop = 30;
   for (const b of all) { b.hm = buildingHeights(b.tags); maxTop = Math.max(maxTop, b.hm.h); }
-  const H = Math.min(640, Math.ceil((G + maxTop * scale + 14 + 14 * scale) / 8) * 8);
+  const H = Math.min(700, Math.ceil((gMax + maxTop * scale + 20 + 14 * scale) / 8) * 8);
 
   const vox = new Uint8Array(N * H);
   // ondergrond + oppervlak
   for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
-    const i = z * size + x, base = i * H;
+    const i = z * size + x, base = i * H, g = gy[i];
     vox[base] = B.BEDROCK;
-    for (let y = 1; y < G - 3; y++) vox[base + y] = B.STONE;
-    for (let y = G - 3; y < G; y++) vox[base + y] = B.DIRT;
+    for (let y = 1; y < g - 3; y++) vox[base + y] = B.STONE;
+    for (let y = Math.max(1, g - 3); y < g; y++) vox[base + y] = B.DIRT;
     const s = surf[i];
-    if (s === B.WATER) {
-      vox[base + G - 4] = B.SAND;
-      for (let y = G - 3; y <= G - 1; y++) vox[base + y] = B.WATER;
-      if (bridge[i]) vox[base + G] = B.CONCRETE;
-    } else vox[base + G] = s;
+    if (s === B.WATER || bridge[i]) {
+      vox[base + g - 4] = B.SAND;
+      for (let y = g - 3; y <= g - 1; y++) vox[base + y] = B.WATER;
+      vox[base + g] = 0;
+      if (bridge[i]) { const dy = Math.max(g + 1, bridgeY[i] || g + 1); vox[base + dy] = s === B.WATER ? B.CONCRETE : s; vox[base + dy - 1] = B.CONCRETE; }
+    } else vox[base + g] = s;
   }
   onProgress?.(0.45);
 
@@ -680,7 +708,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   // verdiepingsraster (absolute rijen vanaf straatniveau), gedeeld door alle delen van één gebouw
   const gridCache = new Map();
   const makeGrid = (storey, firstMul) => {
-    const n = H - G;
+    const n = H;
     const kind = new Int8Array(n), idx = new Int16Array(n);
     let start = 0;
     for (let i = 1; start < n; i++) {
@@ -774,9 +802,20 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       if (!bd.hm.explicit) roofH = Math.min(roofH, 14 * scale);
       else roofH = Math.max(0, Math.min(roofH, hTot - minH - 1));
     }
-    const top = G + Math.max(1, Math.round(hTot + (bd.hm.explicit ? 0 : roofH)));
+    // nulpunt van het gebouw: laagste grond onder het gebouw (delen van één gebouw: midden van het hele gebouw)
+    let baseG = Infinity;
+    if (grp) { const pp = proj([grp.lat, grp.lon]); baseG = gyAt(Math.floor(pp[0]), Math.floor(pp[1])); }
+    else {
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+        if (!mask[(z - z0) * bw + (x - x0)]) continue;
+        const v = (x >= 0 && z >= 0 && x < size && z < size) ? gy[z * size + x] : gyAt(x, z);
+        if (v < baseG) baseG = v;
+      }
+    }
+    if (!Number.isFinite(baseG)) baseG = G;
+    const top = baseG + Math.max(1, Math.round(hTot + (bd.hm.explicit ? 0 : roofH)));
     const wallTop = top - Math.round(roofH);
-    const yb = G + 1 + Math.round(minH);
+    const yb = baseG + 1 + Math.round(minH);
     const roofY = new Int16Array(bw * bh);
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
       const i = (z - z0) * bw + (x - x0);
@@ -812,7 +851,18 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     let gcx = cx, gcz = cz;
     if (grp) { const pp = proj([grp.lat, grp.lon]); gcx = pp[0]; gcz = pp[1]; }
     const grid = gridFor(bd, st.historic, wallTop - yb);
-    return { bd, x0, z0, x1, z1, bw, bh, mask, inM, dist, dMax, cx, cz, gcx, gcz, shape, roofH, top, wallTop, yb, roofY, st, lm, tallest, grid, hTot };
+    // gevel-details
+    const type = bd.tags.building, lvT = parseLen(bd.tags['building:levels']);
+    const hb = hash(bd.id % 100000, Math.floor(bd.id / 100000), 91);
+    const shop = !lm && !st.curtain && !HOUSE.has(type) && yb === baseG + 1 &&
+      (bd.tags.shop || type === 'retail' || type === 'commercial' || (((lvT >= 3) || bd.hm.h >= 10) && hb < 0.55 && ['apartments', 'residential', 'yes', 'mixed', 'office'].includes(type)));
+    const balcony = !lm && !st.curtain && (type === 'apartments' || type === 'residential') && hash(bd.id, 7, 92) < 0.5;
+    const recess = !st.curtain && !(lm && lm.strips);
+    const darkWall = [B.BRICK, B.BRICK_DARK, B.YELLOWBRICK, B.TERRACOTTA, B.RED_SANDSTONE, B.HALF_TIMBER].includes(st.wall);
+    st.sill = st.historic ? st.trim : darkWall ? B.LIMESTONE : [B.PLASTER, B.PLASTER_BEIGE, B.PLASTER_PINK].includes(st.wall) ? B.PANEL_WHITE : B.CONCRETE;
+    const awning = [B.PAINT_RED, B.PAINT_GREEN, B.PAINT_BLUE, B.PAINT_ORANGE, B.PAINT_BLACK, B.PAINT_WHITE][Math.floor(hash(bd.id, 3, 93) * 6)];
+    return { bd, x0, z0, x1, z1, bw, bh, mask, inM, dist, dMax, cx, cz, gcx, gcz, shape, roofH, top, wallTop, yb, baseG, roofY, st, lm, tallest, grid, hTot,
+      shop, balcony, recess, awning, cells, house: HOUSE.has(type) };
   };
 
   const covLo = new Int16Array(N).fill(32767), covHi = new Int16Array(N).fill(-1), covGrp = new Int32Array(N).fill(-1);
@@ -843,7 +893,11 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     const hist = st.historic;
     const pitched = g.shape !== 'flat';
     const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
-    const topRow = grid.idx[Math.max(0, Math.min(grid.idx.length - 1, wallTop - G - 2))];
+    const baseG = g.baseG;
+    const topRow = grid.idx[Math.max(0, Math.min(grid.idx.length - 1, wallTop - baseG - 2))];
+    const later = []; // details buiten de eigen kolom (verzonken ramen, luifels, balkons, dakranden)
+    const freeOut = (x, y, z) => x >= 0 && z >= 0 && x < size && z < size && !(covLo[z * size + x] <= y && covHi[z * size + x] >= y) && y > gy[z * size + x];
+    const distAt = (x, z) => inM(x, z) ? dist[(z - z0) * bw + (x - x0)] : 0;
 
     // antenne, kroon (alleen op het hoogste deel)
     if (lm && g.tallest && (lm.antenna || lm.crown)) {
@@ -881,13 +935,15 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       marks[i] = 1; treeD[i] = 0;
       const dIn = dist[mi];
       // vloer onder het onderste niveau
-      if (yb === G + 1) set(x, G, z, B.TILE);
+      // fundering tot op het terrein, vloer op het nulpunt
+      for (let y = gy[i] + 1; y < baseG; y++) set(x, y, z, st.base || st.wall);
+      if (yb === baseG + 1) set(x, baseG, z, B.TILE);
       else set(x, yb - 1, z, covLo[i] < yb ? B.TILE : st.wall);
       let sector = -1;
       if (lm && lm.gardens) sector = Math.floor(((Math.atan2(z - g.gcz, x - g.gcx) + Math.PI) / (2 * Math.PI)) * 3) % 3;
       let lastExt = false;
       for (let y = yb; y < wallTop; y++) {
-        const r = y - G - 1;
+        const r = y - baseG - 1;
         const kind = r >= 0 && r < grid.kind.length ? grid.kind[r] : 0;
         const si = r >= 0 && r < grid.idx.length ? grid.idx[r] : 0;
         let ext = false, extX = false, party = false;
@@ -919,6 +975,24 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
             if (kind === -1) blk = st.trim;
             else if (si === 0) blk = st.base;
           } else win = kind === 1 && (t % winEvery) >= 1 && (t % winEvery) <= scale;
+          const out = s0 === 0 ? [-1, 0] : s1 === 0 ? [1, 0] : s2 === 0 ? [0, -1] : [0, 1];
+          const winCol = hist ? ((t % (4 * scale)) >= scale && (t % (4 * scale)) < 3 * scale) : ((t % winEvery) >= 1 && (t % winEvery) <= scale);
+          // winkelpui op de begane grond, met luifel erboven
+          if (g.shop && si === 0) {
+            win = kind !== -1 && t % (4 * scale) !== 0 && y > yb;
+            if (kind === -1 && freeOut(x + out[0], y, z + out[1])) later.push([x + out[0], y, z + out[1], g.awning]);
+          }
+          // vensterbank onder elk raam
+          if (!st.curtain && !win && winCol && r + 1 < grid.kind.length && grid.kind[r + 1] === 1 && kind !== 1 && !(g.shop && si === 0)) blk = st.sill;
+          // balkons bij appartementen
+          if (g.balcony && kind === -1 && si >= 1 && winCol && freeOut(x + out[0], y, z + out[1]) && freeOut(x + out[0], y + 1, z + out[1])) {
+            later.push([x + out[0], y, z + out[1], B.CONCRETE], [x + out[0], y + 1, z + out[1], B.GLASS]);
+          }
+          // ramen iets dieper in de gevel
+          if (win && g.recess && !(g.shop && si === 0)) {
+            const ix = x - out[0], iz = z - out[1];
+            if (distAt(ix, iz) >= 1.9) { set(x, y, z, 0); later.push([ix, y, iz, st.glass, true]); continue; }
+          }
           set(x, y, z, win ? st.glass : blk);
         } else if (party) {
           set(x, y, z, kind === -1 ? B.TILE : st.wall);           // gesloten muur tegen het buurgebouw
@@ -945,58 +1019,103 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       if (hist && edge && wallTop - 1 > yb) set(x, wallTop - 1, z, st.trim);
       if (!pitched) {
         set(x, wallTop, z, edge && g.hTot > 6 * scale ? (hist ? st.trim : st.wall) : st.roof);
+        // installaties op grote platte daken
+        if (!lm && g.cells > 250 && dIn >= 3 * scale && hash(x + OX, z + OZ, 95) < 0.012) {
+          for (let dz = 0; dz < 2; dz++) for (let dx = 0; dx < 2; dx++) if (inM(x + dx, z + dz)) { set(x + dx, wallTop + 1, z + dz, B.METAL); set(x + dx, wallTop + 2, z + dz, B.METAL); }
+        }
         continue;
       }
       const ry = roofY[mi];
       const low = Math.min(ryAt(x - 1, z), ryAt(x + 1, z), ryAt(x, z - 1), ryAt(x, z + 1));
       if (edge) for (let y = wallTop; y < ry; y++) set(x, y, z, st.wall);
+      // dakrand die uitsteekt
+      if (edge && ry <= wallTop + 1) for (const [ex, ez] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        if (!inM(x + ex, z + ez) && freeOut(x + ex, wallTop, z + ez)) later.push([x + ex, wallTop, z + ez, st.roof]);
+      }
+      // schoorsteen op huizen
+      if (g.house && dIn >= 1.5 && dIn <= 3 && hash(x + OX, z + OZ, 96) < 0.04) { set(x, ry + 1, z, B.BRICK); set(x, ry + 2, z, B.BRICK); }
       for (let y = Math.max(wallTop, Math.min(ry, low + 1)); y <= ry; y++) set(x, y, z, st.roof);
       if (wallTop > yb && !edge) set(x, wallTop, z, B.PLANKS);
+    }
+    for (const [lx, ly, lz, lb, force] of later) {
+      if (lx < 0 || lz < 0 || lx >= size || lz >= size || ly <= 0 || ly >= H) continue;
+      const k = (lz * size + lx) * H + ly;
+      if (force || !vox[k]) vox[k] = lb;
     }
   }
   onProgress?.(0.85);
 
   // 4b. straatmeubilair
-  const free = (x, z) => x >= 0 && z >= 0 && x < size && z < size && !vox[(z * size + x) * H + G + 1] && vox[(z * size + x) * H + G] !== B.WATER;
+  const gyc = (x, z) => gy[Math.max(0, Math.min(size - 1, z)) * size + Math.max(0, Math.min(size - 1, x))];
+  const free = (x, z) => x >= 0 && z >= 0 && x < size && z < size && !vox[(z * size + x) * H + gyc(x, z) + 1] && vox[(z * size + x) * H + gyc(x, z)] !== B.WATER && vox[(z * size + x) * H + gyc(x, z)] !== 0;
   const nearSidewalk = (x, z, rad) => {
     for (let r = 0; r <= rad; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const xx = x + dx, zz = z + dz;
       if (!free(xx, zz)) continue;
-      const b = vox[(zz * size + xx) * H + G];
+      const b = vox[(zz * size + xx) * H + gyc(xx, zz)];
       if (b === B.SIDEWALK || b === B.TILE || b === B.GRASS || b === B.COBBLE) return [xx, zz];
     }
     return null;
   };
-  const lamp = (x, z) => { for (let k = 1; k <= 4 * scale; k++) set(x, G + k, z, B.POST); set(x, G + 4 * scale + 1, z, B.LAMP); };
+  const lamp = (x, z) => { const g0 = gyc(x, z); for (let k = 1; k <= 4 * scale; k++) set(x, g0 + k, z, B.POST); set(x, g0 + 4 * scale + 1, z, B.LAMP); };
   for (const [la, lo, kind] of (osm.pois || [])) {
     const q = proj([la, lo]); let x = Math.floor(q[0]), z = Math.floor(q[1]);
     if (x < 0 || z < 0 || x >= size || z >= size) continue;
     if (kind === 'lamp') { const s2 = nearSidewalk(x, z, 2); if (s2) lamp(...s2); }
     else if (kind === 'signal') {
       const s2 = nearSidewalk(x, z, 8 * scale); if (!s2) continue; [x, z] = s2;
-      for (let k = 1; k <= 2 * scale; k++) set(x, G + k, z, B.POST);
-      set(x, G + 2 * scale + 1, z, B.PAINT_GREEN); set(x, G + 2 * scale + 2, z, B.PAINT_ORANGE); set(x, G + 2 * scale + 3, z, B.PAINT_RED); set(x, G + 2 * scale + 4, z, B.PAINT_BLACK);
-    } else if (kind === 'bench') { const s2 = nearSidewalk(x, z, 2); if (s2) { set(s2[0], G + 1, s2[1], B.PLANKS); if (free(s2[0] + 1, s2[1])) set(s2[0] + 1, G + 1, s2[1], B.PLANKS); } }
-    else if (kind === 'bin') { const s2 = nearSidewalk(x, z, 2); if (s2) set(s2[0], G + 1, s2[1], kind === 'bin' ? B.PAINT_GREEN : B.METAL); }
-    else if (kind === 'bikes') { const s2 = nearSidewalk(x, z, 3); if (s2) for (let k = 0; k < 4; k += 2) if (free(s2[0] + k, s2[1])) set(s2[0] + k, G + 1, s2[1], B.METAL); }
-    else if (kind === 'fountain') { if (free(x, z)) { set(x, G + 1, z, B.COBBLE); set(x, G + 2, z, B.WATER); } }
+      const g0 = gyc(x, z);
+      for (let k = 1; k <= 2 * scale; k++) set(x, g0 + k, z, B.POST);
+      set(x, g0 + 2 * scale + 1, z, B.PAINT_GREEN); set(x, g0 + 2 * scale + 2, z, B.PAINT_ORANGE); set(x, g0 + 2 * scale + 3, z, B.PAINT_RED); set(x, g0 + 2 * scale + 4, z, B.PAINT_BLACK);
+    } else if (kind === 'bench') { const s2 = nearSidewalk(x, z, 2); if (s2) { set(s2[0], gyc(...s2) + 1, s2[1], B.PLANKS); if (free(s2[0] + 1, s2[1])) set(s2[0] + 1, gyc(s2[0] + 1, s2[1]) + 1, s2[1], B.PLANKS); } }
+    else if (kind === 'bin') { const s2 = nearSidewalk(x, z, 2); if (s2) set(s2[0], gyc(...s2) + 1, s2[1], kind === 'bin' ? B.PAINT_GREEN : B.METAL); }
+    else if (kind === 'bikes') { const s2 = nearSidewalk(x, z, 3); if (s2) for (let k = 0; k < 4; k += 2) if (free(s2[0] + k, s2[1])) set(s2[0] + k, gyc(s2[0] + k, s2[1]) + 1, s2[1], B.METAL); }
+    else if (kind === 'fountain') { if (free(x, z)) { set(x, gyc(x, z) + 1, z, B.COBBLE); set(x, gyc(x, z) + 2, z, B.WATER); } }
     else if (kind === 'bus_stop') {
       const s2 = nearSidewalk(x, z, 6 * scale); if (!s2) continue; [x, z] = s2;
       // klein bushokje: glazen achterwand, dak, bankje
+      const g0 = gyc(x, z);
       for (let k = 0; k < 4; k++) {
         if (!free(x + k, z)) continue;
-        for (let y = 1; y <= 2 * scale + 1; y++) set(x + k, G + y, z, k === 0 || k === 3 ? B.POST : B.GLASS);
-        set(x + k, G + 2 * scale + 2, z, B.METAL);
-        if (free(x + k, z + 1)) set(x + k, G + 2 * scale + 2, z + 1, B.METAL);
+        for (let y = 1; y <= 2 * scale + 1; y++) set(x + k, g0 + y, z, k === 0 || k === 3 ? B.POST : B.GLASS);
+        set(x + k, g0 + 2 * scale + 2, z, B.METAL);
+        if (free(x + k, z + 1)) set(x + k, g0 + 2 * scale + 2, z + 1, B.METAL);
       }
-      if (free(x + 1, z + 1)) set(x + 1, G + 1, z + 1, B.PLANKS);
+      if (free(x + 1, z + 1)) set(x + 1, g0 + 1, z + 1, B.PLANKS);
     }
   }
   // automatische lantaarns langs wegen (als de kaart er geen heeft)
   for (const [x, z] of lampSpots) {
     const s2 = nearSidewalk(x, z, 7 * scale);
     if (s2) lamp(...s2);
+  }
+
+  // perrons: verhoogd, met overkapping op palen
+  for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
+    const i = z * size + x, pk = platform[i];
+    if (!pk) continue;
+    const g0 = gy[i];
+    if (vox[i * H + g0 + 1]) continue;
+    set(x, g0 + 1, z, B.CONCRETE);
+    if (pk === 2) {
+      const edgeP = !platform[i - 1] || !platform[i + 1] || !platform[i - size] || !platform[i + size];
+      if (!edgeP || (x + OX) % 2 === 0) set(x, g0 + 5 * scale, z, B.METAL);
+      if (!edgeP && (x + OX) % (8 * scale) === 0 && (z + OZ) % (3 * scale) === 0) for (let y = 2; y < 5 * scale; y++) set(x, g0 + y, z, B.POST);
+    }
+  }
+  for (const [x, z] of poles) {
+    if (x < 1 || z < 1 || x >= size - 1 || z >= size - 1) continue;
+    const g0 = gy[z * size + x], top = g0 + 7 * scale;
+    if (vox[(z * size + x) * H + g0 + 1]) continue;
+    for (let y = g0 + 1; y <= top; y++) set(x, y, z, B.POST);
+    // arm richting het spoor
+    let best = null, bd2 = 99;
+    for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) for (let k = 1; k <= 3; k++) {
+      const b0 = vox[((z + dz * k) * size + x + dx * k) * H + gyc(x + dx * k, z + dz * k)];
+      if ((b0 === B.METAL || b0 === B.PLANKS) && k < bd2) { bd2 = k; best = [dx, dz]; }
+    }
+    if (best) for (let k = 1; k <= 3; k++) set(x + best[0] * k, top, z + best[1] * k, B.POST);
   }
 
   // 5. bomen
@@ -1008,10 +1127,11 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   const plant = (x, z) => {
     if (x < 0 || z < 0 || x >= size || z >= size) return;
     const i = z * size + x;
-    if (marks[i] || vox[i * H + G + 1]) return;
-    if (vox[i * H + G] === B.WATER) return;
-    vox[i * H + G] = B.GRASS;
-    placeTree(x, z, G, 4 + Math.floor(hash(x, z, 14) * 3), null, tset);
+    const g0 = gy[i];
+    if (marks[i] || vox[i * H + g0 + 1]) return;
+    if (vox[i * H + g0] === B.WATER || !vox[i * H + g0]) return;
+    vox[i * H + g0] = B.GRASS;
+    placeTree(x, z, g0, 4 + Math.floor(hash(x, z, 14) * 3), null, tset);
     marks[i] = 1;
   };
   for (const ll of osm.trees) { const p = proj(ll); plant(Math.floor(p[0]), Math.floor(p[1])); }
@@ -1035,9 +1155,15 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   // knippen tot deze tegel (lange wegen zouden anders in elke tegel opnieuw meetellen)
   const pathsOut = [];
   const inBox = (x, z) => x >= -4 && z >= -4 && x <= size + 4 && z <= size + 4;
+  const surfY = (x, z) => {
+    const xi = Math.floor(x), zi = Math.floor(z);
+    if (xi < 0 || zi < 0 || xi >= size || zi >= size) return gyAt(xi, zi);
+    const i = zi * size + xi;
+    return bridge[i] ? Math.max(gy[i] + 1, bridgeY[i]) : gy[i];
+  };
   for (const q of paths) {
     const src = q.pts; let run = [];
-    const flush = () => { if (run.length >= 4) pathsOut.push({ type: q.type, pts: new Float32Array(run) }); run = []; };
+    const flush = () => { if (run.length >= 6) pathsOut.push({ type: q.type, pts: new Float32Array(run) }); run = []; };
     for (let i = 0; i + 1 < src.length; i += 2) {
       const ax = src[i], az = src[i + 1];
       if (i + 3 < src.length) {
@@ -1045,9 +1171,9 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 12));
         for (let k = 0; k < steps; k++) {
           const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
-          if (inBox(x, z)) run.push(x, z); else flush();
+          if (inBox(x, z)) run.push(x, z, surfY(x, z)); else flush();
         }
-      } else if (inBox(ax, az)) run.push(ax, az);
+      } else if (inBox(ax, az)) run.push(ax, az, surfY(ax, az));
     }
     flush();
   }

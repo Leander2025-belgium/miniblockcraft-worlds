@@ -4,6 +4,31 @@ import { BLOCKS } from './blocks.js';
 import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
 import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
 import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
+import { elevationSampler, elevationBase } from './terrain.js';
+import { mapSize } from './bigmap.js';
+
+// ---------- hoogtes ----------
+const elevMem = new Map();
+async function mapElevBase(map) {
+  const k = `${map.id}-elevbase`;
+  let v = await cacheGet(k);
+  if (v == null) { v = await elevationBase(bboxFor(map.lat, map.lon, mapSize(map), 100)); await cachePut(k, v); }
+  return v;
+}
+function superElev(map, sx, sz) {
+  const k = `${map.id}-${sx}-${sz}`;
+  if (elevMem.has(k)) return elevMem.get(k);
+  const p = (async () => {
+    try {
+      const base = await mapElevBase(map);
+      const f = await elevationSampler(superBox(map, sx, sz, 120));
+      return (la, lo) => f(la, lo) - base;
+    } catch { return null; } // geen hoogtekaart: vlak terrein
+  })();
+  elevMem.set(k, p);
+  if (elevMem.size > 8) elevMem.delete(elevMem.keys().next().value);
+  return p;
+}
 
 const col = new Uint8Array(HEIGHT);
 
@@ -106,9 +131,19 @@ async function realWorld(m) {
       lat = a / n; lon = b / n;
     }
   }
+  status('Hoogtes ophalen…', 0.38);
+  let elev = null;
+  try {
+    const bb = bboxFor(lat, lon, size, 60);
+    const f = await elevationSampler(bb);
+    let base = Infinity;
+    for (let i = 0; i <= 16; i++) for (let j = 0; j <= 16; j++) base = Math.min(base, f(bb.s + (bb.n - bb.s) * i / 16, bb.w + (bb.e - bb.w) * j / 16));
+    base = Math.floor(base) - 1;
+    elev = (la, lo) => f(la, lo) - base;
+  } catch { /* vlak terrein */ }
   status('Gebouwen en straten omzetten naar blokken…', 0.4);
   const blocks = Math.round(size * scale);
-  const r = rasterize(osm, lat, lon, blocks, p => status('Gebouwen en straten omzetten naar blokken…', 0.4 + p * 0.55), scale);
+  const r = rasterize(osm, lat, lon, blocks, p => status('Gebouwen en straten omzetten naar blokken…', 0.4 + p * 0.55), scale, { elev });
   const preview = topView(r.vox, blocks, r.H);
   self.postMessage({ type: 'osmDone', id: m.id, vox: r.vox, H: r.H, ground: r.ground, buildings: r.buildings, lat, lon, size: blocks, meters: size, scale, preview },
     [r.vox.buffer, preview.buffer]);
@@ -198,7 +233,8 @@ async function cityTileInner(m) {
   const c = tileCenter(map, tx, tz);
   const b = bboxFor(c.lat, c.lon, map.tile, 30);
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
-  const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile });
+  const elev = await superElev(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
+  const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
   const rle = rleEncode(r.vox);
   await cachePut(key, { rle, H: r.H, paths: r.paths });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));

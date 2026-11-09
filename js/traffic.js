@@ -44,7 +44,7 @@ export class Traffic {
         const def = KINDS[p.type]; if (!def) continue;
         const pts = p.pts, segs = [];
         let len = 0;
-        for (let i = 0; i + 3 < pts.length; i += 2) { const l = Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]); segs.push(l); len += l; }
+        for (let i = 0; i + 5 < pts.length; i += 3) { const l = Math.hypot(pts[i + 3] - pts[i], pts[i + 4] - pts[i + 1]); segs.push(l); len += l; }
         if (len < 12) continue;
         const n = Math.max(p.type === 'tram' || p.type === 'train' ? 0 : 1, Math.floor(len / def.spacing));
         for (let j = 0; j < n && counts[p.type] < def.max; j++) {
@@ -82,15 +82,16 @@ export class Traffic {
       // positie op de lijn
       let d = a.d, i = 0;
       while (i < a.segs.length - 1 && d > a.segs[i]) { d -= a.segs[i]; i++; }
-      const p = a.pts, k = i * 2, sl = a.segs[i] || 1;
+      const p = a.pts, k = i * 3, sl = a.segs[i] || 1;
       const t = Math.min(1, d / sl);
-      const x = a.ox + p[k] + (p[k + 2] - p[k]) * t, z = a.oz + p[k + 1] + (p[k + 3] - p[k + 1]) * t;
+      const x = a.ox + p[k] + (p[k + 3] - p[k]) * t, z = a.oz + p[k + 1] + (p[k + 4] - p[k + 1]) * t;
+      const gy = p[k + 2] + (p[k + 5] - p[k + 2]) * t;
       const dx = x - player.x, dz = z - player.z;
       const def = KINDS[a.type];
       const visible = dx * dx + dz * dz < far2;
-      this.q.setFromAxisAngle(this.up, Math.atan2(p[k + 2] - p[k], p[k + 3] - p[k + 1]));
+      this.q.setFromAxisAngle(this.up, Math.atan2(p[k + 3] - p[k], p[k + 4] - p[k + 1]));
       const bob = a.type === 'walk' ? Math.abs(Math.sin(a.d * 3)) * 0.06 : 0;
-      this.v.set(x, this.G + 1 + def.y + bob, z);
+      this.v.set(x, gy + 1 + def.y + bob, z);
       this.s.setScalar(visible ? 1 : 0);
       this.m4.compose(this.v, this.q, this.s);
       this.meshes[a.type].setMatrixAt(a.i, this.m4);
