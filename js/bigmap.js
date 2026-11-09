@@ -23,7 +23,7 @@ export function tileCenter(m, tx, tz) {
   return { lat: m.lat - z / MZ, lon: m.lon + x / mapMX(m) };
 }
 export function superCount(m) { return Math.ceil(m.tiles / m.superTiles); }
-export function superBox(m, sx, sz, margin = 60) {
+export function superBox(m, sx, sz, margin = 40) {
   const S = mapSize(m), B = m.tile * m.superTiles, MX = mapMX(m);
   const x0 = sx * B - S / 2 - margin, x1 = Math.min((sx + 1) * B, S) - S / 2 + margin;
   const z0 = sz * B - S / 2 - margin, z1 = Math.min((sz + 1) * B, S) - S / 2 + margin;

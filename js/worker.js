@@ -151,7 +151,17 @@ async function realWorld(m) {
 
 // ---------- vaste stadskaart in tegels ----------
 const supers = new Map();
-let fetchChain = Promise.resolve();
+// Downloadplaatsen gedeeld door alle werkers (Web Locks): max. 3 tegelijk, verdeeld over twee servers
+const SLOTS = ['blokstad-dl-0', 'blokstad-dl-1', 'blokstad-dl-2'];
+async function withSlot(fn) {
+  if (!self.navigator || !navigator.locks) return fn(0);
+  for (let i = 0; i < SLOTS.length; i++) {
+    const r = await navigator.locks.request(SLOTS[i], { ifAvailable: true }, async (lock) => (lock ? { v: await fn(i) } : null));
+    if (r) return r.v;
+  }
+  const i = Math.floor(Math.random() * SLOTS.length);
+  return navigator.locks.request(SLOTS[i], async () => fn(i));
+}
 function getSuper(map, sx, sz) {
   const key = keys.osm(map, sx, sz);
   if (supers.has(key)) return supers.get(key);
@@ -159,9 +169,11 @@ function getSuper(map, sx, sz) {
     let text = await cacheGet(key);
     if (!text) {
       // één download tegelijk, zodat de OpenStreetMap-server ons niet weigert
-      const job = fetchChain.then(() => fetchOSMBox(superBox(map, sx, sz), (text) => self.postMessage({ type: 'status', map: map.id, text })));
-      fetchChain = job.catch(() => {});
-      text = await job;
+      text = await withSlot(async (slot) => {
+        const again = await cacheGet(key); // misschien heeft een andere werker het intussen gedownload
+        if (again) return again;
+        return fetchOSMBox(superBox(map, sx, sz), (t) => self.postMessage({ type: 'status', map: map.id, text: t }), slot);
+      });
       await cachePut(key, text);
     }
     const osm = indexOSM(parseOSM(text));
@@ -190,10 +202,12 @@ async function areaPrefetch(m) {
   if (area) area.stop = true;
   area = job;
   const { map, tx: cx, tz: cz, radius: R } = m;
+  const pool = m.pool || 1, me = m.poolIndex || 0;
   const list = [];
   for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
     const tx = cx + dx, tz = cz + dz;
     if (tx < 0 || tz < 0 || tx >= map.tiles || tz >= map.tiles || dx * dx + dz * dz > (R + 0.5) ** 2) continue;
+    if (workerFor(map, tx, tz, pool) !== me) continue; // elke werker doet zijn eigen blokken
     list.push([dx * dx + dz * dz, tx, tz]);
   }
   list.sort((a, b) => a[0] - b[0]);
@@ -286,4 +300,10 @@ async function sendLods(m) {
     if (lod) self.postMessage({ type: 'lodTile', id: m.id, tx, tz, lod });
   }
   self.postMessage({ type: 'lodDone', id: m.id });
+}
+
+// zelfde verdeling als in app.js: alle tegels van één blok van 500 m bij dezelfde werker
+function workerFor(map, tx, tz, pool) {
+  const sx = Math.floor(tx / map.superTiles), sz = Math.floor(tz / map.superTiles);
+  return ((sx * 7 + sz * 13) % pool + pool) % pool;
 }

@@ -8,33 +8,47 @@ import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigma
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
 
-let worker;
+// Meerdere achtergrondwerkers: elk zet zijn eigen blokken van 500 m om (sneller op toestellen met meerdere kernen)
+const POOL = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+const workers = [];
 let reqId = 0;
-const pending = new Map();
+const pending = new Map(); // id -> { h, w }
 const liveStatus = new Map(); // kaart-id -> laatste melding van de achtergrondwerker
-function startWorker() {
-  worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-  worker.onmessage = (e) => {
+function startWorker(i) {
+  const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+  workers[i] = w;
+  w.onmessage = (e) => {
     const d = e.data;
     if (d.type === 'status') { liveStatus.set(d.map, d.text); if (prefetch.job) showPrefetch(prefetch.job); return; }
-    const h = pending.get(d.id);
-    if (h) {
+    const p = pending.get(d.id);
+    if (p) {
       if (!['progress', 'areaProgress', 'mapRows', 'lodTile'].includes(d.type)) pending.delete(d.id);
-      h(d);
+      p.h(d);
     }
   };
   // vastgelopen (bv. te weinig geheugen): opnieuw starten en wachtende aanvragen laten weten dat het mislukte
-  worker.onerror = (e) => {
+  w.onerror = (e) => {
     e.preventDefault?.();
-    const old = [...pending.values()];
-    pending.clear();
-    try { worker.terminate(); } catch { /* al weg */ }
-    startWorker();
-    for (const h of old) h({ type: 'error', message: 'achtergrondproces liep vast en is opnieuw gestart' });
+    const lost = [...pending].filter(([, p]) => p.w === i);
+    for (const [id] of lost) pending.delete(id);
+    try { w.terminate(); } catch { /* al weg */ }
+    startWorker(i);
+    for (const [, p] of lost) p.h({ type: 'error', message: 'achtergrondproces liep vast en is opnieuw gestart' });
   };
 }
-startWorker();
-function ask(msg, handler) { const id = ++reqId; pending.set(id, handler); worker.postMessage({ ...msg, id }); return id; }
+for (let i = 0; i < POOL; i++) startWorker(i);
+function workerFor(map, tx, tz) {
+  const sx = Math.floor(tx / map.superTiles), sz = Math.floor(tz / map.superTiles);
+  return ((sx * 7 + sz * 13) % POOL + POOL) % POOL;
+}
+function ask(msg, handler, wi = 0) {
+  const id = ++reqId;
+  pending.set(id, { h: handler, w: wi });
+  workers[wi].postMessage({ ...msg, id });
+  return id;
+}
+// naar elke werker sturen (bv. de achtergrond-taak rond de speler)
+function askAll(msg, handler) { for (let i = 0; i < POOL; i++) ask({ ...msg, pool: POOL, poolIndex: i }, handler, i); }
 
 const state = { size: 128, sel: null, regions: [], zoom: 1, busy: false };
 let game = null;
@@ -362,7 +376,7 @@ async function playMap(id) {
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
         if (m.type === 'cityTile') resolve(m);
         else if (m.type === 'error') reject(new Error(m.message));
-      });
+      }, workerFor(map, tx, tz));
     });
   });
   const saveTile = (tx, tz, vox, H) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H });
@@ -371,10 +385,16 @@ async function playMap(id) {
   $('#tp-wrap').hidden = !isCity;
   $('#game-title').textContent = meta.name;
   const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
-  const prefetchArea = (tx, tz, radius) => ask({ type: 'area', map, tx, tz, radius }, (m) => {
-    if (m.type === 'areaProgress' && game && game.tiled) game.aheadProgress = m;
+  const areaProg = new Map();
+  const prefetchArea = (tx, tz, radius) => { areaProg.clear(); askAll({ type: 'area', map, tx, tz, radius }, (m) => {
+    if (m.type === 'areaProgress' && game && game.tiled) {
+      areaProg.set(m.id, m);
+      let done = 0, total = 0;
+      for (const v of areaProg.values()) { done += v.done; total += v.total; }
+      game.aheadProgress = { done, total };
+    }
     onLod(m);
-  });
+  }); };
   const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
   game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map), prefetchArea, requestLods }, provider, saveTile);
   game.start();
@@ -416,11 +436,10 @@ async function startPrefetch(meta) {
     ask({ type: 'cityTile', tx, tz, map, prefetch: true }, (m) => {
       if (m.type === 'cityTile') { job.bytes += m.bytes || 0; resolve(true); }
       else if (m.type === 'error') { job.lastError = m.message; resolve(false); }
-    });
+    }, workerFor(map, tx, tz));
   });
   showPrefetch(job);
-  for (const [sx, sz] of supers) {
-    if (job.stop) break;
+  const doSuper = async (sx, sz) => {
     const tiles = [];
     for (let tz = sz * map.superTiles; tz < Math.min(n, (sz + 1) * map.superTiles); tz++)
       for (let tx = sx * map.superTiles; tx < Math.min(n, (sx + 1) * map.superTiles); tx++) tiles.push([tx, tz]);
@@ -432,9 +451,15 @@ async function startPrefetch(meta) {
       if (job.done % 16 === 0) { const m3 = await store.getRegionMeta(meta.id); if (m3) { m3.done = Math.max(m3.done || 0, job.done); await store.saveMeta(m3); } }
     }
     // ruwe kaartdata weggooien als alle tegels klaar zijn: spaart veel opslag
-    if (ok && !job.stop) await new Promise(res => ask({ type: 'dropSuper', map, sx, sz }, res));
+    if (ok && !job.stop) await new Promise(res => ask({ type: 'dropSuper', map, sx, sz }, res, workerFor(map, sx * map.superTiles, sz * map.superTiles)));
     if (!ok) await new Promise(r => setTimeout(r, 4000));
-  }
+  };
+  // meerdere blokken tegelijk: terwijl het ene wordt omgezet, wordt het volgende al gedownload
+  let next = 0;
+  const lanes = Math.max(2, Math.min(POOL + 1, 4));
+  await Promise.all(Array.from({ length: lanes }, async () => {
+    while (!job.stop && next < supers.length) { const [sx, sz] = supers[next++]; await doSuper(sx, sz); }
+  }));
   const m2 = await store.getRegionMeta(meta.id);
   if (m2) { m2.done = job.done; m2.complete = job.done >= job.total; m2.bytes = (m2.bytes || 0) + job.bytes; await store.saveMeta(m2); }
   job.finished = true;

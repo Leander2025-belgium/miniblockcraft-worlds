@@ -7,6 +7,7 @@ import { hash, placeTree } from './city.js';
 export const REAL_GROUND = 12;
 const OVERPASS = [
   'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
@@ -94,11 +95,13 @@ export function overpassQuery(b) {
     'node["natural"="tree"];node["highway"~"^(street_lamp|traffic_signals|bus_stop)$"];' +
     'node["amenity"~"^(bench|bicycle_parking|waste_basket|post_box|fountain)$"];node["public_transport"="platform"];);(._;>;);out body qt;';
 }
-export async function fetchOSMBox(b, onStatus) {
+// start: welke server eerst (verschillende downloads tegelijk verdelen over servers)
+export async function fetchOSMBox(b, onStatus, start = 0) {
   const q = overpassQuery(b);
+  const servers = start % 2 === 1 ? [OVERPASS[1], OVERPASS[0], OVERPASS[2], OVERPASS[3]] : OVERPASS;
   let lastErr;
   for (let attempt = 0; attempt < 4; attempt++) {
-    for (const url of OVERPASS) {
+    for (const url of servers) {
       const host = new URL(url).host;
       const ctrl = new AbortController();
       const t0 = Date.now();
