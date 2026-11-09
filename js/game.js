@@ -440,10 +440,11 @@ export class Game {
     if (!force && now - (this.hudT || 0) < 200) return;
     this.hudT = now;
     const p = this.player, m = this.meta, fly = p.fly ? ' · ✈ vliegen' : '';
-    const h = Math.floor(p.pos.y - (m.ground ?? GROUND));
+    const sc = (m.real && m.real.scale) || 1;
+    const h = Math.floor((p.pos.y - (m.ground ?? GROUND)) / sc);
     if (m.real) {
-      const lat = m.real.lat - (p.pos.z - m.size / 2) / 110574;
-      const lon = m.real.lon + (p.pos.x - m.size / 2) / (111320 * Math.cos(m.real.lat * Math.PI / 180));
+      const lat = m.real.lat - (p.pos.z - m.size / 2) / sc / 110574;
+      const lon = m.real.lon + (p.pos.x - m.size / 2) / sc / (111320 * Math.cos(m.real.lat * Math.PI / 180));
       this.ui.coords.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)} · hoogte ${h} m`;
       const deg = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
       const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];

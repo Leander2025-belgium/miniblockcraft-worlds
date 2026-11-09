@@ -131,7 +131,7 @@ function parseLen(v) {
   return m[2] && m[2] !== 'm' ? n * 0.3048 : n;
 }
 const DEFAULT_H = {
-  house: 7, detached: 7, semidetached_house: 7, terrace: 9, bungalow: 4, residential: 12, apartments: 15,
+  house: 6, detached: 6, semidetached_house: 6, terrace: 9, bungalow: 4, residential: 12, apartments: 15,
   garage: 3, garages: 3, shed: 3, carport: 3, hut: 3, roof: 5, kiosk: 3, service: 4,
   church: 20, cathedral: 30, chapel: 10, commercial: 16, office: 20, retail: 10, supermarket: 7, hotel: 22,
   industrial: 9, warehouse: 9, school: 12, university: 15, hospital: 18, train_station: 15, parking: 10, public: 14,
@@ -146,7 +146,20 @@ function buildingHeights(tags) {
   }
   let min = parseLen(tags.min_height);
   if (!(min >= 0)) { const ml = parseLen(tags['building:min_level']); min = ml > 0 ? ml * 3.2 : 0; }
-  return { h: Math.max(2, h), min: Math.max(0, Math.min(min, h - 1)) };
+  return { h: Math.max(2, h), min: Math.max(0, Math.min(min, h - 1)), explicit: parseLen(tags.height) > 0 };
+}
+const HOUSE = new Set(['house', 'detached', 'semidetached_house', 'terrace', 'bungalow', 'farm', 'cabin', 'church', 'chapel', 'cathedral', 'barn']);
+function roofShape(tags) {
+  let s = (tags['roof:shape'] || '').toLowerCase();
+  if (s === 'hipped' || s === 'half-hipped' || s === 'side_hipped' || s === 'pyramidal' || s === 'gabled' || s === 'skillion' ||
+    s === 'dome' || s === 'onion' || s === 'round' || s === 'mansard' || s === 'gambrel' || s === 'saltbox' || s === 'flat') {
+    return s === 'half-hipped' || s === 'side_hipped' ? 'hipped' : s;
+  }
+  if (s === 'cone') return 'pyramidal';
+  if (s) return 'hipped';
+  const lv = parseLen(tags['building:levels']);
+  if (HOUSE.has(tags.building) && !(lv > 4)) return 'gabled';
+  return 'flat';
 }
 function wallStyle(tags, h, id) {
   const mat = (tags['building:material'] || '').toLowerCase();
@@ -289,10 +302,11 @@ const isArea = (w, tags) => w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length 
   !(tags.highway && tags.area !== 'yes' && !tags['area:highway']);
 
 // ---------- omzetten naar voxels ----------
-export function rasterize(osm, lat0, lon0, size, onProgress) {
+export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
+  // size = aantal blokken; scale = blokken per meter
   const G = REAL_GROUND;
   const mx = 111320 * Math.cos(lat0 * Math.PI / 180), mz = 110574;
-  const proj = (ll) => [(ll[1] - lon0) * mx + size / 2, (lat0 - ll[0]) * mz + size / 2];
+  const proj = (ll) => [(ll[1] - lon0) * mx * scale + size / 2, (lat0 - ll[0]) * mz * scale + size / 2];
   const P = new Map();
   const pt = (id) => {
     let p = P.get(id);
@@ -352,7 +366,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
   for (const w of osm.ways) {
     const ww = w.tags.waterway;
     if (!ww || ww === 'riverbank' || w.tags.tunnel === 'culvert') continue;
-    const width = parseLen(w.tags.width) || (ww === 'river' ? 30 : ww === 'canal' ? 15 : ww === 'stream' ? 4 : 2);
+    const width = (parseLen(w.tags.width) || (ww === 'river' ? 30 : ww === 'canal' ? 15 : ww === 'stream' ? 4 : 2)) * scale;
     const l = line(w.nds);
     if (!l || !bboxOk(l, width)) continue;
     strokeLine(l, width, size, (x, z) => { const i = z * size + x; if (prio[i] < 6) { surf[i] = B.WATER; prio[i] = 6; marks[i] = 1; treeD[i] = 0; } });
@@ -374,20 +388,21 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
     const lanes = parseLen(r.tags.lanes);
     if (lanes > 0 && !r.tags.width) width = Math.max(width, lanes * 3.2);
     const foot = width <= 2.5;
+    width *= scale;
     const blk = r.hw === 'pedestrian' ? B.TILE : (r.hw === 'path' || r.hw === 'track' || r.hw === 'bridleway') ? B.GRAVEL : foot ? B.SIDEWALK : B.ASPHALT;
     const isBridge = r.tags.bridge && r.tags.bridge !== 'no';
-    const marked = width >= 8 && !foot && blk === B.ASPHALT;
+    const marked = width >= 8 * scale && !foot && blk === B.ASPHALT;
     strokeLine(r.l, width, size, (x, z, d, along) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !isBridge) return;
       if (isBridge && surf[i] === B.WATER) bridge[i] = 1;
-      surf[i] = marked && d < 0.5 && (along % 7) < 3.5 ? B.LINE_WHITE : blk;
+      surf[i] = marked && d < 0.5 * scale && (along % (7 * scale)) < 3.5 * scale ? B.LINE_WHITE : blk;
       marks[i] = 1; treeD[i] = 0;
       if (prio[i] < 5) prio[i] = 5;
     });
     // stoepen langs gewone wegen
     if (!foot && blk === B.ASPHALT && r.hw !== 'service' && r.hw !== 'motorway' && r.hw !== 'trunk' && !isBridge) {
-      strokeLine(r.l, width + 4, size, (x, z) => {
+      strokeLine(r.l, width + 4 * scale, size, (x, z) => {
         const i = z * size + x;
         if (prio[i] < 4 && surf[i] !== B.WATER) { surf[i] = B.SIDEWALK; marks[i] = 1; treeD[i] = 0; prio[i] = 4; }
       });
@@ -399,15 +414,16 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
     if (!rw || !['rail', 'light_rail', 'narrow_gauge', 'tram', 'subway'].includes(rw)) continue;
     if (w.tags.tunnel && w.tags.tunnel !== 'no') continue;
     const l = line(w.nds);
-    if (!l || !bboxOk(l, 5)) continue;
+    if (!l || !bboxOk(l, 5 * scale)) continue;
     rails.push(l);
     const tram = rw === 'tram';
-    strokeLine(l, tram ? 2 : 4, size, (x, z, d) => {
+    strokeLine(l, (tram ? 2 : 4) * scale, size, (x, z, d) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !(w.tags.bridge && w.tags.bridge !== 'no')) return;
       if (surf[i] === B.WATER) bridge[i] = 1;
-      if (tram) { if (d > 0.3 && d < 0.8) surf[i] = B.METAL; }
-      else surf[i] = (d > 0.45 && d < 1.0) ? B.METAL : B.GRAVEL;
+      const ds = d / scale;
+      if (tram) { if (ds > 0.3 && ds < 0.8) surf[i] = B.METAL; }
+      else surf[i] = (ds > 0.45 && ds < 1.0) ? B.METAL : B.GRAVEL;
       marks[i] = 1; treeD[i] = 0;
     });
   }
@@ -432,7 +448,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
   const all = shown.concat(parts);
   let maxTop = 30;
   for (const b of all) { b.hm = buildingHeights(b.tags); maxTop = Math.max(maxTop, b.hm.h); }
-  const H = Math.min(400, Math.ceil((G + maxTop + 14) / 8) * 8);
+  const H = Math.min(640, Math.ceil((G + maxTop * scale + 14 + 14 * scale) / 8) * 8);
 
   const vox = new Uint8Array(N * H);
   // ondergrond + oppervlak
@@ -451,7 +467,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
   onProgress?.(0.45);
 
   all.sort((a, b) => a.hm.min - b.hm.min);
-  const set = (x, y, z, b) => { if (y < H) vox[(z * size + x) * H + y] = b; };
+  const set = (x, y, z, b) => { if (y > 0 && y < H) vox[(z * size + x) * H + y] = b; };
+  const FLOOR = Math.max(3, Math.round(3.3 * scale));
   let count = 0;
   for (const bd of all) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -461,33 +478,109 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
     if (x1 < x0 || z1 < z0) continue;
     const bw = x1 - x0 + 1, bh = z1 - z0 + 1;
     const mask = new Uint8Array(bw * bh);
-    let cells = 0;
-    fillRings(bd.rings, size, (x, z) => { mask[(z - z0) * bw + (x - x0)] = 1; cells++; });
+    let cells = 0, sx = 0, sz = 0;
+    fillRings(bd.rings, size, (x, z) => { mask[(z - z0) * bw + (x - x0)] = 1; cells++; sx += x; sz += z; });
     if (!cells) continue;
     count++;
-    const st = wallStyle(bd.tags, bd.hm.h, bd.id);
-    const top = G + Math.max(1, Math.round(bd.hm.h));
-    const yb = G + 1 + Math.round(bd.hm.min);
     const inM = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1 && mask[(z - z0) * bw + (x - x0)] === 1;
+
+    // vorm van het grondvlak: hoofdas (voor zadeldaken) en afstand tot de gevel (voor schild- en koepeldaken)
+    const cx = sx / cells, cz = sz / cells;
+    let cxx = 0, czz = 0, cxz = 0;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mask[(z - z0) * bw + (x - x0)]) {
+      cxx += (x - cx) ** 2; czz += (z - cz) ** 2; cxz += (x - cx) * (z - cz);
+    }
+    let th = 0.5 * Math.atan2(2 * cxz, cxx - czz);
+    if ((bd.tags['roof:orientation'] || '') === 'across') th += Math.PI / 2;
+    const bx = -Math.sin(th), bz = Math.cos(th); // korte as
+    let pmin = Infinity, pmax = -Infinity;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (mask[(z - z0) * bw + (x - x0)]) {
+      const pr = (x - cx) * bx + (z - cz) * bz; if (pr < pmin) pmin = pr; if (pr > pmax) pmax = pr;
+    }
+    const halfShort = Math.max(0.5, (pmax - pmin) / 2 + 0.5);
+    const dist = new Float32Array(bw * bh);
+    for (let i = 0; i < dist.length; i++) dist[i] = mask[i] ? 1e9 : 0;
+    const D2 = Math.SQRT2;
+    const dAt = (x, z) => (x < 0 || z < 0 || x >= bw || z >= bh) ? 0 : dist[z * bw + x];
+    for (let z = 0; z < bh; z++) for (let x = 0; x < bw; x++) {
+      const i = z * bw + x; if (!mask[i]) continue;
+      dist[i] = Math.min(dist[i], dAt(x - 1, z) + 1, dAt(x, z - 1) + 1, dAt(x - 1, z - 1) + D2, dAt(x + 1, z - 1) + D2);
+    }
+    let dMax = 1;
+    for (let z = bh - 1; z >= 0; z--) for (let x = bw - 1; x >= 0; x--) {
+      const i = z * bw + x; if (!mask[i]) continue;
+      dist[i] = Math.min(dist[i], dAt(x + 1, z) + 1, dAt(x, z + 1) + 1, dAt(x + 1, z + 1) + D2, dAt(x - 1, z + 1) + D2);
+      if (dist[i] > dMax) dMax = dist[i];
+    }
+
+    const hTot = bd.hm.h * scale, minH = bd.hm.min * scale;
+    const shape = roofShape(bd.tags);
+    let roofH = 0;
+    if (shape !== 'flat') {
+      const tagH = parseLen(bd.tags['roof:height']), tagL = parseLen(bd.tags['roof:levels']);
+      if (tagH > 0) roofH = tagH * scale;
+      else if (tagL > 0) roofH = tagL * 3 * scale;
+      else if (shape === 'dome' || shape === 'onion' || shape === 'round') roofH = dMax;
+      else if (shape === 'pyramidal') roofH = halfShort * 1.2;
+      else roofH = Math.min(halfShort * 0.85, 9 * scale);
+      // hoogte uit verdiepingen of standaardwaarde: het dak komt bovenop de muren
+      if (!bd.hm.explicit) roofH = Math.min(roofH, 14 * scale);
+      else roofH = Math.max(0, Math.min(roofH, hTot - minH - 1));
+    }
+    const top = G + Math.max(1, Math.round(hTot + (bd.hm.explicit ? 0 : roofH)));
+    const wallTop = top - Math.round(roofH);
+    const yb = G + 1 + Math.round(minH);
+    const roofY = new Int16Array(bw * bh);
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
-      if (!mask[(z - z0) * bw + (x - x0)]) continue;
+      const i = (z - z0) * bw + (x - x0);
+      if (!mask[i]) continue;
+      let f = 0;
+      if (shape === 'gabled' || shape === 'gambrel' || shape === 'saltbox') {
+        const pr = (x - cx) * bx + (z - cz) * bz;
+        f = 1 - Math.abs(pr - (pmin + pmax) / 2) / halfShort;
+      } else if (shape === 'skillion') {
+        const pr = (x - cx) * bx + (z - cz) * bz;
+        f = (pr - pmin) / Math.max(1, pmax - pmin);
+      } else if (shape !== 'flat') {
+        const t = Math.min(1, Math.max(0, (dist[i] - 0.5) / Math.max(0.5, dMax - 0.5)));
+        if (shape === 'dome' || shape === 'onion' || shape === 'round') f = Math.sqrt(1 - (1 - t) * (1 - t));
+        else if (shape === 'mansard') f = Math.min(1, t * 1.7);
+        else f = t; // schilddak, piramide, ...
+      }
+      roofY[i] = wallTop + Math.round(roofH * Math.max(0, Math.min(1, f)));
+    }
+    const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
+
+    const st = wallStyle(bd.tags, bd.hm.h, bd.id);
+    const pitched = shape !== 'flat';
+    const winEvery = 2 + scale;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      const mi = (z - z0) * bw + (x - x0);
+      if (!mask[mi]) continue;
       const edge = !inM(x - 1, z) || !inM(x + 1, z) || !inM(x, z - 1) || !inM(x, z + 1);
       const ex = !inM(x - 1, z) || !inM(x + 1, z);
       const t = ex ? z : x;
       const i = z * size + x;
       marks[i] = 1; treeD[i] = 0;
       if (yb === G + 1) set(x, G, z, B.TILE); else set(x, yb - 1, z, st.wall);
-      for (let y = yb; y < top; y++) {
-        const k = y - G;
-        const lev = k % 4;
+      for (let y = yb; y < wallTop; y++) {
+        const lev = (y - G) % FLOOR;
         if (edge) {
           let win;
-          if (st.curtain) win = lev !== 0 && t % 4 !== 0;
-          else win = (lev === 2 || lev === 3) && t % 3 === 1;
+          if (st.curtain) win = lev !== 0 && t % winEvery !== 0;
+          else win = lev >= 1 && lev < FLOOR - (scale > 1 ? 1 : 0) && (t % winEvery) >= 1 && (t % winEvery) <= scale;
           set(x, y, z, win ? st.glass : st.wall);
         } else set(x, y, z, lev === 0 ? B.TILE : 0);
       }
-      set(x, top, z, edge && bd.hm.h > 6 && !(bd.tags['roof:shape'] && bd.tags['roof:shape'] !== 'flat') ? st.wall : st.roof);
+      if (!pitched) {
+        set(x, wallTop, z, edge && hTot > 6 * scale ? st.wall : st.roof);
+        continue;
+      }
+      const ry = roofY[mi];
+      const low = Math.min(ryAt(x - 1, z), ryAt(x + 1, z), ryAt(x, z - 1), ryAt(x, z + 1));
+      if (edge) for (let y = wallTop; y < ry; y++) set(x, y, z, st.wall); // gevel onder het dak
+      for (let y = Math.max(wallTop, Math.min(ry, low + 1)); y <= ry; y++) set(x, y, z, st.roof);
+      if (wallTop > yb && !edge) set(x, wallTop, z, B.PLANKS); // zoldervloer
     }
   }
   onProgress?.(0.85);
@@ -513,7 +606,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress) {
     const l = line(w.nds);
     if (!l || !bboxOk(l)) continue;
     let next = 0;
-    strokeLine(l, 1, size, (x, z, d, along) => { if (along >= next) { plant(x, z); next = along + 8; } });
+    strokeLine(l, 1, size, (x, z, d, along) => { if (along >= next) { plant(x, z); next = along + 8 * scale; } });
   }
   for (let gz = 0; gz < size; gz += 7) for (let gx = 0; gx < size; gx += 7) {
     const x = gx + 1 + Math.floor(hash(gx, gz, 11) * 5), z = gz + 1 + Math.floor(hash(gx, gz, 12) * 5);

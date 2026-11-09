@@ -72,6 +72,7 @@ self.onmessage = (e) => {
 async function realWorld(m) {
   const status = (text, p) => self.postMessage({ type: 'progress', id: m.id, text, p });
   let text = m.text, lat = m.lat, lon = m.lon, size = m.size;
+  const scale = m.scale || 1;
   if (!text) {
     status('Kaartgegevens opvragen bij OpenStreetMap…', 0.05);
     text = await fetchOSM(lat, lon, size, t => status(t, 0.1));
@@ -91,8 +92,9 @@ async function realWorld(m) {
     }
   }
   status('Gebouwen en straten omzetten naar blokken…', 0.4);
-  const r = rasterize(osm, lat, lon, size, p => status('Gebouwen en straten omzetten naar blokken…', 0.4 + p * 0.55));
-  const preview = topView(r.vox, size, r.H);
-  self.postMessage({ type: 'osmDone', id: m.id, vox: r.vox, H: r.H, ground: r.ground, buildings: r.buildings, lat, lon, size, preview },
+  const blocks = Math.round(size * scale);
+  const r = rasterize(osm, lat, lon, blocks, p => status('Gebouwen en straten omzetten naar blokken…', 0.4 + p * 0.55), scale);
+  const preview = topView(r.vox, blocks, r.H);
+  self.postMessage({ type: 'osmDone', id: m.id, vox: r.vox, H: r.H, ground: r.ground, buildings: r.buildings, lat, lon, size: blocks, meters: size, scale, preview },
     [r.vox.buffer, preview.buffer]);
 }

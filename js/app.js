@@ -179,6 +179,8 @@ function notify(t) {
   clearTimeout(notify.t); notify.t = setTimeout(() => { el.hidden = true; }, 5000);
 }
 
+const regionMeters = (r) => Math.round(r.size / ((r.real && r.real.scale) || 1));
+
 // ---------- mijn stukken ----------
 function fmtBytes(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' kB'; }
 async function refreshList() {
@@ -197,7 +199,7 @@ async function refreshList() {
     const edited = r.edited ? ' · bewerkt' : '';
     card.innerHTML = `
       <div class="r-title"></div>
-      <div class="muted small">${r.size}×${r.size} m · ${r.real ? `📍 ${r.real.lat.toFixed(4)}, ${r.real.lon.toFixed(4)}` : `x ${r.x0} · z ${r.z0}`}${r.bytes ? ' · ' + fmtBytes(r.bytes) : ''}${edited}</div>
+      <div class="muted small">${regionMeters(r)}×${regionMeters(r)} m${r.real && r.real.scale > 1 ? ' (fijn detail)' : ''} · ${r.real ? `📍 ${r.real.lat.toFixed(4)}, ${r.real.lon.toFixed(4)}` : `x ${r.x0} · z ${r.z0}`}${r.bytes ? ' · ' + fmtBytes(r.bytes) : ''}${edited}</div>
       <div class="r-actions">
         <button class="btn primary" data-a="play">▶ Spelen</button>
         <button class="btn" data-a="show">Toon</button>
@@ -314,6 +316,17 @@ function setMode(mode) {
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
 state.rsize = 256;
+state.rscale = 1;
+document.querySelectorAll('[data-rscale]').forEach(b => b.addEventListener('click', () => {
+  state.rscale = +b.dataset.rscale;
+  document.querySelectorAll('[data-rscale]').forEach(o => o.classList.toggle('on', o === b));
+  const fine = state.rscale > 1;
+  document.querySelectorAll('[data-rsize]').forEach(o => { o.disabled = fine && +o.dataset.rsize > 128; });
+  if (fine && state.rsize > 128) document.querySelector('[data-rsize="128"]').click();
+  $('#scale-help').textContent = fine
+    ? 'Fijn detail: gebouwen lijken meer op het echte gebouw, maar het stuk is zwaarder. Daarom maximaal 128 m.'
+    : 'Normaal detail: snel, ook op een telefoon. 256 m is een goede keuze.';
+}));
 document.querySelectorAll('[data-rsize]').forEach(b => b.addEventListener('click', () => {
   state.rsize = +b.dataset.rsize;
   document.querySelectorAll('[data-rsize]').forEach(o => o.classList.toggle('on', o === b));
@@ -413,7 +426,7 @@ function drawSavedOnMap() {
   savedLayer.clearLayers();
   for (const r of state.regions) {
     if (!r.real) continue;
-    L.rectangle(squareBounds(r.real.lat, r.real.lon, r.size), { color: '#5fd27a', weight: 2, fillOpacity: 0.2, interactive: true })
+    L.rectangle(squareBounds(r.real.lat, r.real.lon, regionMeters(r)), { color: '#5fd27a', weight: 2, fillOpacity: 0.2, interactive: true })
       .bindTooltip(`${r.name} (gedownload)`).addTo(savedLayer);
   }
 }
@@ -482,13 +495,13 @@ function realJob(msg, name) {
       const meta = {
         id: 'r' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
         name: name || `Plek ${m.lat.toFixed(4)}, ${m.lon.toFixed(4)}`, x0: 0, z0: 0, size: m.size, H: m.H, ground: m.ground,
-        real: { lat: m.lat, lon: m.lon }, created: Date.now(), wijk: name || 'Echte wereld', type: 'Echte wereld',
+        real: { lat: m.lat, lon: m.lon, scale: m.scale }, created: Date.now(), wijk: name || 'Echte wereld', type: 'Echte wereld',
       };
       try {
         await store.saveRegion(meta, m.vox);
         bar.style.width = '100%';
         txt.textContent = `Klaar: ${m.buildings} gebouwen. Je vindt het bij “Mijn stukken”.`;
-        $('#real-info').textContent = `${meta.name} · ${m.size}×${m.size} m · ${m.buildings} gebouwen · tot ${m.H - m.ground} m hoog.`;
+        $('#real-info').textContent = `${meta.name} · ${m.meters}×${m.meters} m · ${m.buildings} gebouwen · tot ${Math.round((m.H - m.ground) / m.scale)} m hoog.`;
       } catch (err) { txt.textContent = 'Opslaan mislukt: ' + err.message; }
       done();
       refreshList();
@@ -499,14 +512,14 @@ function realJob(msg, name) {
 $('#btn-real').addEventListener('click', () => {
   const lat = parseFloat($('#lat').value), lon = parseFloat($('#lon').value);
   if (!(Math.abs(lat) <= 85) || !(Math.abs(lon) <= 180)) { $('#real-text').textContent = 'Vul een geldige breedte- en lengtegraad in.'; $('#real-progress').hidden = false; return; }
-  realJob({ type: 'osm', lat, lon, size: state.rsize }, $('#real-name').value.trim());
+  realJob({ type: 'osm', lat, lon, size: state.rsize, scale: state.rscale }, $('#real-name').value.trim());
 });
 $('#osm-file').addEventListener('change', async (e) => {
   const f = e.target.files[0];
   e.target.value = '';
   if (!f) return;
   const text = await f.text();
-  realJob({ type: 'osm', text, size: state.rsize }, f.name.replace(/\.(osm|xml|json)$/i, '') === 'map' ? '' : f.name.replace(/\.(osm|xml|json)$/i, ''));
+  realJob({ type: 'osm', text, size: state.rsize, scale: state.rscale }, f.name.replace(/\.(osm|xml|json)$/i, '') === 'map' ? '' : f.name.replace(/\.(osm|xml|json)$/i, ''));
 });
 
 async function showReal(r) {
@@ -514,7 +527,7 @@ async function showReal(r) {
   setPlace(r.name, r.real.lat, r.real.lon);
   const vox = await store.loadRegionData(r.id);
   if (vox) drawRealPreview(topView(vox, r.size, r.H), r.size);
-  $('#real-info').textContent = `${r.name} · ${r.size}×${r.size} m`;
+  $('#real-info').textContent = `${r.name} · ${regionMeters(r)}×${regionMeters(r)} m`;
 }
 
 // start

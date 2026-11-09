@@ -44,6 +44,7 @@
   aside h2:first-child { margin-top: 2px; }
   .seg { display: flex; gap: 6px; }
   .seg button, .btn, .chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  .seg button:disabled { opacity: .35; cursor: default; }
   .seg button.on { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
   .btn:hover, .chip:hover, .seg button:hover { border-color: #4a5c78; }
   .btn.primary { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
@@ -236,7 +237,12 @@
         <button data-rsize="256" class="on">256 m</button>
         <button data-rsize="384">384 m</button>
       </div>
-      <p class="help">Wolkenkrabbers maken het stuk hoger en zwaarder. 256 m is een goede keuze.</p>
+      <h2>3 · Detail</h2>
+      <div class="seg">
+        <button data-rscale="1" class="on">1 blok = 1 m</button>
+        <button data-rscale="2">1 blok = 0,5 m</button>
+      </div>
+      <p class="help" id="scale-help">Normaal detail: snel, ook op een telefoon. 256 m is een goede keuze.</p>
       <button class="btn primary big" id="btn-real">⬇ Download echte gebouwen</button>
       <div id="real-progress" hidden>
         <div class="bar"><div id="real-bar"></div></div>
