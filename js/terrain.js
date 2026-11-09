@@ -1,8 +1,13 @@
 // Echte hoogtes uit de gratis "Terrain Tiles" (Terrarium-formaat) van AWS Open Data.
 // Werkt in de browser (ook in een worker) dankzij OffscreenCanvas.
 import { cacheGet, cachePut } from './storage.js';
+export function decodeTerrarium(rgba) {
+  const e = new Float32Array(256 * 256);
+  for (let i = 0; i < e.length; i++) e[i] = rgba[i * 4] * 256 + rgba[i * 4 + 1] + rgba[i * 4 + 2] / 256 - 32768;
+  return e;
+}
 
-const URL_T = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+export const URL_T = (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 const Z = 15;                      // ±3 m per pixel in Europa
 const mem = new Map();
 
@@ -20,9 +25,7 @@ async function fetchTile(z, x, y) {
     const bmp = await createImageBitmap(await res.blob());
     const c = new OffscreenCanvas(256, 256), ctx = c.getContext('2d');
     ctx.drawImage(bmp, 0, 0);
-    const d = ctx.getImageData(0, 0, 256, 256).data;
-    const e = new Float32Array(256 * 256);
-    for (let i = 0; i < e.length; i++) e[i] = d[i * 4] * 256 + d[i * 4 + 1] + d[i * 4 + 2] / 256 - 32768;
+    const e = decodeTerrarium(ctx.getImageData(0, 0, 256, 256).data);
     await cachePut(key, e);
     return e;
   })();
@@ -33,14 +36,15 @@ async function fetchTile(z, x, y) {
 }
 
 // Maakt een hoogtefunctie (lat, lon) -> meter voor een gebied, met filter tegen pieken van gebouwen in de data.
-export async function elevationSampler(b, z = Z) {
+// getTile(z, x, y) -> Float32Array(256*256) meter; standaard downloadt de browser de tegel.
+export async function elevationSampler(b, z = Z, getTile = fetchTile) {
   const x0 = Math.floor(lonToX(b.w, z)), x1 = Math.floor(lonToX(b.e, z));
   const y0 = Math.floor(latToY(b.n, z)), y1 = Math.floor(latToY(b.s, z));
   const W = (x1 - x0 + 1) * 256, Hh = (y1 - y0 + 1) * 256;
   if (W * Hh > 4096 * 4096) throw new Error('gebied te groot voor hoogtekaart');
   let grid = new Float32Array(W * Hh);
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-    const e = await fetchTile(z, tx, ty);
+    const e = await getTile(z, tx, ty);
     for (let py = 0; py < 256; py++) grid.set(e.subarray(py * 256, py * 256 + 256), ((ty - y0) * 256 + py) * W + (tx - x0) * 256);
   }
   // 1) minimumfilter (haalt gebouwen en bomen uit de hoogtedata), 2) vervagen (zachte hellingen)
@@ -69,8 +73,8 @@ export async function elevationSampler(b, z = Z) {
 }
 
 // Laagste hoogte van een heel gebied (grof), als nulpunt voor een kaart
-export async function elevationBase(b) {
-  const f = await elevationSampler(b, 12);
+export async function elevationBase(b, getTile = fetchTile) {
+  const f = await elevationSampler(b, 12, getTile);
   let min = Infinity;
   for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) min = Math.min(min, f(b.s + (b.n - b.s) * i / 20, b.w + (b.e - b.w) * j / 20));
   return Math.floor(min) - 2;
