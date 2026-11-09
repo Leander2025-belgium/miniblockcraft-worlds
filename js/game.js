@@ -77,6 +77,48 @@ class World {
     for (let y = this.H - 1; y >= 0; y--) if (this.get(x, y, z)) return y;
     return 0;
   }
+  solidAt(x, y, z) {
+    if (y < 0 || !this.inside(x, z)) return true; // onzichtbare muur aan de rand
+    if (y >= this.H) return false;
+    return IS_SOLID[this.vox[(z * this.size + x) * this.H + y]] === 1;
+  }
+  sourceAt() { return this.src; }
+}
+
+// Een grote wereld die uit tegels bestaat en tegels laadt rond de speler.
+class TileWorld {
+  constructor(spec) {
+    this.T = spec.tile; this.n = spec.tiles; this.size = this.T * this.n;
+    this.G = spec.ground; this.H = 1024;
+    this.tiles = new Map();
+  }
+  key(tx, tz) { return tz * 1000 + tx; }
+  tileAt(x, z) { return this.tiles.get(this.key(Math.floor(x / this.T), Math.floor(z / this.T))); }
+  inside(x, z) { return x >= 0 && z >= 0 && x < this.size && z < this.size; }
+  get(x, y, z) {
+    if (!this.inside(x, z) || y < 0) return 0;
+    const t = this.tileAt(x, z);
+    if (!t) return 0;
+    return t.w.get(x - t.ox, y, z - t.oz);
+  }
+  set(x, y, z, b) {
+    const t = this.inside(x, z) && this.tileAt(x, z);
+    if (!t) return false;
+    const ok = t.w.set(x - t.ox, y, z - t.oz, b);
+    if (ok) t.dirty = true;
+    return ok;
+  }
+  solidAt(x, y, z) {
+    if (y < 0 || !this.inside(x, z)) return true;
+    const t = this.tileAt(x, z);
+    if (!t) return y <= this.G; // nog niet geladen: vaste grond
+    return t.w.solidAt(x - t.ox, y, z - t.oz);
+  }
+  columnTop(x, z) {
+    const t = this.tileAt(x, z);
+    return t ? t.w.columnTop(x - t.ox, z - t.oz) : this.G;
+  }
+  sourceAt(x, z) { return this.tileAt(x, z); }
 }
 
 export class Game {
@@ -123,14 +165,15 @@ export class Game {
   load(meta, vox) {
     this.clearChunks();
     this.meta = meta;
+    this.tiled = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
     this.dirty = false;
-    const nc = this.world.nc;
     this.queue = [];
-    for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) this.queue.push([cx, cz]);
-    this.totalChunks = this.queue.length;
+    this.totalChunks = 0;
     this.builtChunks = 0;
+    this.world.src = { w: this.world, ox: 0, oz: 0, key: 'main' };
+    this.addSource(this.world.src);
     this.player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, onGround: false, fly: false, inWater: false };
     if (meta.player) {
       Object.assign(this.player, { yaw: meta.player.yaw, pitch: meta.player.pitch, fly: !!meta.player.fly });
@@ -139,6 +182,93 @@ export class Game {
     this.sortQueue();
     this.lastAuto = performance.now();
     this.updateHud(true);
+  }
+
+  // Grote wereld uit tegels. provider(tx, tz) geeft een Promise<{ vox, H }>.
+  loadTiled(meta, spec, provider, saveTile) {
+    this.clearChunks();
+    this.meta = meta;
+    this.world = new TileWorld(spec);
+    this.tiled = { spec, provider, saveTile, inFlight: 0, pending: new Set(), failed: new Map(), lastCheck: 0 };
+    this.chunks = new Map();
+    this.dirty = false;
+    this.queue = [];
+    this.totalChunks = 0;
+    this.builtChunks = 0;
+    this.player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, onGround: false, fly: true, inWater: false };
+    const pl = meta.player || spec.spawn;
+    Object.assign(this.player, { yaw: pl.yaw || 0, pitch: pl.pitch || 0, fly: pl.fly ?? true });
+    this.player.pos.set(pl.x, pl.y, pl.z);
+    this.lastAuto = performance.now();
+    this.updateTiles(true);
+    this.updateHud(true);
+  }
+
+  addSource(src) {
+    const nc = src.w.nc;
+    for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) this.queue.push([src, cx, cz]);
+    this.totalChunks += nc * nc;
+    if (this.player) this.sortQueue();
+  }
+
+  removeSource(src) {
+    src.dead = true;
+    for (const [k, c] of this.chunks) {
+      if (c.src !== src) continue;
+      for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
+      this.chunks.delete(k);
+    }
+  }
+
+  updateTiles(force) {
+    const td = this.tiled;
+    if (!td) return;
+    const now = performance.now();
+    if (!force && now - td.lastCheck < 400) return;
+    td.lastCheck = now;
+    const W = this.world, T = W.T, p = this.player.pos;
+    const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
+    const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
+    // tegels die te ver weg zijn opruimen (eerst bewaren als je er iets veranderde)
+    for (const [k, t] of W.tiles) {
+      if (Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)) > R + 1) {
+        if (t.dirty) td.saveTile(t.tx, t.tz, t.w.vox, t.w.H);
+        this.removeSource(t);
+        W.tiles.delete(k);
+      }
+    }
+    // ontbrekende tegels aanvragen, dichtstbij eerst
+    const want = [];
+    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+      const tx = ptx + dx, tz = ptz + dz;
+      if (tx < 0 || tz < 0 || tx >= W.n || tz >= W.n) continue;
+      if ((dx * dx + dz * dz) > (R + 0.5) ** 2) continue;
+      const k = W.key(tx, tz);
+      if (W.tiles.has(k) || td.pending.has(k)) continue;
+      if ((td.failed.get(k) || 0) > now) continue;
+      want.push([dx * dx + dz * dz, tx, tz, k]);
+    }
+    want.sort((a, b) => a[0] - b[0]);
+    for (const [, tx, tz, k] of want) {
+      if (td.inFlight >= 3) break;
+      td.inFlight++; td.pending.add(k);
+      td.provider(tx, tz).then(({ vox, H }) => {
+        if (this.world !== W) return;
+        const w = new World({ size: T, H }, vox);
+        const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false };
+        w.src = src;
+        W.tiles.set(k, src);
+        this.addSource(src);
+      }).catch((err) => {
+        td.failed.set(k, performance.now() + 15000);
+        this.tileError = err && err.message;
+      }).finally(() => { td.inFlight--; td.pending.delete(k); });
+    }
+  }
+
+  saveDirtyTiles() {
+    if (!this.tiled) return;
+    for (const t of this.world.tiles.values()) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H); t.dirty = false; }
   }
 
   spawn() {
@@ -160,8 +290,9 @@ export class Game {
   }
 
   sortQueue() {
-    const px = this.player.pos.x / CS, pz = this.player.pos.z / CS;
-    this.queue.sort((a, b) => ((b[0] + 0.5 - px) ** 2 + (b[1] + 0.5 - pz) ** 2) - ((a[0] + 0.5 - px) ** 2 + (a[1] + 0.5 - pz) ** 2));
+    const px = this.player.pos.x, pz = this.player.pos.z;
+    const d = (q) => (q[0].ox + q[1] * CS + 8 - px) ** 2 + (q[0].oz + q[2] * CS + 8 - pz) ** 2;
+    this.queue.sort((a, b) => d(b) - d(a));
   }
 
   clearChunks() {
@@ -172,17 +303,19 @@ export class Game {
     this.chunks.clear();
   }
 
-  buildChunk(cx, cz) {
-    const key = cz * this.world.nc + cx;
+  buildChunk(src, cx, cz) {
+    if (src.dead) return;
+    const key = src.key + ':' + (cz * src.w.nc + cx);
     const old = this.chunks.get(key);
     if (old) for (const m of [old.o, old.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
-    const out = meshChunk(this.world, cx, cz);
-    const entry = { o: this.toMesh(out.opaque, this.matOpaque), t: this.toMesh(out.trans, this.matTrans), cx, cz };
+    const out = meshChunk(src.w, cx, cz);
+    const entry = { o: this.toMesh(out.opaque, this.matOpaque, src), t: this.toMesh(out.trans, this.matTrans, src), src,
+      wx: src.ox + cx * CS + 8, wz: src.oz + cz * CS + 8 };
     if (entry.t) entry.t.renderOrder = 1;
     this.chunks.set(key, entry);
   }
 
-  toMesh(buf, mat) {
+  toMesh(buf, mat, src) {
     if (!buf.n) return null;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
@@ -192,12 +325,17 @@ export class Game {
     g.setIndex(buf.n > 65535 ? new THREE.Uint32BufferAttribute(buf.idx, 1) : new THREE.Uint16BufferAttribute(buf.idx, 1));
     g.computeBoundingSphere();
     const m = new THREE.Mesh(g, mat);
+    m.position.set(src.ox, 0, src.oz);
+    m.updateMatrix();
     m.matrixAutoUpdate = false;
     this.scene.add(m);
     return m;
   }
 
-  remeshAround(x, z) {
+  remeshAround(gx, gz) {
+    const src = this.world.sourceAt(gx, gz);
+    if (!src) return;
+    const x = gx - src.ox, z = gz - src.oz;
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     const set = new Set([`${cx},${cz}`]);
     const lx = x - cx * CS, lz = z - cz * CS;
@@ -211,7 +349,7 @@ export class Game {
     if (lx === CS - 1 && lz === CS - 1) set.add(`${cx + 1},${cz + 1}`);
     for (const k of set) {
       const [a, b] = k.split(',').map(Number);
-      if (a >= 0 && b >= 0 && a < this.world.nc && b < this.world.nc) this.buildChunk(a, b);
+      if (a >= 0 && b >= 0 && a < src.w.nc && b < src.w.nc) this.buildChunk(src, a, b);
     }
   }
 
@@ -226,7 +364,9 @@ export class Game {
       if (!this.running) return;
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
+      if (this.tiled && this.queue.length === 0) this.updateTiles();
       this.buildSome();
+      this.tileStatus();
       if (this.active()) this.update(dt);
       this.render();
       this.raf = requestAnimationFrame(loop);
@@ -249,13 +389,25 @@ export class Game {
     const t0 = performance.now();
     let n = 0;
     while (this.queue.length && (performance.now() - t0 < 12 || n === 0)) {
-      const [cx, cz] = this.queue.pop();
-      this.buildChunk(cx, cz);
+      const [src, cx, cz] = this.queue.pop();
+      this.buildChunk(src, cx, cz);
       this.builtChunks++; n++;
     }
+    if (this.tiled) return;
     const pct = Math.round(this.builtChunks / this.totalChunks * 100);
     this.ui.loading.hidden = pct >= 100;
     this.ui.loading.textContent = `Wereld opbouwen… ${pct}%`;
+  }
+
+  tileStatus() {
+    const td = this.tiled;
+    if (!td) return;
+    const p = this.player.pos, here = this.world.tileAt(p.x, p.z);
+    const busy = td.inFlight > 0 || this.queue.length > 0;
+    this.ui.loading.hidden = !!here && !busy;
+    this.ui.loading.classList.toggle('minor', !!here);
+    if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : 'Stad laden… (de eerste keer duurt dit even)';
+    else this.ui.loading.textContent = `Stad laden… ${td.inFlight} stukken onderweg`;
   }
 
   render() {
@@ -267,7 +419,7 @@ export class Game {
     this.camera.far = far + 20; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
-      const dx = c.cx * CS + 8 - pcx, dz = c.cz * CS + 8 - pcz;
+      const dx = c.wx - pcx, dz = c.wz - pcz;
       const vis = dx * dx + dz * dz < lim;
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
@@ -283,12 +435,7 @@ export class Game {
   }
 
   // ---------- natuurkunde ----------
-  solid(x, y, z) {
-    if (y < 0) return true;
-    if (!this.world.inside(x, z)) return true; // onzichtbare muur aan de rand
-    if (y >= this.world.H) return false;
-    return IS_SOLID[this.world.vox[(z * this.world.size + x) * this.world.H + y]] === 1;
-  }
+  solid(x, y, z) { return this.world.solidAt(x, y, z); }
   collides(px, py, pz) {
     const r = 0.3, h = 1.8;
     const x0 = Math.floor(px - r), x1 = Math.floor(px + r - 1e-6);
@@ -317,6 +464,7 @@ export class Game {
 
   update(dt) {
     const p = this.player, k = this.keys;
+    if (this.tiled && !this.world.tileAt(p.pos.x, p.pos.z)) { this.updateTarget(); this.updateHud(); return; }
     let fx = 0, fz = 0;
     if (k.has('KeyW') || k.has('ArrowUp')) fz -= 1;
     if (k.has('KeyS') || k.has('ArrowDown')) fz += 1;
@@ -365,7 +513,7 @@ export class Game {
     }
     // automatisch opspringen (aanraakschermen)
     if (blockedH && p.onGround && this.touch && len > 0.3) p.vel.y = 9.2;
-    if (p.pos.y < -10) this.spawn();
+    if (p.pos.y < -10 && !this.tiled) this.spawn();
 
     // muis ingedrukt houden = herhalen
     this.actionTimer = (this.actionTimer || 0) - dt;
@@ -413,18 +561,15 @@ export class Game {
       this.remeshAround(t.x, t.z);
     } else if (kind === 'place') {
       const x = t.x + t.n[0], y = t.y + t.n[1], z = t.z + t.n[2];
-      if (!this.world.inside(x, z) || y < 0 || y >= this.world.H) return;
+      if (!this.world.inside(x, z) || y < 0) return;
       const cur = this.world.get(x, y, z);
       if (cur && cur !== B.WATER) return;
       const b = this.hotbar[this.slot];
+      if (!this.world.set(x, y, z, b)) return;
       if (IS_SOLID[b]) {
         const p = this.player.pos;
-        this.world.vox[(z * this.world.size + x) * this.world.H + y] = b;
-        const hit = this.collides(p.x, p.y, p.z);
-        this.world.vox[(z * this.world.size + x) * this.world.H + y] = cur;
-        if (hit) return;
+        if (this.collides(p.x, p.y, p.z)) { this.world.set(x, y, z, cur); return; }
       }
-      this.world.set(x, y, z, b);
       this.remeshAround(x, z);
     } else if (kind === 'pick') {
       if (PLACEABLE.includes(t.b)) { this.hotbar[this.slot] = t.b; this.buildHotbar(); }

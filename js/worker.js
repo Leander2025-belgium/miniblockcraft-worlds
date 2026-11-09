@@ -1,7 +1,9 @@
 // Web Worker: berekent de stadskaart, voorbeelden en volledige 3D-gebieden.
 import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './city.js';
 import { BLOCKS } from './blocks.js';
-import { parseOSM, fetchOSM, rasterize, topView } from './osm.js';
+import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor } from './osm.js';
+import { CITY, MX, tileCenter, superBox } from './frankfurt.js';
+import { cacheGet, cachePut, rleEncode, rleDecode } from './storage.js';
 
 const col = new Uint8Array(HEIGHT);
 
@@ -56,6 +58,9 @@ self.onmessage = (e) => {
       }
     }
     self.postMessage({ type: 'preview', id: m.id, size, data }, [data.buffer]);
+  } else if (m.type === 'cityTile') {
+    cityTile(m).then(r => self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]))
+      .catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'osm') {
     realWorld(m).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'region') {
@@ -97,4 +102,40 @@ async function realWorld(m) {
   const preview = topView(r.vox, blocks, r.H);
   self.postMessage({ type: 'osmDone', id: m.id, vox: r.vox, H: r.H, ground: r.ground, buildings: r.buildings, lat, lon, size: blocks, meters: size, scale, preview },
     [r.vox.buffer, preview.buffer]);
+}
+
+// ---------- vaste stadskaart in tegels ----------
+const supers = new Map();
+let fetchChain = Promise.resolve();
+function getSuper(sx, sz) {
+  const key = `${CITY.id}-osm-${sx}-${sz}`;
+  if (supers.has(key)) return supers.get(key);
+  const p = (async () => {
+    let text = await cacheGet(key);
+    if (!text) {
+      // één download tegelijk, zodat de OpenStreetMap-server ons niet weigert
+      const job = fetchChain.then(() => fetchOSMBox(superBox(sx, sz)));
+      fetchChain = job.catch(() => {});
+      text = await job;
+      await cachePut(key, text);
+    }
+    return indexOSM(parseOSM(text));
+  })();
+  p.catch(() => supers.delete(key));
+  supers.set(key, p);
+  if (supers.size > 6) supers.delete(supers.keys().next().value);
+  return p;
+}
+async function cityTile(m) {
+  const { tx, tz } = m;
+  const key = `${CITY.id}-tile-v${CITY.version}-${tx}-${tz}`;
+  const cached = await cacheGet(key);
+  if (cached && cached.rle) return { vox: rleDecode(cached.rle, CITY.tile * CITY.tile * cached.H), H: cached.H };
+  const osm = await getSuper(Math.floor(tx / CITY.superTiles), Math.floor(tz / CITY.superTiles));
+  const c = tileCenter(tx, tz);
+  const b = bboxFor(c.lat, c.lon, CITY.tile, 30);
+  const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
+  const r = rasterize(sub, c.lat, c.lon, CITY.tile, null, 1, { mx: MX, ox: tx * CITY.tile, oz: tz * CITY.tile });
+  await cachePut(key, { rle: rleEncode(r.vox), H: r.H });
+  return { vox: r.vox, H: r.H };
 }

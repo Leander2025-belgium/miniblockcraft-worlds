@@ -10,6 +10,7 @@ export const B = {
   PAINT_WHITE: 34, HEDGE: 35, ASHLAR: 36, LIMESTONE: 37,
   GLASS_GREEN: 38, MIRROR: 39, GLASS_BLUE: 40, PANEL_WHITE: 41, PANEL_DARK: 42, BRICK_DARK: 43,
   PLASTER_BEIGE: 44, PLASTER_GREY: 45, TERRACOTTA: 46, COPPER: 47, PLASTER_PINK: 48,
+  RED_GRANITE: 49, RED_SANDSTONE: 50, HALF_TIMBER: 51,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -63,6 +64,9 @@ export const BLOCKS = [
   { id: 46, name: 'Terracotta', color: [190, 105, 70], tex: ['terracotta'] },
   { id: 47, name: 'Koper', color: [96, 160, 140], tex: ['copper'] },
   { id: 48, name: 'Roze pleister', color: [226, 180, 170], tex: ['plaster_pink'] },
+  { id: 49, name: 'Rood graniet', color: [128, 66, 58], tex: ['red_granite'] },
+  { id: 50, name: 'Rode zandsteen', color: [166, 86, 72], tex: ['red_sandstone'] },
+  { id: 51, name: 'Vakwerk', color: [200, 190, 172], tex: ['half_timber'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;

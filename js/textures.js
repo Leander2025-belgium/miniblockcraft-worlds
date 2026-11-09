@@ -233,6 +233,22 @@ painters.copper = (px, r) => {
     px(x, y, (96 + n) * v, (160 + n) * v, (140 + n * 0.6) * v);
   }
 };
+painters.red_sandstone = ashlarPainter([166, 86, 72], [130, 66, 56]);
+painters.red_granite = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const n = r(), v = n < 0.15 ? 0.65 : n > 0.9 ? 1.25 : 1;
+    const seam = y === 0 || x === 0;
+    px(x, y, 128 * v * (seam ? 0.8 : 1), 66 * v * (seam ? 0.8 : 1), 58 * v * (seam ? 0.8 : 1));
+  }
+};
+painters.half_timber = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const n = (r() - 0.5) * 8;
+    const beam = x < 2 || y < 2 || Math.abs(x - y) < 1.5 && x > 3 && x < 13;
+    if (beam) px(x, y, 70 + n, 44 + n, 30 + n);
+    else px(x, y, 222 + n, 214 + n, 196 + n);
+  }
+};
 painters.water = (px, r) => {
   for (let i = 0; i < TILE * TILE; i++) {
     const n = (r() - 0.5) * 20;

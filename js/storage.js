@@ -5,11 +5,12 @@ let dbp = null;
 function db() {
   if (!dbp) {
     dbp = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
         const d = req.result;
         if (!d.objectStoreNames.contains('regions')) d.createObjectStore('regions', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('data')) d.createObjectStore('data');
+        if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache');
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -59,6 +60,20 @@ export async function deleteRegion(id) {
     t.objectStore('regions').delete(id);
     t.objectStore('data').delete(id);
   });
+}
+
+// ---------- algemene cache (kaartdata, tegels) ----------
+export async function cacheGet(key) {
+  try {
+    const d = await db();
+    return await reqP(d.transaction('cache').objectStore('cache').get(key));
+  } catch { return undefined; }
+}
+export async function cachePut(key, value) {
+  try {
+    const d = await db();
+    await new Promise((res, rej) => { const t = d.transaction('cache', 'readwrite'); t.objectStore('cache').put(value, key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+  } catch { /* opslag vol of geblokkeerd: dan maar zonder cache */ }
 }
 
 // ---------- RLE: [waarde, lengte als varint]... ----------

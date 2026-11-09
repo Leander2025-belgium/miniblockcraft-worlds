@@ -5,6 +5,14 @@ Een blokkenbouwspel in de browser (1 blok = 1 meter) met twee soorten werelden:
 - **Echte wereld**: kies een echte plek (bv. de skyline van Frankfurt) en de game haalt de echte gebouwen, straten, water, parken en bomen op bij [OpenStreetMap](https://www.openstreetmap.org). Gebouwhoogtes, kleuren en materialen komen uit de kaartdata (`height`, `building:levels`, `building:colour`, `building:material`, `building:part`, …).
 - **Fantasiestad**: een verzonnen stad van **2,5 km × 25 km**.
 
+### Frankfurt am Main (vaste kaart)
+
+Klik in **Echte wereld** op **Frankfurt am Main → Spelen**: een stad van 2,5 × 2,5 km zonder randen.
+De echte gebouwen laden in tegels van 128 m rond je terwijl je loopt of vliegt, en worden op je toestel bewaard
+(ook wat je bouwt). Bekende gebouwen krijgen extra details: Commerzbank Tower (hangende tuinen, atrium, antenne),
+Messeturm (rood graniet, piramide), Main Tower, Westend Tower (kroon), Opernturm, Tower 185, Silberturm, Trianon,
+ECB, Kaiserdom, Paulskirche, Römer, Alte Oper en vakwerkhuizen in de Altstadt. In het pauzemenu staat **Snel naar**.
+
 ### Echte wereld
 
 1. Zoek een plaats, kies een snelknop (Frankfurt Skyline, Römerberg, Messeturm, …) of vul coördinaten in.

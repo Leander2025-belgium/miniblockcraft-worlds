@@ -76,20 +76,25 @@ export function bboxFor(lat, lon, size, margin = 25) {
 }
 
 export async function fetchOSM(lat, lon, size, onStatus) {
-  const b = bboxFor(lat, lon, size);
+  return fetchOSMBox(bboxFor(lat, lon, size), onStatus);
+}
+export async function fetchOSMBox(b, onStatus) {
   const bb = `${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)}`;
-  const q = `[out:json][timeout:90];(way(${bb});relation["type"="multipolygon"](${bb});node["natural"="tree"](${bb}););(._;>;);out body qt;`;
+  const q = `[out:json][timeout:120];(way(${bb});relation["type"="multipolygon"](${bb});node["natural"="tree"](${bb}););(._;>;);out body qt;`;
   let lastErr;
-  for (const url of OVERPASS) {
-    try {
-      onStatus?.(`Verbinden met ${new URL(url).host}…`);
-      const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-      if (!res.ok) throw new Error(`server antwoordde ${res.status}`);
-      onStatus?.('Kaartgegevens ontvangen…');
-      return await res.text();
-    } catch (e) { lastErr = e; }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const url of OVERPASS) {
+      try {
+        onStatus?.(`Verbinden met ${new URL(url).host}…`);
+        const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        if (!res.ok) throw new Error(`server antwoordde ${res.status}`);
+        onStatus?.('Kaartgegevens ontvangen…');
+        return await res.text();
+      } catch (e) { lastErr = e; }
+    }
+    await new Promise(r => setTimeout(r, 3000));
   }
-  throw new Error('OpenStreetMap kon niet bereikt worden (' + (lastErr?.message || 'netwerkfout') + ').');
+  throw new Error('OpenStreetMap kon niet bereikt worden (' + (lastErr?.message || 'netwerkfout') + ')');
 }
 
 // ---------- kleuren en hoogtes ----------
@@ -222,6 +227,34 @@ function wallStyle(tags, h, id) {
   return { wall, glass, curtain, roof, historic, base, trim };
 }
 
+// ---------- bekende gebouwen ----------
+// Herkend aan hun naam in OpenStreetMap. De vorm komt uit de kaart; dit voegt materiaal en details toe.
+const LANDMARKS = [
+  { re: /commerzbank/i, minH: 150, look: { wall: B.PANEL_WHITE, glass: B.GLASS_GREEN, curtain: true, roof: B.METAL }, gardens: true, atrium: true, antenna: 45 },
+  { re: /messeturm/i, minH: 150, look: { wall: B.RED_GRANITE, glass: B.DARKGLASS, curtain: false, roof: B.PANEL_DARK }, strips: true, roofShape: 'pyramidal', roofH: 36 },
+  { re: /main ?tower/i, minH: 150, look: { wall: B.METAL, glass: B.GLASS_BLUE, curtain: true, roof: B.METAL }, antenna: 50, redWhite: true },
+  { re: /westend ?(tower|duo)?|kronenhochhaus|dz bank/i, minH: 150, look: { wall: B.PANEL_WHITE, glass: B.MIRROR, curtain: true, roof: B.METAL }, crown: 28 },
+  { re: /opernturm/i, minH: 120, look: { wall: B.LIMESTONE, glass: B.GLASS, curtain: false, roof: B.CONCRETE }, strips: true },
+  { re: /tower 185|pwc/i, minH: 120, look: { wall: B.LIMESTONE, glass: B.GLASS_GREEN, curtain: true, roof: B.CONCRETE } },
+  { re: /silberturm/i, minH: 100, look: { wall: B.METAL, glass: B.MIRROR, curtain: true, roof: B.METAL } },
+  { re: /trianon/i, minH: 100, look: { wall: B.PANEL_DARK, glass: B.DARKGLASS, curtain: true, roof: B.PANEL_DARK } },
+  { re: /europäische zentralbank|european central bank|\bezb\b|\becb\b/i, minH: 100, look: { wall: B.METAL, glass: B.MIRROR, curtain: true, roof: B.METAL } },
+  { re: /kaiserdom|bartholom/i, look: { wall: B.RED_SANDSTONE, roof: B.ROOF_DARK, historic: true }, spire: true },
+  { re: /paulskirche/i, look: { wall: B.RED_SANDSTONE, roof: B.COPPER, historic: true } },
+  { re: /^römer|rathaus römer/i, look: { wall: B.RED_SANDSTONE, roof: B.ROOF_DARK, historic: true } },
+  { re: /alte oper/i, look: { wall: B.LIMESTONE, roof: B.ROOF_DARK, historic: true } },
+  { re: /eschenheimer turm/i, look: { wall: B.ASHLAR, roof: B.ROOF_DARK, historic: true } },
+  { re: /hauptbahnhof/i, look: { wall: B.LIMESTONE, roof: B.ROOF_DARK, historic: true } },
+];
+function findLandmark(tags, h) {
+  const name = tags.name || tags['name:de'] || tags['addr:housename'] || '';
+  if (!name) return null;
+  for (const l of LANDMARKS) if (l.re.test(name) && !(l.minH && h < l.minH * 0.5)) return l;
+  return null;
+}
+// Oude binnenstad van Frankfurt (Dom-Römer): vakwerkhuizen
+const ALTSTADT = { s: 50.1092, n: 50.1114, w: 8.6800, e: 8.6862 };
+
 // ---------- geometrie ----------
 function assembleRings(lists) {
   const rings = [];
@@ -247,10 +280,12 @@ function assembleRings(lists) {
 }
 
 // Vult alle cellen waarvan het midden binnen de ringen ligt (even-oneven, dus gaten werken)
-function fillRings(rings, size, cb) {
+function fillRings(rings, size, cb, clip) {
+  // clip: {x0,x1,z0,z1} (inclusief); standaard het gebied 0..size-1
+  const cx0 = clip ? clip.x0 : 0, cx1 = clip ? clip.x1 : size - 1, cz0 = clip ? clip.z0 : 0, cz1 = clip ? clip.z1 : size - 1;
   let minZ = Infinity, maxZ = -Infinity;
   for (const r of rings) for (const p of r) { if (p[1] < minZ) minZ = p[1]; if (p[1] > maxZ) maxZ = p[1]; }
-  const z0 = Math.max(0, Math.floor(minZ)), z1 = Math.min(size - 1, Math.ceil(maxZ));
+  const z0 = Math.max(cz0, Math.floor(minZ)), z1 = Math.min(cz1, Math.ceil(maxZ));
   const xs = [];
   for (let z = z0; z <= z1; z++) {
     const y = z + 0.5;
@@ -263,7 +298,7 @@ function fillRings(rings, size, cb) {
     }
     xs.sort((p, q) => p - q);
     for (let i = 0; i + 1 < xs.length; i += 2) {
-      const xa = Math.max(0, Math.ceil(xs[i] - 0.5)), xb = Math.min(size - 1, Math.floor(xs[i + 1] - 0.5));
+      const xa = Math.max(cx0, Math.ceil(xs[i] - 0.5)), xb = Math.min(cx1, Math.floor(xs[i + 1] - 0.5));
       for (let x = xa; x <= xb; x++) cb(x, z);
     }
   }
@@ -333,10 +368,13 @@ const isArea = (w, tags) => w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length 
   !(tags.highway && tags.area !== 'yes' && !tags['area:highway']);
 
 // ---------- omzetten naar voxels ----------
-export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
+export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {}) {
   // size = aantal blokken; scale = blokken per meter
+  // opts.mx: vaste projectie (voor naadloze tegels), opts.ox/oz: globale blokpositie van deze tegel
   const G = REAL_GROUND;
-  const mx = 111320 * Math.cos(lat0 * Math.PI / 180), mz = 110574;
+  const mx = opts.mx || 111320 * Math.cos(lat0 * Math.PI / 180), mz = 110574;
+  const OX = opts.ox || 0, OZ = opts.oz || 0;
+  const unproj = (x, z) => [lat0 - (z - size / 2) / (mz * scale), lon0 + (x - size / 2) / (mx * scale)];
   const proj = (ll) => [(ll[1] - lon0) * mx * scale + size / 2, (lat0 - ll[0]) * mz * scale + size / 2];
   const P = new Map();
   const pt = (id) => {
@@ -350,8 +388,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     for (const p of pts) { if (p[0] < a) a = p[0]; if (p[0] > b) b = p[0]; if (p[1] < c) c = p[1]; if (p[1] > d) d = p[1]; }
     return b >= -m && a < size + m && d >= -m && c < size + m;
   };
-  const wayById = new Map();
-  for (const w of osm.ways) wayById.set(w.id, w);
+  let wayById = osm.wayById;
+  if (!wayById) { wayById = new Map(); for (const w of osm.ways) wayById.set(w.id, w); }
 
   const N = size * size;
   const surf = new Uint8Array(N).fill(B.SIDEWALK);
@@ -512,19 +550,23 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
   onProgress?.(0.45);
 
   all.sort((a, b) => a.hm.min - b.hm.min);
-  const set = (x, y, z, b) => { if (y > 0 && y < H) vox[(z * size + x) * H + y] = b; };
+  const set = (x, y, z, b) => { if (y > 0 && y < H && x >= 0 && z >= 0 && x < size && z < size) vox[(z * size + x) * H + y] = b; };
   let count = 0;
   for (const bd of all) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const r of bd.rings) for (const p of r) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
-    x0 = Math.max(0, Math.floor(x0)); z0 = Math.max(0, Math.floor(z0));
-    x1 = Math.min(size - 1, Math.ceil(x1)); z1 = Math.min(size - 1, Math.ceil(z1));
-    if (x1 < x0 || z1 < z0) continue;
+    // het hele gebouw wordt berekend (ook het deel buiten deze tegel), zodat daken en details over tegelgrenzen kloppen
+    x0 = Math.floor(x0) - 1; z0 = Math.floor(z0) - 1; x1 = Math.ceil(x1) + 1; z1 = Math.ceil(z1) + 1;
+    if (x1 < 0 || z1 < 0 || x0 >= size || z0 >= size) continue;
+    if (x1 - x0 > 1200 || z1 - z0 > 1200) continue;
     const bw = x1 - x0 + 1, bh = z1 - z0 + 1;
     const mask = new Uint8Array(bw * bh);
-    let cells = 0, sx = 0, sz = 0;
-    fillRings(bd.rings, size, (x, z) => { mask[(z - z0) * bw + (x - x0)] = 1; cells++; sx += x; sz += z; });
-    if (!cells) continue;
+    let cells = 0, sx = 0, sz = 0, inTile = 0;
+    fillRings(bd.rings, size, (x, z) => {
+      mask[(z - z0) * bw + (x - x0)] = 1; cells++; sx += x; sz += z;
+      if (x >= 0 && z >= 0 && x < size && z < size) inTile++;
+    }, { x0, x1, z0, z1 });
+    if (!inTile) continue;
     count++;
     const inM = (x, z) => x >= x0 && x <= x1 && z >= z0 && z <= z1 && mask[(z - z0) * bw + (x - x0)] === 1;
 
@@ -558,11 +600,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     }
 
     const hTot = bd.hm.h * scale, minH = bd.hm.min * scale;
-    const shape = roofShape(bd.tags);
+    const lm = findLandmark(bd.tags, bd.hm.h);
+    const shape = (lm && lm.roofShape && !bd.tags['roof:shape']) ? lm.roofShape : roofShape(bd.tags);
     let roofH = 0;
     if (shape !== 'flat') {
       const tagH = parseLen(bd.tags['roof:height']), tagL = parseLen(bd.tags['roof:levels']);
       if (tagH > 0) roofH = tagH * scale;
+      else if (lm && lm.roofH) roofH = lm.roofH * scale;
       else if (tagL > 0) roofH = tagL * 3 * scale;
       else if (shape === 'dome' || shape === 'onion') roofH = dMax;
       else if (shape === 'round') roofH = halfShort;
@@ -601,6 +645,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     const ryAt = (x, z) => inM(x, z) ? roofY[(z - z0) * bw + (x - x0)] : wallTop - 1;
 
     const st = wallStyle(bd.tags, bd.hm.h, bd.styleId ?? bd.id);
+    if (lm) { Object.assign(st, lm.look); if (lm.look.historic) { st.base = B.ASHLAR; st.trim = lm.look.wall === B.RED_SANDSTONE ? B.RED_SANDSTONE : B.ASHLAR; } }
+    // vakwerkhuizen in de oude binnenstad
+    const cll = unproj(cx, cz);
+    const altstadt = cll[0] > ALTSTADT.s && cll[0] < ALTSTADT.n && cll[1] > ALTSTADT.w && cll[1] < ALTSTADT.e && !lm && bd.hm.h < 25 * 1;
+    if (altstadt && (shape !== 'flat' || st.historic)) {
+      st.historic = true; st.wall = B.HALF_TIMBER; st.base = B.RED_SANDSTONE; st.trim = B.PLANKS; st.roof = B.ROOF_DARK; st.curtain = false;
+    }
     const pitched = shape !== 'flat';
     // verdiepingen: verdeel de muurhoogte over het echte aantal verdiepingen (anders 3 m per verdieping)
     const wallH = wallTop - yb;
@@ -627,21 +678,61 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
       }
     }
     const winEvery = 2 + scale;
+    // antenne, kroon of spits
+    if (lm && (lm.antenna || lm.crown || lm.spire)) {
+      const ax = Math.round(cx), az = Math.round(cz);
+      const peak = Math.max(...Array.from(roofY.filter((v, i) => mask[i])));
+      if (lm.antenna && inM(ax, az)) {
+        const len = Math.round(lm.antenna * scale);
+        for (let k = 1; k <= len; k++) set(ax, peak + k, az, lm.redWhite ? (Math.floor(k / (3 * scale)) % 2 ? B.PAINT_RED : B.PAINT_WHITE) : B.POST);
+        set(ax, peak + len + 1, az, B.LAMP);
+      }
+      if (lm.crown) {
+        for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+          const mi2 = (z - z0) * bw + (x - x0);
+          if (!mask[mi2] || dist[mi2] > 1.5 || (x + z) % 2) continue;
+          const len = Math.round(lm.crown * scale * (0.6 + 0.4 * (1 - Math.abs(Math.cos(Math.atan2(z - cz, x - cx) * 3)))));
+          for (let k = 1; k <= len; k++) set(x, wallTop + k, z, B.POST);
+        }
+      }
+    }
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
       const mi = (z - z0) * bw + (x - x0);
       if (!mask[mi]) continue;
+      if (x < 0 || z < 0 || x >= size || z >= size) continue; // buiten deze tegel
       const edge = !inM(x - 1, z) || !inM(x + 1, z) || !inM(x, z - 1) || !inM(x, z + 1);
       const ex = !inM(x - 1, z) || !inM(x + 1, z);
-      const t = ex ? z : x;
+      const t = ex ? z + OZ : x + OX;
       const i = z * size + x;
       marks[i] = 1; treeD[i] = 0;
       if (yb === G + 1) set(x, G, z, B.TILE); else set(x, yb - 1, z, st.wall);
+      // hangende tuinen (Commerzbank): per 4 verdiepingen draait de tuin naar een andere zijde
+      let gardenHere = -1;
+      if (lm && lm.gardens) {
+        const sector = Math.floor(((Math.atan2(z - cz, x - cx) + Math.PI) / (2 * Math.PI)) * 3) % 3;
+        gardenHere = sector;
+      }
+      const dIn = dist[mi];
       for (let y = yb; y < wallTop; y++) {
         const kind = rowKind[y - yb];
+        const si = rowStorey[y - yb];
+        if (gardenHere >= 0 && si >= 4 && si < rowStorey[wallH - 1] - 1) {
+          const band = Math.floor((si - 4) / 4), inBand = (si - 4) % 4;
+          if (band % 3 === gardenHere && dIn <= 9 * scale) {
+            const firstRow = inBand === 0 && (y - yb === 0 || rowStorey[y - yb - 1] !== si);
+            if (edge) set(x, y, z, (t % 4 === 0) ? st.wall : B.GLASS);           // hoge glazen wand
+            else if (firstRow) set(x, y, z, B.GRASS);                              // tuinvloer
+            else if (inBand === 0 && hash(x + OX, z + OZ, si) < 0.18) set(x, y, z, B.LEAVES); // struiken
+            else set(x, y, z, 0);
+            continue;
+          }
+        }
+        if (lm && lm.atrium && !edge && dIn > dMax - 5 * scale) { set(x, y, z, 0); continue; } // open atrium in het midden
         if (edge) {
           let win;
           let blk = st.wall;
           if (st.curtain) win = kind !== -1 && t % winEvery !== 0;
+          else if (lm && lm.strips) win = kind !== -1 && t % 3 !== 0;        // verticale raamstroken
           else if (hist) {
             const p = t % (4 * scale);
             win = kind === 1 && p >= scale && p < 3 * scale; // brede, hoge ramen
@@ -688,11 +779,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
     let next = 0;
     strokeLine(l, 1, size, (x, z, d, along) => { if (along >= next) { plant(x, z); next = along + 8 * scale; } });
   }
-  for (let gz = 0; gz < size; gz += 7) for (let gx = 0; gx < size; gx += 7) {
-    const x = gx + 1 + Math.floor(hash(gx, gz, 11) * 5), z = gz + 1 + Math.floor(hash(gx, gz, 12) * 5);
-    if (x >= size || z >= size) continue;
+  const gOff = (v) => ((v % 7) + 7) % 7;
+  for (let gz = -gOff(OZ); gz < size; gz += 7) for (let gx = -gOff(OX); gx < size; gx += 7) {
+    const GX = gx + OX, GZ = gz + OZ;
+    const x = gx + 1 + Math.floor(hash(GX, GZ, 11) * 5), z = gz + 1 + Math.floor(hash(GX, GZ, 12) * 5);
+    if (x < 0 || z < 0 || x >= size || z >= size) continue;
     const d = treeD[z * size + x];
-    if (d > 0 && hash(gx, gz, 13) < d) plant(x, z);
+    if (d > 0 && hash(GX, GZ, 13) < d) plant(x, z);
   }
   onProgress?.(1);
   return { vox, H, ground: G, buildings: count };
@@ -711,4 +804,36 @@ export function topView(vox, size, H) {
     data[o] = c[0] * f; data[o + 1] = c[1] * f; data[o + 2] = c[2] * f; data[o + 3] = 255;
   }
   return data;
+}
+
+// ---------- ruimtelijke index voor grote gebieden ----------
+export function indexOSM(osm) {
+  osm.wayById = new Map();
+  for (const w of osm.ways) {
+    osm.wayById.set(w.id, w);
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const id of w.nds) {
+      const ll = osm.nodes.get(id); if (!ll) continue;
+      if (ll[0] < a) a = ll[0]; if (ll[1] < b) b = ll[1]; if (ll[0] > c) c = ll[0]; if (ll[1] > d) d = ll[1];
+    }
+    w.bb = [a, b, c, d];
+  }
+  for (const r of osm.rels) {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const m of r.members) {
+      const w = m.type === 'way' && osm.wayById.get(m.ref); if (!w) continue;
+      a = Math.min(a, w.bb[0]); b = Math.min(b, w.bb[1]); c = Math.max(c, w.bb[2]); d = Math.max(d, w.bb[3]);
+    }
+    r.bb = [a, b, c, d];
+  }
+  return osm;
+}
+export function subsetOSM(osm, s, w, n, e) {
+  const hit = (bb) => bb && bb[0] <= n && bb[2] >= s && bb[1] <= e && bb[3] >= w;
+  return {
+    nodes: osm.nodes, wayById: osm.wayById, bounds: null,
+    ways: osm.ways.filter(x => hit(x.bb)),
+    rels: osm.rels.filter(x => hit(x.bb)),
+    trees: osm.trees.filter(t => t[0] >= s && t[0] <= n && t[1] >= w && t[1] <= e),
+  };
 }

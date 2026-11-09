@@ -2,6 +2,7 @@
 import { WIDTH, LENGTH, HEIGHT, districtAt, riverX } from './city.js';
 import * as store from './storage.js';
 import { topView } from './osm.js';
+import { CITY, SPAWN, SIZE, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -248,10 +249,7 @@ $('#import').addEventListener('change', async (e) => {
 });
 
 // ---------- spelen ----------
-async function play(id) {
-  const meta = await store.getRegionMeta(id);
-  const vox = await store.loadRegionData(id);
-  if (!meta || !vox) return notify('Dit stuk kon niet geladen worden.');
+async function ensureGame() {
   if (!game) {
     const { Game } = await import('./game.js');
     game = new Game({
@@ -267,16 +265,71 @@ async function play(id) {
       onSave: (full) => saveGame(full),
     });
   }
+  return game;
+}
+
+async function play(id) {
+  const meta = await store.getRegionMeta(id);
+  const vox = await store.loadRegionData(id);
+  if (!meta || !vox) return notify('Dit stuk kon niet geladen worden.');
+  await ensureGame();
   $('#menu').hidden = true;
+  $('#tp-wrap').hidden = true;
   $('#game-title').textContent = meta.name;
   game.load(meta, vox);
   game.start();
+}
+
+// ---------- vaste stadskaart: Frankfurt ----------
+const CITY_PLAYER_KEY = `${CITY.id}-player`;
+const editKey = (tx, tz) => `${CITY.id}-edit-${tx}-${tz}`;
+async function playCity() {
+  await ensureGame();
+  const saved = await store.cacheGet(CITY_PLAYER_KEY);
+  const meta = { id: 'city-' + CITY.id, name: CITY.name, real: { lat: CITY.lat, lon: CITY.lon, scale: 1 }, size: SIZE, ground: CITY.ground, player: saved && saved.player };
+  const T = CITY.tile;
+  const provider = (tx, tz) => new Promise((resolve, reject) => {
+    store.cacheGet(editKey(tx, tz)).then((ed) => {
+      if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
+      ask({ type: 'cityTile', tx, tz }, (m) => {
+        if (m.type === 'cityTile') resolve(m);
+        else if (m.type === 'error') reject(new Error(m.message));
+      });
+    });
+  });
+  const saveTile = (tx, tz, vox, H) => store.cachePut(editKey(tx, tz), { rle: store.rleEncode(vox), H });
+  $('#menu').hidden = true;
+  $('#tp-wrap').hidden = false;
+  $('#game-title').textContent = CITY.name;
+  game.loadTiled(meta, { ...CITY, spawn: SPAWN }, provider, saveTile);
+  game.start();
+}
+$('#btn-city').addEventListener('click', playCity);
+for (const [name, lat, lon] of CITY_PLACES) {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = name;
+  b.onclick = () => {
+    if (!game || !game.tiled) return;
+    const [x, z] = toBlocks(lat, lon);
+    const p = game.player;
+    p.pos.set(x, CITY.ground + 40, z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = 0.15;
+    game.updateTiles(true);
+    game.resume();
+  };
+  $('#tp-list').appendChild(b);
 }
 
 let saving = null;
 async function saveGame() {
   if (!game || !game.meta) return;
   if (saving) return saving;
+  if (game.tiled) {
+    game.saveDirtyTiles();
+    game.dirty = false;
+    saving = store.cachePut(CITY_PLAYER_KEY, { player: game.playerState() })
+      .then(() => flash('Opgeslagen ✓')).finally(() => { saving = null; });
+    return saving;
+  }
   const meta = { ...game.meta, player: game.playerState() };
   if (game.dirty) meta.edited = true;
   const vox = game.dirty ? game.world.vox : null;
