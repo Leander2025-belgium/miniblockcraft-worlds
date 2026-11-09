@@ -5,6 +5,15 @@ Een blokkenbouwspel in de browser (1 blok = 1 meter) met twee soorten werelden:
 - **Echte wereld**: kies een echte plek (bv. de skyline van Frankfurt) en de game haalt de echte gebouwen, straten, water, parken en bomen op bij [OpenStreetMap](https://www.openstreetmap.org). Gebouwhoogtes, kleuren en materialen komen uit de kaartdata (`height`, `building:levels`, `building:colour`, `building:material`, `building:part`, …).
 - **Fantasiestad**: een verzonnen stad van **2,5 km × 25 km**.
 
+### Nova Metropool (fantasiewereld, 25 × 30 km)
+
+Tabblad **Fantasiestad → Nova Metropool → Spelen**. Een zelfgegenereerde wereldstad zonder randen:
+een enorm centrum met supermoderne wolkenkrabbers (getrapt, taps, gedraaid, rond, slank; tot ±800 m met
+verlichte kronen en spitsen), brede boulevards, een rivier met bruggen, Centraal Park met meer, stadswijken,
+voorsteden, industrie, een haven met containerkranen en een cruiseterminal met cruiseschepen, en twee
+luchthavens met banen, taxibanen, terminals, verkeerstoren en vliegtuigen. Stukken worden meteen gemaakt
+(geen download nodig) en op je toestel bewaard. Generator: `js/metropolis.js`.
+
 ### Frankfurt am Main (vaste kaart)
 
 Klik in **Echte wereld** op **Frankfurt am Main → Spelen**: een stad van 2,5 × 2,5 km zonder randen.

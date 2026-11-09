@@ -6,6 +6,7 @@ import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
 import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
 import { elevationSampler, elevationBase } from './terrain.js';
 import { mapSize } from './bigmap.js';
+import { generateTile } from './metropolis.js';
 
 // ---------- hoogtes ----------
 const elevMem = new Map();
@@ -206,7 +207,7 @@ async function areaPrefetch(m) {
   const list = [];
   for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
     const tx = cx + dx, tz = cz + dz;
-    if (tx < 0 || tz < 0 || tx >= map.tiles || tz >= map.tiles || dx * dx + dz * dz > (R + 0.5) ** 2) continue;
+    if (tx < 0 || tz < 0 || tx >= (map.tilesX || map.tiles) || tz >= (map.tilesZ || map.tiles) || dx * dx + dz * dz > (R + 0.5) ** 2) continue;
     if (workerFor(map, tx, tz, pool) !== me) continue; // elke werker doet zijn eigen blokken
     list.push([dx * dx + dz * dz, tx, tz]);
   }
@@ -242,6 +243,14 @@ async function cityTileInner(m) {
         return { vox: rleDecode(t.rle, map.tile * map.tile * t.H), H: t.H, paths: t.paths };
       }
     } catch { /* dan zelf omzetten */ }
+  }
+  // zelfgegenereerde wereld: geen download nodig
+  if (map.kind === 'proc') {
+    const r = generateTile(tx, tz);
+    const rle = rleEncode(r.vox);
+    await cachePut(key, { rle, H: r.H, paths: r.paths });
+    await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
+    return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths };
   }
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
@@ -291,8 +300,8 @@ async function getLod(map, tx, tz) {
 async function sendLods(m) {
   const { map, tx: cx, tz: cz, radius: R } = m;
   const list = [];
-  for (let tz = Math.max(0, cz - R); tz <= Math.min(map.tiles - 1, cz + R); tz++)
-    for (let tx = Math.max(0, cx - R); tx <= Math.min(map.tiles - 1, cx + R); tx++)
+  for (let tz = Math.max(0, cz - R); tz <= Math.min((map.tilesZ || map.tiles) - 1, cz + R); tz++)
+    for (let tx = Math.max(0, cx - R); tx <= Math.min((map.tilesX || map.tiles) - 1, cx + R); tx++)
       list.push([(tx - cx) ** 2 + (tz - cz) ** 2, tx, tz]);
   list.sort((a, b) => a[0] - b[0]);
   for (const [, tx, tz] of list) {

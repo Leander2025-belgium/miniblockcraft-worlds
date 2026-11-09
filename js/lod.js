@@ -43,7 +43,8 @@ void main() {
 export class FarView {
   constructor(scene, spec) {
     this.scene = scene; this.spec = spec;
-    this.T = spec.tile; this.n = spec.tiles; this.G = spec.ground;
+    this.T = spec.tile; this.nx = spec.tilesX || spec.tiles; this.nz = spec.tilesZ || spec.tiles; this.G = spec.ground;
+    this.step = spec.miniStep || 1; // grote werelden: minikaart op halve resolutie
     this.meshes = new Map();
     this.data = new Map();
     this.mat = new THREE.ShaderMaterial({
@@ -51,9 +52,9 @@ export class FarView {
       uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 400 }, fogFar: { value: 2000 }, day: { value: 1 } },
     });
     // grondvlak onder de hele kaart en ver daarbuiten (geen lege lucht onder de horizon)
-    const S = this.n * this.T, M = 6000, gy = this.G - 2.5, gc = [0.55, 0.56, 0.52];
+    const SX = this.nx * this.T, SZ = this.nz * this.T, M = 6000, gy = this.G - 2.5, gc = spec.groundColor || [0.55, 0.56, 0.52];
     const gp = new THREE.BufferGeometry();
-    const P = [[-M, gy, -M], [-M, gy, S + M], [S + M, gy, S + M], [S + M, gy, -M]];
+    const P = [[-M, gy, -M], [-M, gy, SZ + M], [SX + M, gy, SZ + M], [SX + M, gy, -M]];
     const pos = [], col = [], side = [];
     for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...P[k]); col.push(...gc); side.push(0); }
     gp.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -65,11 +66,11 @@ export class FarView {
     scene.add(this.groundMesh);
     // minikaart: 1 pixel per vak van 8 m
     this.cell = 8;
-    this.px = this.n * (this.T / this.cell);
     this.canvas = document.createElement('canvas');
-    this.canvas.width = this.canvas.height = this.px;
+    this.canvas.width = this.nx * (this.T / this.cell) / this.step;
+    this.canvas.height = this.nz * (this.T / this.cell) / this.step;
     const ctx = this.canvas.getContext('2d');
-    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.px, this.px);
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
   key(tx, tz) { return tz * 1000 + tx; }
   add(tx, tz, lod) {
@@ -87,13 +88,14 @@ export class FarView {
     this.meshes.set(k, m);
   }
   drawMini(tx, tz, lod) {
-    const n = lod.n, img = new ImageData(n, n);
-    for (let i = 0; i < n * n; i++) {
+    const n = lod.n, st = this.step, m = n / st, img = new ImageData(m, m);
+    for (let z = 0; z < m; z++) for (let x = 0; x < m; x++) {
+      const i = (z * st) * n + x * st, o = (z * m + x) * 4;
       const hgt = Math.max(0, lod.h[i] - this.G);
       const f = 0.82 + Math.min(0.45, hgt / 250);
-      img.data[i * 4] = lod.c[i * 3] * f; img.data[i * 4 + 1] = lod.c[i * 3 + 1] * f; img.data[i * 4 + 2] = lod.c[i * 3 + 2] * f; img.data[i * 4 + 3] = 255;
+      img.data[o] = lod.c[i * 3] * f; img.data[o + 1] = lod.c[i * 3 + 1] * f; img.data[o + 2] = lod.c[i * 3 + 2] * f; img.data[o + 3] = 255;
     }
-    this.canvas.getContext('2d').putImageData(img, tx * n, tz * n);
+    this.canvas.getContext('2d').putImageData(img, tx * m, tz * m);
   }
   build(tx, tz, lod) {
     const n = lod.n, s = this.T / n, G = this.G;

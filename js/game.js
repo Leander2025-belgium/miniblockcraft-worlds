@@ -9,6 +9,7 @@ import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
+import { zoneName } from './metropolis.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -134,13 +135,15 @@ class World {
 // Een grote wereld die uit tegels bestaat en tegels laadt rond de speler.
 class TileWorld {
   constructor(spec) {
-    this.T = spec.tile; this.n = spec.tiles; this.size = this.T * this.n;
+    this.T = spec.tile; this.nx = spec.tilesX || spec.tiles; this.nz = spec.tilesZ || spec.tiles;
+    this.n = Math.max(this.nx, this.nz);
+    this.sizeX = this.T * this.nx; this.sizeZ = this.T * this.nz; this.size = Math.max(this.sizeX, this.sizeZ);
     this.G = spec.ground; this.H = 1024;
     this.tiles = new Map();
   }
   key(tx, tz) { return tz * 1000 + tx; }
   tileAt(x, z) { return this.tiles.get(this.key(Math.floor(x / this.T), Math.floor(z / this.T))); }
-  inside(x, z) { return x >= 0 && z >= 0 && x < this.size && z < this.size; }
+  inside(x, z) { return x >= 0 && z >= 0 && x < this.sizeX && z < this.sizeZ; }
   get(x, y, z) {
     if (!this.inside(x, z) || y < 0) return 0;
     const t = this.tileAt(x, z);
@@ -269,7 +272,7 @@ export class Game {
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
-    this.mini = { canvas: this.lod.canvas, scale: this.lod.cell, size: this.world.size };
+    this.mini = { canvas: this.lod.canvas, scale: this.lod.cell * (spec.miniStep || 1), sizeX: this.world.sizeX, sizeZ: this.world.sizeZ };
     const T = spec.tile;
     spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1);
     this.updateTiles(true);
@@ -321,7 +324,7 @@ export class Game {
     const want = [];
     for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
       const tx = ptx + dx, tz = ptz + dz;
-      if (tx < 0 || tz < 0 || tx >= W.n || tz >= W.n) continue;
+      if (tx < 0 || tz < 0 || tx >= W.nx || tz >= W.nz) continue;
       if ((dx * dx + dz * dz) > (R + 0.5) ** 2) continue;
       const k = W.key(tx, tz);
       if (W.tiles.has(k) || td.pending.has(k)) continue;
@@ -551,7 +554,7 @@ export class Game {
       img.data[i] = col[0] * f; img.data[i + 1] = col[1] * f; img.data[i + 2] = col[2] * f; img.data[i + 3] = 255;
     }
     c.getContext('2d').putImageData(img, 0, 0);
-    this.mini = { canvas: c, scale: 1, size: S };
+    this.mini = { canvas: c, scale: 1, sizeX: S, sizeZ: S };
   }
   drawMinimap() {
     const el = this.ui.minimap;
@@ -579,19 +582,20 @@ export class Game {
   openMap() {
     this.ensureMini();
     if (!this.mini) return;
-    const c = this.ui.bigmap, S = this.mini.canvas.width;
-    c.width = c.height = Math.min(1024, Math.max(512, S));
+    const c = this.ui.bigmap, mc = this.mini.canvas;
+    const k = Math.min(1024, Math.max(512, Math.max(mc.width, mc.height))) / Math.max(this.mini.sizeX, this.mini.sizeZ);
+    c.width = Math.round(this.mini.sizeX * k); c.height = Math.round(this.mini.sizeZ * k);
+    c.style.aspectRatio = `${c.width} / ${c.height}`;
     const ctx = c.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, c.width, c.height);
-    ctx.drawImage(this.mini.canvas, 0, 0, c.width, c.height);
-    const k = c.width / this.mini.size;
+    ctx.drawImage(mc, 0, 0, c.width, c.height);
     this.drawArrow(ctx, this.player.pos.x * k, this.player.pos.z * k, 9);
     if (!c.dataset.bound) {
       c.dataset.bound = '1';
       c.addEventListener('click', (e) => {
         const r = c.getBoundingClientRect();
-        const x = (e.clientX - r.left) / r.width * this.mini.size, z = (e.clientY - r.top) / r.height * this.mini.size;
+        const x = (e.clientX - r.left) / r.width * this.mini.sizeX, z = (e.clientY - r.top) / r.height * this.mini.sizeZ;
         const p = this.player;
         p.pos.set(x, (this.meta.ground ?? GROUND) + 60, z); p.vel.set(0, 0, 0); p.fly = true; p.pitch = -0.3;
         if (this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
@@ -792,6 +796,13 @@ export class Game {
     const p = this.player, m = this.meta, fly = p.fly ? ` · ✈ ${FLY_NAMES[this.flyLevel || 0]}${this.boost ? ' + boost' : ''}` : '';
     const sc = (m.real && m.real.scale) || 1;
     const h = Math.floor((p.pos.y - (m.ground ?? GROUND)) / sc);
+    if (m.proc) {
+      const deg = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
+      const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];
+      this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m`;
+      this.ui.place.textContent = `${zoneName(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
+      return;
+    }
     if (m.real) {
       const lat = m.real.lat - (p.pos.z - m.size / 2) / sc / 110574;
       const lon = m.real.lon + (p.pos.x - m.size / 2) / sc / (111320 * Math.cos(m.real.lat * Math.PI / 180));

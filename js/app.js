@@ -4,6 +4,7 @@ import * as store from './storage.js';
 import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
+import { META as METRO, PLACES as METRO_PLACES } from './metropolis.js';
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -364,12 +365,16 @@ function mapMeta(map) {
 async function playMap(id) {
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
+  if (!meta && id === METRO.id) { meta = { id: METRO.id, kind: 'map', name: METRO.name, map: { ...METRO }, size: METRO.tilesX * METRO.tile, ground: METRO.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   await ensureGame();
   const map = meta.map, T = map.tile;
-  map.superTiles = 4;
-  map.version = CITY.version;
-  map.baked = await bakedBase(map);
+  if (map.kind === 'proc') Object.assign(map, METRO);
+  else {
+    map.superTiles = 4;
+    map.version = CITY.version;
+    map.baked = await bakedBase(map);
+  }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
       if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
@@ -380,9 +385,10 @@ async function playMap(id) {
     });
   });
   const saveTile = (tx, tz, vox, H) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H });
-  const isCity = map.id === CITY.id;
+  const isCity = map.id === CITY.id, isMetro = map.kind === 'proc';
   $('#menu').hidden = true;
-  $('#tp-wrap').hidden = !isCity;
+  $('#tp-wrap').hidden = !isCity && !isMetro;
+  fillTeleports(isMetro ? METRO_PLACES.map(([n, x, z]) => [n, null, null, x, z]) : CITY_PLACES);
   $('#game-title').textContent = meta.name;
   const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
   const areaProg = new Map();
@@ -396,22 +402,29 @@ async function playMap(id) {
     onLod(m);
   }); };
   const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
-  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map), prefetchArea, requestLods }, provider, saveTile);
+  const spawn = isMetro ? { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true } : isCity ? SPAWN : spawnFor(map);
+  game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
-for (const [name, lat, lon] of CITY_PLACES) {
-  const b = document.createElement('button');
-  b.className = 'chip'; b.textContent = name;
-  b.onclick = () => {
-    if (!game || !game.tiled) return;
-    const [x, z] = toBlocks(lat, lon);
-    const p = game.player;
-    p.pos.set(x, CITY.ground + 40, z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = 0.15;
-    game.updateTiles(true);
-    game.resume();
-  };
-  $('#tp-list').appendChild(b);
+$('#btn-metro').addEventListener('click', () => playMap(METRO.id));
+function fillTeleports(list) {
+  const box = $('#tp-list');
+  box.innerHTML = '';
+  for (const [name, lat, lon, bx, bz] of list) {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.textContent = name;
+    b.onclick = () => {
+      if (!game || !game.tiled) return;
+      const [x, z] = bx != null ? [bx, bz] : toBlocks(lat, lon);
+      const p = game.player, G0 = game.meta.ground ?? 12;
+      p.pos.set(x, G0 + (bx != null ? 120 : 40), z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = bx != null ? -0.1 : 0.15;
+      game.tiled.aheadKey = null;
+      game.updateTiles(true);
+      game.resume();
+    };
+    box.appendChild(b);
+  }
 }
 
 // Alles downloaden: elke tegel ophalen en omzetten, zodat de kaart volledig op dit toestel staat.
