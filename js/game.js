@@ -4,8 +4,11 @@ import { meshChunk, CS } from './mesher.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
 import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle } from './textures.js';
 import { districtAt, GROUND } from './city.js';
+import { skyAt, makeClouds } from './environment.js';
+import { TILE_INDEX } from './textures.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
+const REAL_CLOUD_Y = 320;
 const SKY_RAW = [0.62, 0.80, 0.96];
 
 const VERT = `
@@ -15,9 +18,12 @@ varying vec2 vUv;
 varying vec2 vTile;
 varying float vLight;
 varying float vDist;
+varying vec3 vWorld;
 void main() {
   vUv = uv; vTile = tile; vLight = light;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  vec4 mv = viewMatrix * wp;
   vDist = length(mv.xyz);
   gl_Position = projectionMatrix * mv;
 }`;
@@ -28,17 +34,48 @@ uniform vec3 fogColor;
 uniform float fogNear;
 uniform float fogFar;
 uniform float alphaTest;
+uniform float day;
+uniform vec3 sunDir;
+uniform float time;
+uniform float isTrans;
+uniform vec2 lampTile;
+uniform vec2 waterTile;
 varying vec2 vUv;
 varying vec2 vTile;
 varying float vLight;
 varying float vDist;
+varying vec3 vWorld;
+float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 void main() {
   vec2 f = clamp(fract(vUv), 0.002, 0.998);
   vec2 uv = vec2((vTile.x + f.x) / atlas.x, 1.0 - (vTile.y + 1.0 - f.y) / atlas.y);
   vec4 c = texture2D(map, uv);
   if (c.a < alphaTest) discard;
+  vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+  vec3 viewDir = normalize(cameraPosition - vWorld);
+  float daylight = mix(0.16, 1.0, day);
+  float sunF = max(dot(n, sunDir), 0.0);
+  vec3 col = c.rgb * vLight * daylight * (0.86 + 0.28 * sunF * day);
+  float a = c.a;
+  bool isLamp = distance(vTile, lampTile) < 0.1;
+  bool isWater = distance(vTile, waterTile) < 0.1;
+  if (isLamp) col = c.rgb * mix(1.0, 1.35, 1.0 - day);
+  if (isWater) {
+    float w = sin(vWorld.x * 0.9 + time * 1.3) * sin(vWorld.z * 0.7 - time * 1.1);
+    float fr = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+    col = mix(col, fogColor * 1.05, 0.25 + 0.45 * fr) + vec3(0.06) * w * daylight;
+    a = mix(a, 0.9, fr);
+  } else if (isTrans > 0.5 && c.a < 0.97) {
+    // glas: weerspiegelt de lucht, 's avonds zijn sommige ramen verlicht
+    float fr = pow(1.0 - abs(dot(n, viewDir)), 2.5);
+    col = mix(col, fogColor * daylight * 1.1 + vec3(0.05), 0.2 + 0.55 * fr);
+    vec3 cell = floor(vWorld - n * 0.5);
+    float lit = step(0.65, h3(cell)) * (1.0 - day);
+    col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.9);
+    a = mix(max(a, 0.35 + 0.4 * fr), 0.95, lit);
+  }
   float fog = smoothstep(fogNear, fogFar, vDist);
-  gl_FragColor = vec4(mix(c.rgb * vLight, fogColor, fog), c.a);
+  gl_FragColor = vec4(mix(col, fogColor, fog), a);
 }`;
 
 class World {
@@ -125,7 +162,7 @@ export class Game {
   constructor(ui) {
     this.ui = ui; // { root, canvas, hud, ... } DOM-elementen
     this.renderer = new THREE.WebGLRenderer({ canvas: ui.canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.setPixelRatio(matchMedia('(pointer: coarse)').matches ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.setClearColor(SKY);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.08, 1000);
@@ -137,10 +174,17 @@ export class Game {
     const uniforms = () => ({
       map: { value: tex }, atlas: { value: new THREE.Vector2(ATLAS_COLS, ATLAS_ROWS) },
       fogColor: { value: new THREE.Vector3(...SKY_RAW) }, fogNear: { value: 60 }, fogFar: { value: 150 }, alphaTest: { value: 0.5 },
+      day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
+      lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
+      waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
     });
     this.matOpaque = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms() });
     this.matTrans = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
     this.matTrans.uniforms.alphaTest.value = 0.02;
+    this.matTrans.uniforms.isTrans.value = 1;
+    this.clouds = makeClouds(REAL_CLOUD_Y);
+    this.scene.add(this.clouds);
+    this.clock = 0;
 
     const box = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004));
     this.highlight = new THREE.LineSegments(box, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.6 }));
@@ -432,7 +476,24 @@ export class Game {
     this.camera.position.set(p.pos.x, p.pos.y + 1.62, p.pos.z);
     this.camera.rotation.set(p.pitch, p.yaw, 0);
     const far = this.settings.view;
-    for (const m of [this.matOpaque, this.matTrans]) { m.uniforms.fogNear.value = far * 0.45; m.uniforms.fogFar.value = far; }
+    // dag en nacht
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - (this.lastRender || now)) / 1000);
+    this.lastRender = now;
+    this.clock += dt;
+    if (this.settings.cycle) { this.settings.hour = (this.settings.hour + dt / 30) % 24; this.syncTimeUi?.(); } // 1 uur per 30 s
+    const env = skyAt(this.settings.hour);
+    this.renderer.setClearColor(new THREE.Color(...env.sky));
+    for (const m of [this.matOpaque, this.matTrans]) {
+      const u = m.uniforms;
+      u.fogNear.value = far * 0.45; u.fogFar.value = far;
+      u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
+    }
+    this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
+    this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
+    this.clouds.material.color.setRGB(...env.sky.map((v, i) => Math.min(1, 0.55 + v * 0.5 + env.dusk * [0.3, 0.1, 0][i])));
+    this.clouds.material.opacity = 0.35 + env.day * 0.55;
+    if (this.lod) this.lod.update(env, far);
     this.camera.far = far + 20; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
@@ -682,6 +743,20 @@ export class Game {
     this.ui.viewRange.value = this.settings.view;
     this.ui.viewLabel.textContent = `${this.settings.view} m`;
     this.ui.sens.value = this.settings.sens;
+    const hour = document.getElementById('set-hour'), cyc = document.getElementById('set-cycle');
+    this.syncTimeUi = () => {
+      if (!hour) return;
+      if (document.activeElement !== hour) hour.value = this.settings.hour;
+      const hh = Math.floor(this.settings.hour), mm = Math.floor((this.settings.hour % 1) * 60);
+      document.getElementById('set-hour-label').textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    };
+    if (hour && !hour.dataset.bound) {
+      hour.dataset.bound = '1';
+      hour.addEventListener('input', () => { this.settings.hour = +hour.value; this.syncTimeUi(); saveSettings(this.settings); });
+      cyc.addEventListener('change', () => { this.settings.cycle = cyc.checked; saveSettings(this.settings); });
+    }
+    if (cyc) cyc.checked = !!this.settings.cycle;
+    this.syncTimeUi();
   }
 
   // ---------- invoer ----------
@@ -717,6 +792,7 @@ export class Game {
         this.lastW = now;
       }
       if (e.code === 'KeyR' && !e.repeat) this.cycleFlySpeed();
+      if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => { this.keys.delete(e.code); if (e.code === 'KeyW') this.boost = false; });
@@ -827,7 +903,9 @@ const FLY_SPEEDS = [12, 40, 120];
 const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (120 m/s)'];
 
 function loadSettings() {
-  try { return { view: 140, sens: 1, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
-  catch { return { view: 140, sens: 1 }; }
+  const phone = matchMedia('(pointer: coarse)').matches;
+  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 900 : 2000 };
+  try { return { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
+  catch { return def; }
 }
 function saveSettings(s) { try { localStorage.setItem('blokstad-settings', JSON.stringify(s)); } catch { /* geen opslag */ } }

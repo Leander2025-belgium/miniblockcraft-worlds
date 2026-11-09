@@ -141,6 +141,7 @@
   .card .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; color: var(--muted); margin: 10px 0; }
   .card label { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); }
+  .card label.check { display: flex; gap: 8px; align-items: center; }
   .card input[type=range] { width: 100%; accent-color: var(--accent); }
   #ov-inv .card { width: min(640px, 100%); }
   #inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
@@ -396,6 +397,9 @@
       </div>
       <label>Kijkafstand: <span id="set-view-label"></span>
         <input type="range" id="set-view" min="48" max="320" step="16"></label>
+      <label>Tijd van de dag: <span id="set-hour-label"></span>
+        <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
+      <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
       <label>Gevoeligheid
         <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1"></label>
       <div class="keys desk-only">
@@ -407,6 +411,7 @@
         <kbd>2× W</kbd><span>boost (W ingedrukt houden)</span>
         <kbd>Links / rechts</kbd><span>breken / plaatsen</span>
         <kbd>E</kbd><span>alle blokken</span>
+        <kbd>T</kbd><span>tijd +3 uur (dag/nacht)</span>
       </div>
       <p class="help">Je zit in een gedownload stuk stad. Aan de rand staat een onzichtbare muur — download het stuk ernaast om verder te verkennen.</p>
     </div>
