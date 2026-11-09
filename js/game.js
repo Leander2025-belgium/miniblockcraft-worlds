@@ -207,6 +207,8 @@ export class Game {
     this.applySettings();
     this.missions = new Missions((m) => this.toast(`🏆 Opdracht voltooid: ${m.name}`));
     window.addEventListener('resize', () => this.resize());
+    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
+    window.visualViewport?.addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
       if (!this.running || !this.tiled) return;
       this.tiled.aheadKey = null;
@@ -517,7 +519,7 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
     }
-    this.camera.far = (this.tiled ? Math.max(far, this.settings.lod) : far) + 60; this.camera.updateProjectionMatrix();
+    this.camera.far = (this.tiled ? Math.max(far, this.settings.lod * 1.6) : far) + 60; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
       const dx = c.wx - pcx, dz = c.wz - pcz;
@@ -1057,7 +1059,7 @@ const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (
 
 function loadSettings() {
   const phone = matchMedia('(pointer: coarse)').matches;
-  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 900 : 2000 };
+  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1400 : 2000 };
   try { return { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
   catch { return def; }
 }

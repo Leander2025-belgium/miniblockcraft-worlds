@@ -36,7 +36,7 @@ void main() {
     float lit = win * step(0.66, h3(cell)) * (1.0 - day);
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
   }
-  float fog = smoothstep(fogNear, fogFar, vDist);
+  float fog = smoothstep(fogNear, fogFar, length(vWorld - cameraPosition)); // per pixel (grote vlakken)
   gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
 }`;
 
@@ -50,6 +50,19 @@ export class FarView {
       vertexShader: VERT, fragmentShader: FRAG,
       uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 400 }, fogFar: { value: 2000 }, day: { value: 1 } },
     });
+    // grondvlak onder de hele kaart en ver daarbuiten (geen lege lucht onder de horizon)
+    const S = this.n * this.T, M = 6000, gy = this.G - 2.5, gc = [0.55, 0.56, 0.52];
+    const gp = new THREE.BufferGeometry();
+    const P = [[-M, gy, -M], [-M, gy, S + M], [S + M, gy, S + M], [S + M, gy, -M]];
+    const pos = [], col = [], side = [];
+    for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...P[k]); col.push(...gc); side.push(0); }
+    gp.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    gp.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    gp.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    this.groundMesh = new THREE.Mesh(gp, this.mat);
+    this.groundMesh.frustumCulled = false;
+    this.groundMesh.renderOrder = -2;
+    scene.add(this.groundMesh);
     // minikaart: 1 pixel per vak van 8 m
     this.cell = 8;
     this.px = this.n * (this.T / this.cell);
@@ -91,7 +104,13 @@ export class FarView {
     };
     for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
       const h = lod.h[z * n + x];
-      if (h <= G + 2) continue;
+      if (h <= G + 2) {
+        // grond (weg, gras, water) als plat vlak, zodat er geen gaten zijn
+        const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
+        const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
+        quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
+        continue;
+      }
       const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
       const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
       quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
@@ -114,7 +133,7 @@ export class FarView {
   update(env, far, tiles, px, pz) {
     const u = this.mat.uniforms;
     u.fogColor.value.set(...env.sky); u.day.value = env.day;
-    u.fogNear.value = far * 0.35; u.fogFar.value = far;
+    u.fogNear.value = far * 0.6; u.fogFar.value = far * 1.6; // grond blijft ver zichtbaar, geen lege band onder de horizon
     const lim = (far + this.T) ** 2;
     for (const [k, m] of this.meshes) {
       const tx = k % 1000, tz = Math.floor(k / 1000);
@@ -123,6 +142,7 @@ export class FarView {
     }
   }
   dispose() {
+    if (this.groundMesh) { this.scene.remove(this.groundMesh); this.groundMesh.geometry.dispose(); this.groundMesh = null; }
     for (const m of this.meshes.values()) { this.scene.remove(m); m.geometry.dispose(); }
     this.meshes.clear(); this.data.clear();
   }

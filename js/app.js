@@ -283,6 +283,19 @@ $('#import').addEventListener('change', async (e) => {
 });
 
 // ---------- spelen ----------
+// op telefoons: volledig scherm en liggend (waar de browser dat toestaat); moet meteen bij de tik gebeuren
+function phoneFullscreen() {
+  if (!matchMedia('(pointer: coarse)').matches) return;
+  const el = document.documentElement;
+  try {
+    const r = el.requestFullscreen?.({ navigationUI: 'hide' });
+    r?.then?.(() => screen.orientation?.lock?.('landscape').catch(() => {})).catch(() => {});
+  } catch { /* niet ondersteund (bv. iPhone) */ }
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btn-city, .region [data-a=play]')) phoneFullscreen();
+}, true);
+
 async function ensureGame() {
   if (!game) {
     const { Game } = await import('./game.js');

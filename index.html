@@ -2,7 +2,9 @@
 <html lang="nl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Blokstad</title>
 <meta name="description" content="Blokstad: een blokkenbouwspel in echte steden (OpenStreetMap) of een fantasiestad. Download een stuk stad en speel en bouw erin.">
 <meta name="theme-color" content="#141a24">
@@ -116,16 +118,16 @@
   }
 
   /* ---------- game ---------- */
-  #game { position: fixed; inset: 0; background: #9ecdf5; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #game { position: fixed; inset: 0; width: 100vw; height: 100dvh; overflow: hidden; background: #9ecdf5; overscroll-behavior: none; user-select: none; -webkit-user-select: none; touch-action: none; }
   #game-canvas { width: 100%; height: 100%; display: block; }
   .hud { position: absolute; z-index: 8; pointer-events: none; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
-  #hud-tl { left: 12px; top: 10px; font-size: 14px; }
+  #hud-tl { left: calc(12px + env(safe-area-inset-left, 0px)); top: calc(10px + env(safe-area-inset-top, 0px)); font-size: 14px; }
   #game-title { font-weight: 700; font-size: 16px; }
   #crosshair { left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
   #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.9); box-shadow: 0 0 2px #000; }
   #crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }
   #crosshair::after { top: 10px; left: 0; height: 2px; width: 22px; }
-  #hotbar-wrap { left: 50%; bottom: 10px; transform: translateX(-50%); text-align: center; }
+  #hotbar-wrap { left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); text-align: center; }
   #block-name { font-size: 13px; margin-bottom: 4px; }
   #hotbar { display: flex; gap: 3px; background: rgba(0,0,0,.45); padding: 4px; border-radius: 8px; pointer-events: auto; }
   .slot { position: relative; width: 46px; height: 46px; border: 2px solid rgba(255,255,255,.25); background: rgba(0,0,0,.3); border-radius: 6px; padding: 0; cursor: pointer; display: grid; place-items: center; color: #fff; }
@@ -144,8 +146,7 @@
   .card label.check { display: flex; gap: 8px; align-items: center; }
   .card input[type=range] { width: 100%; accent-color: var(--accent); }
   #ov-inv .card { width: min(640px, 100%); }
-  #minimap { position: absolute; z-index: 8; left: 12px; bottom: 12px; width: 170px; height: 170px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; image-rendering: pixelated; }
-  .is-touch #minimap { left: auto; right: 14px; bottom: auto; top: 130px; width: 110px; height: 110px; }
+  #minimap { position: absolute; z-index: 8; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: 170px; height: 170px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; image-rendering: pixelated; }
   .map-card { width: min(720px, 100%); }
   #bigmap { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; cursor: crosshair; display: block; }
   .missions { display: grid; gap: 4px; margin-top: 6px; max-height: 220px; overflow: auto; }
@@ -154,8 +155,8 @@
   .mission .mi { font-size: 16px; color: var(--muted); }
   .mission.ok .mi { color: var(--accent); }
   .mp { color: var(--muted); font-variant-numeric: tabular-nums; }
-  #t-shot, #t-photo-exit { display: none; right: 22px; bottom: 22px; }
-  #t-photo-exit { bottom: 92px; }
+  #t-shot, #t-photo-exit { display: none; right: calc(22px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+  #t-photo-exit { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   .photo .hud:not(#toast), .photo #minimap, .photo .touch { display: none !important; }
   .is-touch.photo #t-shot, .is-touch.photo #t-photo-exit { display: grid; }
   #inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
@@ -172,19 +173,45 @@
   #t-look { right: 0; width: 55%; }
   #t-stick { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; background: rgba(255,255,255,.15); border: 2px solid rgba(255,255,255,.35); z-index: 6; pointer-events: none; }
   #t-knob { position: absolute; left: 30px; top: 30px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.55); }
-  .tbtn { position: absolute; z-index: 7; width: 58px; height: 58px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); background: rgba(0,0,0,.35); color: #fff; font-size: 22px; display: grid; place-items: center; touch-action: none; }
-  #t-jump { right: 22px; bottom: 96px; }
-  #t-down { right: 22px; bottom: 164px; font-size: 18px; }
-  #t-break { right: 92px; bottom: 140px; }
-  #t-place { right: 92px; bottom: 72px; }
-  #t-fly { right: 22px; top: 70px; font-size: 18px; width: 48px; height: 48px; }
-  #t-inv { right: 76px; top: 70px; font-size: 18px; width: 48px; height: 48px; }
-  #t-speed { right: 130px; top: 70px; font-size: 18px; width: 48px; height: 48px; }
-  #t-menu { right: 22px; top: 14px; font-size: 18px; width: 48px; height: 48px; }
-  .is-touch #toast { top: auto; bottom: 90px; right: 50%; transform: translateX(50%); }
-  .is-touch #hotbar-wrap { bottom: 6px; }
-  .is-touch .slot { width: 38px; height: 38px; }
-  .is-touch .slot .ic { width: 30px; height: 30px; }
+  /* aanraakbediening: knoppen binnen de veilige zone (camera-uitsparing, thuisbalk) */
+  #game { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); }
+  .tbtn { position: absolute; z-index: 7; width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); background: rgba(0,0,0,.32); color: #fff; font-size: 21px; display: grid; place-items: center; touch-action: none; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(2px); }
+  .tbtn:active { background: rgba(255,255,255,.35); }
+  /* rechtsboven: één rij */
+  #t-menu, #t-fly, #t-speed, #t-inv { top: calc(10px + var(--st)); width: 44px; height: 44px; font-size: 17px; }
+  #t-menu { right: calc(12px + var(--sr)); }
+  #t-fly { right: calc(62px + var(--sr)); }
+  #t-speed { right: calc(112px + var(--sr)); }
+  #t-inv { right: calc(162px + var(--sr)); }
+  /* rechtsonder: duimboog */
+  #t-jump { right: calc(16px + var(--sr)); bottom: calc(18px + var(--sb)); width: 66px; height: 66px; font-size: 26px; }
+  #t-down { right: calc(22px + var(--sr)); bottom: calc(96px + var(--sb)); width: 52px; height: 52px; font-size: 18px; }
+  #t-place { right: calc(94px + var(--sr)); bottom: calc(18px + var(--sb)); }
+  #t-break { right: calc(88px + var(--sr)); bottom: calc(86px + var(--sb)); }
+  .is-touch #hud-tl { font-size: 11px; max-width: 46vw; }
+  .is-touch #game-title { font-size: 13px; }
+  .is-touch #hud-place { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .is-touch #minimap { left: calc(12px + var(--sl)); right: auto; top: calc(72px + var(--st)); bottom: auto; width: 92px; height: 92px; }
+  .is-touch #hud-tl > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .is-touch #loading, .is-touch #loading.minor { top: calc(12px + var(--st)); bottom: auto; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 500; padding: 4px 10px; background: rgba(0,0,0,.4); max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .is-touch #toast { top: calc(48px + var(--st)); bottom: auto; right: 50%; transform: translateX(50%); font-size: 12px; }
+  .is-touch #hotbar-wrap { bottom: calc(6px + var(--sb)); }
+  .is-touch #block-name { display: none; }
+  .is-touch #hotbar { padding: 3px; gap: 2px; }
+  .is-touch .slot { width: 36px; height: 36px; border-width: 1.5px; }
+  .is-touch .slot .ic { width: 28px; height: 28px; }
+  .is-touch .slot .num { display: none; }
+  /* liggend: werkbalk links van de knoppen */
+  @media (orientation: landscape) {
+    .is-touch #hotbar-wrap { left: calc(50% - 40px); }
+  }
+  /* rechtop: werkbalk boven de knoppen, minder vakjes zichtbaar */
+  @media (orientation: portrait) {
+    .is-touch #hud-tl { max-width: calc(100vw - 230px - var(--sr)); }
+    .is-touch #hotbar-wrap { bottom: calc(160px + var(--sb)); }
+    .is-touch #t-move { width: 50%; }
+    .is-touch #t-look { width: 50%; }
+  }
 </style>
 </head>
 <body>
