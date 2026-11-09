@@ -940,12 +940,14 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       // vloer onder het onderste niveau
       // fundering tot op het terrein, vloer op het nulpunt
       for (let y = gy[i] + 1; y < baseG; y++) set(x, y, z, st.base || st.wall);
-      if (yb === baseG + 1) set(x, baseG, z, B.TILE);
-      else set(x, yb - 1, z, covLo[i] < yb ? B.TILE : st.wall);
+      // zwevend gebouwdeel zonder iets eronder (onderste verdiepingen staan alleen in de omtrek): tot op de grond
+      const ybCol = (yb > baseG + 1 && covLo[i] >= yb) ? baseG + 1 : yb;
+      if (ybCol === baseG + 1) set(x, baseG, z, B.TILE);
+      else set(x, ybCol - 1, z, covLo[i] < ybCol ? B.TILE : st.wall);
       let sector = -1;
       if (lm && lm.gardens) sector = Math.floor(((Math.atan2(z - g.gcz, x - g.gcx) + Math.PI) / (2 * Math.PI)) * 3) % 3;
       let lastExt = false;
-      for (let y = yb; y < wallTop; y++) {
+      for (let y = ybCol; y < wallTop; y++) {
         const r = y - baseG - 1;
         const kind = r >= 0 && r < grid.kind.length ? grid.kind[r] : 0;
         const si = r >= 0 && r < grid.idx.length ? grid.idx[r] : 0;
@@ -956,17 +958,18 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         if (s0 === 2 || s1 === 2 || s2 === 2 || s3 === 2) party = true;
         lastExt = ext;
         const t = extX ? z + OZ : x + OX;
-        // hangende tuinen (Commerzbank): per 4 verdiepingen draait de tuin naar een andere zijde
+        // tuinen (Commerzbank): per 4 verdiepingen draait de tuin naar een andere zijde.
+        // Gevel en vloeren blijven gewoon staan; op de vloeren groeit gras met struiken.
+        let gardenRow = false;
         if (sector >= 0 && si >= 4 && si < topRow - 1) {
-          const band = Math.floor((si - 4) / 4), inBand = (si - 4) % 4;
-          if (band % 3 === sector && dIn <= 9 * scale) {
-            const firstRow = inBand === 0 && (r === 0 || grid.idx[r - 1] !== si);
-            if (ext) set(x, y, z, (t % 4 === 0) ? st.wall : B.GLASS);
-            else if (firstRow) set(x, y, z, B.GRASS);
-            else if (inBand === 0 && hash(x + OX, z + OZ, si) < 0.18) set(x, y, z, B.LEAVES);
-            else set(x, y, z, 0);
-            continue;
-          }
+          const band = Math.floor((si - 4) / 4);
+          gardenRow = band % 3 === sector && dIn <= 9 * scale && !ext && !party;
+        }
+        if (gardenRow) {
+          if (kind === -1) set(x, y, z, B.GRASS);
+          else if (r > 0 && grid.kind[r - 1] === -1 && hash(x + OX, z + OZ, y) < 0.22) set(x, y, z, B.LEAVES);
+          else set(x, y, z, 0);
+          continue;
         }
         if (ext) {
           let win, blk = st.wall;

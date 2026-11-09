@@ -144,6 +144,7 @@
   .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; color: var(--muted); margin: 10px 0; }
   .card label { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); }
   .card label.check { display: flex; gap: 8px; align-items: center; }
+  .card select { width: 100%; margin-top: 4px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
   .card input[type=range] { width: 100%; accent-color: var(--accent); }
   #ov-inv .card { width: min(640px, 100%); }
   #minimap { position: absolute; z-index: 8; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: 170px; height: 170px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; image-rendering: pixelated; }
@@ -452,6 +453,12 @@
       </div>
       <label>Kijkafstand: <span id="set-view-label"></span>
         <input type="range" id="set-view" min="48" max="320" step="16"></label>
+      <label>Beeldkwaliteit
+        <select id="set-quality">
+          <option value="fast">Snel (minder scherp)</option>
+          <option value="normal">Normaal</option>
+          <option value="sharp">Scherp (zwaarder)</option>
+        </select></label>
       <label>Verre gebouwen tot: <span id="set-lod-label"></span>
         <input type="range" id="set-lod" min="400" max="4000" step="100"></label>
       <label>Tijd van de dag: <span id="set-hour-label"></span>

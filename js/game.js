@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { meshChunk, CS } from './mesher.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
-import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle } from './textures.js';
+import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, TILE as TS } from './textures.js';
 import { districtAt, GROUND } from './city.js';
 import { skyAt, makeClouds } from './environment.js';
 import { TILE_INDEX } from './textures.js';
@@ -32,7 +32,8 @@ void main() {
 }`;
 const FRAG = `
 uniform sampler2D map;
-uniform vec2 atlas;
+uniform vec2 atlas;      // atlasgrootte in pixels
+uniform vec3 cellInfo;   // celgrootte, rand, tegelgrootte (pixels)
 uniform vec3 fogColor;
 uniform float fogNear;
 uniform float fogFar;
@@ -50,9 +51,14 @@ varying float vDist;
 varying vec3 vWorld;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 void main() {
-  vec2 f = clamp(fract(vUv), 0.002, 0.998);
-  vec2 uv = vec2((vTile.x + f.x) / atlas.x, 1.0 - (vTile.y + 1.0 - f.y) / atlas.y);
-  vec4 c = texture2D(map, uv);
+  vec2 f = fract(vUv);
+  float C = cellInfo.x, P = cellInfo.y, T = cellInfo.z;
+  vec2 pix = vec2(vTile.x * C + P + f.x * T, vTile.y * C + P + (1.0 - f.y) * T);
+  vec2 uv = vec2(pix.x / atlas.x, 1.0 - pix.y / atlas.y);
+  // juiste verkleining (mipmap) op basis van de echte schaal, max. 2 niveaus (de rand is 4 pixels)
+  vec2 gx = dFdx(vUv) * T, gy = dFdy(vUv) * T;
+  float lod = clamp(0.5 * log2(max(dot(gx, gx), dot(gy, gy))), 0.0, 2.0);
+  vec4 c = textureLod(map, uv, lod);
   if (c.a < alphaTest) discard;
   vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
   vec3 viewDir = normalize(cameraPosition - vWorld);
@@ -164,8 +170,9 @@ class TileWorld {
 export class Game {
   constructor(ui) {
     this.ui = ui; // { root, canvas, hud, ... } DOM-elementen
-    this.renderer = new THREE.WebGLRenderer({ canvas: ui.canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(matchMedia('(pointer: coarse)').matches ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer = new THREE.WebGLRenderer({ canvas: ui.canvas, antialias: true, powerPreference: 'high-performance' });
+    this.settings = loadSettings();
+    this.applyQuality();
     this.renderer.setClearColor(SKY);
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.08, 1000);
@@ -173,9 +180,10 @@ export class Game {
     const atlasCanvas = drawAtlas();
     this.atlasUrl = atlasCanvas.toDataURL();
     const tex = new THREE.CanvasTexture(atlasCanvas);
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
+    tex.anisotropy = 4;
     const uniforms = () => ({
-      map: { value: tex }, atlas: { value: new THREE.Vector2(ATLAS_COLS, ATLAS_ROWS) },
+      map: { value: tex }, atlas: { value: new THREE.Vector2(ATLAS_COLS * CELL, ATLAS_ROWS * CELL) }, cellInfo: { value: new THREE.Vector3(CELL, PAD, TS) },
       fogColor: { value: new THREE.Vector3(...SKY_RAW) }, fogNear: { value: 60 }, fogFar: { value: 150 }, alphaTest: { value: 0.5 },
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
@@ -194,7 +202,6 @@ export class Game {
     this.highlight.visible = false;
     this.scene.add(this.highlight);
 
-    this.settings = loadSettings();
     this.keys = new Set();
     this.running = false;
     this.hotbar = [B.GRASS, B.BRICK, B.PLANKS, B.GLASS, B.CONCRETE, B.STONE, B.LOG, B.LEAVES, B.LAMP];
@@ -857,6 +864,14 @@ export class Game {
     this.resume();
   }
 
+  // beeldkwaliteit: hoe scherp (resolutie) er getekend wordt
+  applyQuality() {
+    const dpr = window.devicePixelRatio || 1;
+    const q = this.settings.quality || 'normal';
+    const r = q === 'fast' ? 1 : q === 'sharp' ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
+    this.renderer.setPixelRatio(r);
+    if (this.camera) this.resize();
+  }
   applySettings() {
     this.ui.viewRange.value = this.settings.view;
     this.ui.viewLabel.textContent = `${this.settings.view} m`;
@@ -874,6 +889,11 @@ export class Game {
       cyc.addEventListener('change', () => { this.settings.cycle = cyc.checked; saveSettings(this.settings); });
     }
     if (cyc) cyc.checked = !!this.settings.cycle;
+    const ql = document.getElementById('set-quality');
+    if (ql) {
+      ql.value = this.settings.quality || 'normal';
+      if (!ql.dataset.bound) { ql.dataset.bound = '1'; ql.addEventListener('change', () => { this.settings.quality = ql.value; saveSettings(this.settings); this.applyQuality(); }); }
+    }
     const lodR = document.getElementById('set-lod');
     if (lodR) {
       lodR.value = this.settings.lod;
@@ -1059,7 +1079,7 @@ const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (
 
 function loadSettings() {
   const phone = matchMedia('(pointer: coarse)').matches;
-  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1400 : 2000 };
+  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1400 : 2000, quality: phone ? 'normal' : 'sharp' };
   try { return { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; }
   catch { return def; }
 }

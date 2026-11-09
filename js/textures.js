@@ -268,22 +268,33 @@ export const TILE_NAMES = Object.keys(painters);
 export const TILE_INDEX = Object.fromEntries(TILE_NAMES.map((n, i) => [n, i]));
 export const ATLAS_ROWS = Math.ceil(TILE_NAMES.length / ATLAS_COLS);
 
+// Elke tegel krijgt een rand van PAD pixels met de herhaalde inhoud, zodat verkleinde versies (mipmaps)
+// geen kleuren van de buurtegel lenen. Zo kan de game op afstand gladde, niet-flikkerende textures tonen.
+export const PAD = 4;
+export const CELL = TILE + PAD * 2;
 export function drawAtlas() {
   const canvas = document.createElement('canvas');
-  canvas.width = ATLAS_COLS * TILE;
-  canvas.height = ATLAS_ROWS * TILE;
+  canvas.width = ATLAS_COLS * CELL;
+  canvas.height = ATLAS_ROWS * CELL;
   const ctx = canvas.getContext('2d');
   const img = ctx.createImageData(canvas.width, canvas.height);
+  const tile = new Uint8ClampedArray(TILE * TILE * 4);
   TILE_NAMES.forEach((name, idx) => {
-    const ox = (idx % ATLAS_COLS) * TILE, oy = Math.floor(idx / ATLAS_COLS) * TILE;
+    const ox = (idx % ATLAS_COLS) * CELL, oy = Math.floor(idx / ATLAS_COLS) * CELL;
     const r = rng(idx * 9973 + 17);
+    tile.fill(0);
     // y=0 is de ONDERKANT van de tegel (zodat de textuur rechtop staat)
     const px = (x, y, rr, g, b, a = 255) => {
       if (x < 0 || y < 0 || x >= TILE || y >= TILE) return;
-      const i = ((oy + (TILE - 1 - y)) * canvas.width + ox + x) * 4;
-      img.data[i] = clamp(rr); img.data[i + 1] = clamp(g); img.data[i + 2] = clamp(b); img.data[i + 3] = clamp(a);
+      const i = ((TILE - 1 - y) * TILE + x) * 4;
+      tile[i] = clamp(rr); tile[i + 1] = clamp(g); tile[i + 2] = clamp(b); tile[i + 3] = clamp(a);
     };
     painters[name](px, r);
+    for (let cy = 0; cy < CELL; cy++) for (let cx = 0; cx < CELL; cx++) {
+      const sx = ((cx - PAD) % TILE + TILE) % TILE, sy = ((cy - PAD) % TILE + TILE) % TILE;
+      const si = (sy * TILE + sx) * 4, di = ((oy + cy) * canvas.width + ox + cx) * 4;
+      img.data[di] = tile[si]; img.data[di + 1] = tile[si + 1]; img.data[di + 2] = tile[si + 2]; img.data[di + 3] = tile[si + 3];
+    }
   });
   ctx.putImageData(img, 0, 0);
   return canvas;
@@ -303,6 +314,6 @@ for (const b of BLOCKS) {
 export function iconStyle(atlasUrl, blockId, size = 32) {
   const t = FACE_TILE[blockId * 3 + 1];
   const scale = size / TILE;
-  const x = (t % ATLAS_COLS) * TILE * scale, y = Math.floor(t / ATLAS_COLS) * TILE * scale;
-  return `background-image:url(${atlasUrl});background-size:${ATLAS_COLS * TILE * scale}px ${ATLAS_ROWS * TILE * scale}px;background-position:-${x}px -${y}px;image-rendering:pixelated;`;
+  const x = ((t % ATLAS_COLS) * CELL + PAD) * scale, y = (Math.floor(t / ATLAS_COLS) * CELL + PAD) * scale;
+  return `background-image:url(${atlasUrl});background-size:${ATLAS_COLS * CELL * scale}px ${ATLAS_ROWS * CELL * scale}px;background-position:-${x}px -${y}px;image-rendering:pixelated;`;
 }
