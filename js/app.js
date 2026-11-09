@@ -759,6 +759,21 @@ async function showReal(r) {
   $('#real-info').textContent = `${r.name} · ${regionMeters(r)}×${regionMeters(r)} m`;
 }
 
+// ---------- altijd de nieuwste versie ----------
+const APP_VERSION = '2026-11-09c';
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
+  if (version && version !== APP_VERSION) {
+    // oude kopie in de browser: één keer opnieuw laden met de nieuwe bestanden
+    let last = 0;
+    try { last = +sessionStorage.getItem('blokstad-reload') || 0; } catch { /* geen opslag */ }
+    if (Date.now() - last > 60000) {
+      try { sessionStorage.setItem('blokstad-reload', String(Date.now())); } catch { /* geen opslag */ }
+      location.reload();
+    }
+  }
+}).catch(() => {});
+
 // start
 let startMode = 'real';
 try { startMode = localStorage.getItem('blokstad-mode') || 'real'; } catch { /* geen opslag */ }

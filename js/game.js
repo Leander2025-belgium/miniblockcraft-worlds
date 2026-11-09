@@ -18,15 +18,22 @@ const SKY_RAW = [0.62, 0.80, 0.96];
 const VERT = `
 attribute vec2 tile;
 attribute float light;
+attribute float face;
 varying vec2 vUv;
 varying vec2 vTile;
 varying float vLight;
 varying float vDist;
 varying vec3 vWorld;
+varying vec3 vNrm;
+varying vec3 vView;
 void main() {
   vUv = uv; vTile = tile; vLight = light;
+  // richting van het vlak komt uit de mesh (niet uit afgeleiden van grote coördinaten: die zijn op telefoons onnauwkeurig)
+  vNrm = face < 0.5 ? vec3(1.0, 0.0, 0.0) : face < 1.5 ? vec3(-1.0, 0.0, 0.0) : face < 2.5 ? vec3(0.0, 1.0, 0.0)
+       : face < 3.5 ? vec3(0.0, -1.0, 0.0) : face < 4.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 0.0, -1.0);
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorld = wp.xyz;
+  vView = cameraPosition - wp.xyz;
   vec4 mv = viewMatrix * wp;
   vDist = length(mv.xyz);
   gl_Position = projectionMatrix * mv;
@@ -50,6 +57,8 @@ varying vec2 vTile;
 varying float vLight;
 varying float vDist;
 varying vec3 vWorld;
+varying vec3 vNrm;
+varying vec3 vView;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 void main() {
   vec2 f = fract(vUv);
@@ -62,9 +71,9 @@ void main() {
   vec4 c = textureLod(map, uv, lod);
   if (c.a < alphaTest) discard;
   // BLOKSTAD 3D VISUAL V9: atmospheric, directional, and hemispheric light.
-  vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+  vec3 n = normalize(vNrm);
   if (!gl_FrontFacing) n = -n;
-  vec3 viewDir = normalize(cameraPosition - vWorld);
+  vec3 viewDir = normalize(vView);
   float daylight = mix(0.14, 1.0, day);
   float sunF = max(dot(n, normalize(sunDir)), 0.0);
   float upF = n.y * 0.5 + 0.5;
@@ -428,6 +437,7 @@ export class Game {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uv, 2));
     g.setAttribute('tile', new THREE.Float32BufferAttribute(buf.tile, 2));
     g.setAttribute('light', new THREE.Float32BufferAttribute(buf.light, 1));
+    g.setAttribute('face', new THREE.Float32BufferAttribute(buf.face, 1));
     g.setIndex(buf.n > 65535 ? new THREE.Uint32BufferAttribute(buf.idx, 1) : new THREE.Uint16BufferAttribute(buf.idx, 1));
     g.computeBoundingSphere();
     // na het doorsturen naar de grafische kaart de kopie in het geheugen vrijgeven (scheelt veel op telefoons)

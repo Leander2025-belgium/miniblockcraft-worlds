@@ -7,7 +7,7 @@ const AO_LEVEL = [0.45, 0.65, 0.82, 1.0];
 // schaduw per richting: index a*2 + (s>0?0:1)
 const SHADE = [0.82, 0.82, 1.0, 0.55, 0.68, 0.68];
 
-function newBuf() { return { pos: [], uv: [], tile: [], light: [], idx: [], n: 0 }; }
+function newBuf() { return { pos: [], uv: [], tile: [], light: [], face: [], idx: [], n: 0 }; }
 
 export function meshChunk(world, cx, cz) {
   const { size, H, vox } = world;
@@ -119,6 +119,7 @@ function emit(out, b, a, u, v, s, ox, oy, oz, w, h, ao, faceTile, shade) {
     buf.tile.push(tx, ty);
     const lvl = ao === 0xff ? 3 : (ao >> (q * 2)) & 3;
     buf.light.push(shade * AO_LEVEL[lvl]);
+    buf.face.push(a * 2 + (s > 0 ? 0 : 1)); // richting van het vlak (voor licht en weerspiegeling)
   }
   const a0 = ao === 0xff ? 3 : ao & 3, a1 = ao === 0xff ? 3 : (ao >> 2) & 3;
   const a2 = ao === 0xff ? 3 : (ao >> 4) & 3, a3 = ao === 0xff ? 3 : (ao >> 6) & 3;

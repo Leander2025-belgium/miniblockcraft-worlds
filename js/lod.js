@@ -7,11 +7,13 @@ varying vec3 vColor;
 varying vec3 vWorld;
 varying float vDist;
 varying float vSide;
+varying vec3 vRel;
 attribute float side;
 void main() {
   vColor = color; vSide = side;
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorld = wp.xyz;
+  vRel = wp.xyz - cameraPosition;
   vec4 mv = viewMatrix * wp;
   vDist = length(mv.xyz);
   gl_Position = projectionMatrix * mv;
@@ -25,6 +27,7 @@ varying vec3 vColor;
 varying vec3 vWorld;
 varying float vDist;
 varying float vSide;
+varying vec3 vRel;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
 void main() {
   vec3 col = vColor * mix(0.16, 1.0, day);
@@ -36,7 +39,7 @@ void main() {
     float lit = win * step(0.66, h3(cell)) * (1.0 - day);
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
   }
-  float fog = smoothstep(fogNear, fogFar, length(vWorld - cameraPosition)); // per pixel (grote vlakken)
+  float fog = smoothstep(fogNear, fogFar, length(vRel)); // per pixel, berekend vanaf de camera (nauwkeurig op telefoons)
   gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
 }`;
 
