@@ -1,5 +1,5 @@
 // Greedy mesher: zet een chunk van 16×16 kolommen om in zo weinig mogelijk vlakken.
-import { B, IS_OPAQUE } from './blocks.js';
+import { B, IS_OPAQUE, IS_TRANSPARENT } from './blocks.js';
 import { FACE_TILE, ATLAS_COLS } from './textures.js';
 
 export const CS = 16;
@@ -97,7 +97,7 @@ export function meshChunk(world, cx, cz) {
 
 const V = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
 function emit(out, b, a, u, v, s, ox, oy, oz, w, h, ao, faceTile, shade) {
-  const buf = (b === B.GLASS || b === B.DARKGLASS || b === B.WATER) ? out.trans : out.opaque;
+  const buf = IS_TRANSPARENT[b] ? out.trans : out.opaque;
   const o = [ox, oy, oz];
   for (let q = 0; q < 4; q++) {
     const vt = V[q];

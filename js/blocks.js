@@ -8,6 +8,8 @@ export const B = {
   LAMP: 21, PLASTER: 22, YELLOWBRICK: 23, PAINT_RED: 24, PAINT_BLUE: 25, PAINT_GREEN: 26,
   GRAVEL: 27, COBBLE: 28, TILE: 29, POST: 30, PAINT_ORANGE: 31, PAINT_BLACK: 32, FLOWERS: 33,
   PAINT_WHITE: 34, HEDGE: 35, ASHLAR: 36, LIMESTONE: 37,
+  GLASS_GREEN: 38, MIRROR: 39, GLASS_BLUE: 40, PANEL_WHITE: 41, PANEL_DARK: 42, BRICK_DARK: 43,
+  PLASTER_BEIGE: 44, PLASTER_GREY: 45, TERRACOTTA: 46, COPPER: 47, PLASTER_PINK: 48,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -50,6 +52,17 @@ export const BLOCKS = [
   { id: 35, name: 'Haag', color: [44, 100, 36], tex: ['hedge'] },
   { id: 36, name: 'Natuursteen', color: [150, 150, 146], tex: ['ashlar'] },
   { id: 37, name: 'Zandsteen', color: [200, 186, 156], tex: ['limestone'] },
+  { id: 38, name: 'Groen glas', color: [150, 190, 180], tex: ['glass_green'], transparent: true },
+  { id: 39, name: 'Spiegelglas', color: [150, 180, 200], tex: ['mirror'], transparent: true },
+  { id: 40, name: 'Blauw glas', color: [80, 130, 190], tex: ['glass_blue'], transparent: true },
+  { id: 41, name: 'Wit gevelpaneel', color: [232, 234, 236], tex: ['panel_white'] },
+  { id: 42, name: 'Antraciet paneel', color: [58, 62, 68], tex: ['panel_dark'] },
+  { id: 43, name: 'Donkere baksteen', color: [100, 56, 44], tex: ['brick_dark'] },
+  { id: 44, name: 'Beige pleister', color: [222, 204, 170], tex: ['plaster_beige'] },
+  { id: 45, name: 'Grijze pleister', color: [170, 170, 168], tex: ['plaster_grey'] },
+  { id: 46, name: 'Terracotta', color: [190, 105, 70], tex: ['terracotta'] },
+  { id: 47, name: 'Koper', color: [96, 160, 140], tex: ['copper'] },
+  { id: 48, name: 'Roze pleister', color: [226, 180, 170], tex: ['plaster_pink'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;

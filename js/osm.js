@@ -101,9 +101,13 @@ const NAMED = {
   orange: [230, 130, 30], blue: [40, 80, 180], lightblue: [170, 210, 235], navy: [30, 40, 100], green: [40, 140, 70],
   darkgreen: [30, 90, 40], pink: [230, 170, 180], salmon: [230, 140, 120], gold: [220, 180, 60], teal: [40, 128, 128],
 };
-const WALL_CHOICES = [B.PLASTER, B.YELLOWBRICK, B.BRICK, B.CONCRETE, B.ASHLAR, B.LIMESTONE, B.METAL, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN,
+const WALL_CHOICES = [B.PLASTER, B.YELLOWBRICK, B.BRICK, B.CONCRETE, B.ASHLAR, B.LIMESTONE, B.PANEL_WHITE, B.PANEL_DARK,
+  B.BRICK_DARK, B.PLASTER_BEIGE, B.PLASTER_GREY, B.TERRACOTTA, B.PLASTER_PINK, B.COPPER, B.METAL, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN,
   B.PAINT_ORANGE, B.PAINT_BLACK, B.PAINT_WHITE, B.STONE, B.PLANKS, B.DARKGLASS];
-const ROOF_CHOICES = [B.ROOF_RED, B.ROOF_DARK, B.CONCRETE, B.METAL, B.PAINT_GREEN, B.PLASTER, B.PAINT_BLACK, B.BRICK];
+const ROOF_CHOICES = [B.ROOF_RED, B.ROOF_DARK, B.CONCRETE, B.METAL, B.COPPER, B.PLASTER, B.PAINT_BLACK, B.BRICK, B.TERRACOTTA, B.PANEL_DARK];
+const GLASS_CHOICES = [B.GLASS, B.GLASS_BLUE, B.GLASS_GREEN, B.MIRROR, B.DARKGLASS];
+const TOWER_LOOKS = [[B.GLASS_GREEN, B.PANEL_WHITE], [B.GLASS_BLUE, B.METAL], [B.MIRROR, B.PANEL_WHITE], [B.DARKGLASS, B.PANEL_DARK], [B.GLASS, B.PANEL_WHITE], [B.GLASS_BLUE, B.PANEL_DARK]];
+const lum = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
 function parseColour(v) {
   if (!v) return null;
   v = v.trim().toLowerCase();
@@ -174,35 +178,43 @@ function wallStyle(tags, h, id) {
   const col = parseColour(tags['building:colour'] || tags['building:color']);
   const r = hash(id % 100000, Math.floor(id / 100000), 61);
   let wall, glass = B.GLASS, curtain = false;
-  if (mat === 'glass' || mat === 'mirror') { curtain = true; wall = B.METAL; glass = r < 0.5 ? B.DARKGLASS : B.GLASS; }
-  else if (col) { wall = nearest(col, WALL_CHOICES); if (wall === B.DARKGLASS) { curtain = true; wall = B.METAL; glass = B.DARKGLASS; } }
-  else if (mat === 'brick') wall = B.BRICK;
+  const t = tags.building;
+  const tower = h >= 45 && !isHistoric(tags);
+  const look = TOWER_LOOKS[Math.floor(r * TOWER_LOOKS.length)];
+  const curtainFrom = (c) => { // glas + raamstijlen afgeleid van de kleur
+    curtain = true;
+    glass = c ? nearest(c, GLASS_CHOICES) : look[0];
+    wall = c ? (lum(c) > 150 ? B.PANEL_WHITE : lum(c) < 90 ? B.PANEL_DARK : B.METAL) : look[1];
+  };
+  if (mat === 'glass' || mat === 'mirror') curtainFrom(col);
+  else if (col && tower && !mat) curtainFrom(col);
+  else if (col) { wall = nearest(col, WALL_CHOICES); if (tower) { curtain = true; glass = look[0]; } }
+  else if (mat === 'brick') wall = r < 0.7 ? B.BRICK : B.BRICK_DARK;
   else if (mat === 'concrete') wall = B.CONCRETE;
   else if (mat === 'stone' || mat === 'granite' || mat === 'marble') wall = B.ASHLAR;
   else if (mat === 'sandstone' || mat === 'limestone') wall = B.LIMESTONE;
   else if (mat === 'wood') wall = B.PLANKS;
-  else if (mat === 'metal' || mat === 'steel') wall = B.METAL;
-  else if (mat === 'plaster') wall = B.PLASTER;
+  else if (mat === 'metal' || mat === 'steel' || mat === 'aluminium') wall = r < 0.5 ? B.METAL : B.PANEL_DARK;
+  else if (mat === 'plaster') wall = [B.PLASTER, B.PLASTER_BEIGE, B.PLASTER_GREY][Math.floor(r * 3)];
   else if (isHistoric(tags)) wall = [B.ASHLAR, B.ASHLAR, B.LIMESTONE, B.BRICK, B.YELLOWBRICK][Math.floor(r * 5)];
-  else if (h >= 45) { curtain = true; wall = r < 0.5 ? B.METAL : B.CONCRETE; glass = r < 0.3 || r > 0.75 ? B.DARKGLASS : B.GLASS; }
-  else {
-    const t = tags.building;
-    if (t === 'industrial' || t === 'warehouse' || t === 'garage' || t === 'garages') wall = r < 0.6 ? B.METAL : B.CONCRETE;
-    else if (t === 'church' || t === 'cathedral' || t === 'chapel') wall = r < 0.5 ? B.BRICK : B.YELLOWBRICK;
-    else if (t === 'house' || t === 'detached' || t === 'terrace' || t === 'semidetached_house') wall = [B.BRICK, B.PLASTER, B.YELLOWBRICK, B.BRICK][Math.floor(r * 4)];
-    else wall = [B.PLASTER, B.PLASTER, B.CONCRETE, B.YELLOWBRICK, B.BRICK][Math.floor(r * 5)];
-  }
+  else if (tower) curtainFrom(null);
+  else if (t === 'industrial' || t === 'warehouse' || t === 'garage' || t === 'garages') wall = [B.METAL, B.CONCRETE, B.PANEL_DARK][Math.floor(r * 3)];
+  else if (t === 'church' || t === 'cathedral' || t === 'chapel') wall = r < 0.5 ? B.BRICK : B.YELLOWBRICK;
+  else if (t === 'house' || t === 'detached' || t === 'terrace' || t === 'semidetached_house') wall = [B.BRICK, B.PLASTER, B.YELLOWBRICK, B.BRICK_DARK, B.PLASTER_BEIGE][Math.floor(r * 5)];
+  else if (t === 'office' || t === 'commercial') wall = [B.PANEL_WHITE, B.CONCRETE, B.PLASTER_GREY, B.PANEL_DARK, B.LIMESTONE][Math.floor(r * 5)];
+  else wall = [B.PLASTER, B.PLASTER_BEIGE, B.PLASTER_GREY, B.CONCRETE, B.YELLOWBRICK, B.BRICK, B.PLASTER_PINK][Math.floor(r * 7)];
   const rc = parseColour(tags['roof:colour'] || tags['roof:color']);
   const shape = tags['roof:shape'];
   let roof;
   const rm = (tags['roof:material'] || '').toLowerCase();
-  const RM = { glass: B.GLASS, metal: B.METAL, metal_sheet: B.METAL, steel: B.METAL, zinc: B.METAL, copper: B.PAINT_GREEN,
+  const RM = { glass: B.GLASS, metal: B.METAL, metal_sheet: B.METAL, steel: B.METAL, zinc: B.METAL, copper: B.COPPER,
     slate: B.ROOF_DARK, roof_tiles: B.ROOF_RED, tiles: B.ROOF_RED, tile: B.ROOF_RED, concrete: B.CONCRETE, tar_paper: B.ROOF_DARK, grass: B.GRASS };
   if (rc) roof = nearest(rc, ROOF_CHOICES);
   else if (RM[rm]) roof = RM[rm];
   else if (isHistoric(tags) || shape === 'dome' || shape === 'onion' || shape === 'mansard') roof = B.ROOF_DARK;
   else if (shape && shape !== 'flat') roof = r < 0.6 ? B.ROOF_RED : B.ROOF_DARK;
-  else roof = h >= 45 ? B.METAL : B.ROOF_DARK;
+  else roof = h >= 45 ? B.METAL : r < 0.5 ? B.ROOF_DARK : B.CONCRETE;
+  // bij een mooie gevelkleur andere ramen: donkere gevels krijgen helder glas
   return { wall, glass, curtain, roof };
 }
 
@@ -496,7 +508,6 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
 
   all.sort((a, b) => a.hm.min - b.hm.min);
   const set = (x, y, z, b) => { if (y > 0 && y < H) vox[(z * size + x) * H + y] = b; };
-  const FLOOR = Math.max(3, Math.round(3.3 * scale));
   let count = 0;
   for (const bd of all) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
@@ -586,6 +597,24 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
 
     const st = wallStyle(bd.tags, bd.hm.h, bd.id);
     const pitched = shape !== 'flat';
+    // verdiepingen: verdeel de muurhoogte over het echte aantal verdiepingen (anders 3 m per verdieping)
+    const wallH = wallTop - yb;
+    const lv = parseLen(bd.tags['building:levels']);
+    let storey = 3 * scale;
+    if (lv >= 1) storey = Math.max(2.6 * scale, Math.min(3.6 * scale, wallH / lv));
+    const rowKind = new Int8Array(Math.max(0, wallH)); // -1 vloer, 1 raamrij, 0 muur
+    {
+      let start = 0;
+      for (let i = 1; start < wallH; i++) {
+        const end = Math.min(wallH, Math.max(start + 2, Math.round(i * storey)));
+        const hs = end - start;
+        for (let rr = start; rr < end; rr++) {
+          const l = rr - start;
+          rowKind[rr] = l === hs - 1 ? -1 : (hs <= 3 ? 1 : (l >= 1 && l <= hs - 2 ? 1 : 0));
+        }
+        start = end;
+      }
+    }
     const winEvery = 2 + scale;
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
       const mi = (z - z0) * bw + (x - x0);
@@ -597,13 +626,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1) {
       marks[i] = 1; treeD[i] = 0;
       if (yb === G + 1) set(x, G, z, B.TILE); else set(x, yb - 1, z, st.wall);
       for (let y = yb; y < wallTop; y++) {
-        const lev = (y - G) % FLOOR;
+        const kind = rowKind[y - yb];
         if (edge) {
           let win;
-          if (st.curtain) win = lev !== 0 && t % winEvery !== 0;
-          else win = lev >= 1 && lev < FLOOR - (scale > 1 ? 1 : 0) && (t % winEvery) >= 1 && (t % winEvery) <= scale;
+          if (st.curtain) win = kind !== -1 && t % winEvery !== 0;
+          else win = kind === 1 && (t % winEvery) >= 1 && (t % winEvery) <= scale;
           set(x, y, z, win ? st.glass : st.wall);
-        } else set(x, y, z, lev === 0 ? B.TILE : 0);
+        } else set(x, y, z, kind === -1 ? B.TILE : 0);
       }
       if (!pitched) {
         set(x, wallTop, z, edge && hTot > 6 * scale ? st.wall : st.roof);

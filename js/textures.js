@@ -194,6 +194,45 @@ painters.darkglass = (px, r) => {
     else px(x, y, 40 + y * 2, 70 + y * 2, 105 + y * 2, 205);
   }
 };
+function glassPainter(frame, inner, alpha, shineA) {
+  return (px, r) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const fr = x === 0 || y === 0;
+      const shine = (x + y === 12 || x + y === 13 || x + y === 20) && !fr;
+      const g = (y / TILE) * 18;
+      if (fr) px(x, y, frame[0], frame[1], frame[2], 255);
+      else if (shine) px(x, y, 235, 245, 250, shineA);
+      else px(x, y, inner[0] + g, inner[1] + g, inner[2] + g, alpha);
+    }
+  };
+}
+painters.glass_green = glassPainter([226, 230, 232], [120, 178, 168], 175, 210);
+painters.mirror = glassPainter([226, 230, 234], [126, 164, 192], 230, 255);
+painters.glass_blue = glassPainter([170, 176, 184], [62, 112, 170], 195, 230);
+function panelPainter(base, seam) {
+  return (px, r) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const n = (r() - 0.5) * 6;
+      const sm = x === 0 || y === 0 || y === 8;
+      const c = sm ? seam : base;
+      px(x, y, c[0] + n, c[1] + n, c[2] + n);
+    }
+  };
+}
+painters.panel_white = panelPainter([232, 234, 236], [196, 200, 204]);
+painters.panel_dark = panelPainter([58, 62, 68], [38, 40, 44]);
+painters.brick_dark = brickPainter([100, 56, 44], [150, 140, 130]);
+painters.terracotta = brickPainter([190, 105, 70], [214, 190, 160]);
+painters.plaster_beige = solid([222, 204, 170], 10);
+painters.plaster_grey = solid([170, 170, 168], 10);
+painters.plaster_pink = solid([226, 180, 170], 10);
+painters.copper = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const n = (r() - 0.5) * 26, seam = x % 5 === 0;
+    const v = seam ? 0.8 : 1;
+    px(x, y, (96 + n) * v, (160 + n) * v, (140 + n * 0.6) * v);
+  }
+};
 painters.water = (px, r) => {
   for (let i = 0; i < TILE * TILE; i++) {
     const n = (r() - 0.5) * 20;
