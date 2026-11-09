@@ -159,6 +159,11 @@ export class Game {
     this.buildInventory();
     this.applySettings();
     window.addEventListener('resize', () => this.resize());
+    document.addEventListener('visibilitychange', () => {
+      if (!this.running || !this.tiled) return;
+      this.tiled.aheadKey = null;
+      this.updateTiles(true);
+    });
   }
 
   // ---------- laden ----------
@@ -189,7 +194,7 @@ export class Game {
     this.clearChunks();
     this.meta = meta;
     this.world = new TileWorld(spec);
-    this.tiled = { spec, provider, saveTile, inFlight: 0, pending: new Set(), failed: new Map(), lastCheck: 0 };
+    this.tiled = { spec, provider, saveTile, prefetchArea: spec.prefetchArea, inFlight: 0, pending: new Set(), failed: new Map(), lastCheck: 0 };
     this.chunks = new Map();
     this.dirty = false;
     this.queue = [];
@@ -229,6 +234,12 @@ export class Game {
     const W = this.world, T = W.T, p = this.player.pos;
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
     const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
+    // de worker werkt alvast verder vooruit (ook als het tabblad verborgen is)
+    const ahead = R + (document.hidden || !this.active() ? 4 : 2);
+    if (td.prefetchArea && (td.aheadKey !== ptx + ',' + ptz + ',' + ahead)) {
+      td.aheadKey = ptx + ',' + ptz + ',' + ahead;
+      td.prefetchArea(ptx, ptz, ahead);
+    }
     // tegels die te ver weg zijn opruimen (eerst bewaren als je er iets veranderde)
     for (const [k, t] of W.tiles) {
       if (Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)) > R + 1) {
@@ -408,6 +419,11 @@ export class Game {
     this.ui.loading.classList.toggle('minor', !!here);
     if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : 'Stad laden… (de eerste keer duurt dit even)';
     else this.ui.loading.textContent = `Stad laden… ${td.inFlight} stukken onderweg`;
+    const ap = this.aheadProgress;
+    const bg = ap && ap.done < ap.total ? `Omgeving klaarzetten: ${ap.done} van ${ap.total} stukken (gaat door op de achtergrond)` : ap ? 'Omgeving rond je is klaar ✓' : '';
+    if (here && !busy && ap && ap.done < ap.total) { this.ui.loading.hidden = false; this.ui.loading.textContent = bg; }
+    const pl = document.getElementById('pause-load');
+    if (pl) pl.textContent = bg;
   }
 
   render() {

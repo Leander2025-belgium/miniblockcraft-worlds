@@ -63,6 +63,8 @@ self.onmessage = (e) => {
       if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
       else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
+  } else if (m.type === 'area') {
+    areaPrefetch(m);
   } else if (m.type === 'dropSuper') {
     const k = keys.osm(m.map, m.sx, m.sz);
     supers.delete(k);
@@ -132,7 +134,39 @@ function getSuper(map, sx, sz) {
   if (supers.size > 4) supers.delete(supers.keys().next().value);
   return p;
 }
-async function cityTile(m) {
+// dezelfde tegel nooit twee keer tegelijk maken
+const making = new Map();
+function cityTile(m) {
+  const k = keys.tile(m.map, m.tx, m.tz) + (m.prefetch ? '-p' : '');
+  if (making.has(k)) return making.get(k);
+  const p = cityTileInner(m).finally(() => making.delete(k));
+  making.set(k, p);
+  return p;
+}
+// Achtergrond: tegels rond de speler alvast ophalen en bewaren.
+// Loopt in de worker, dus ook als het tabblad verborgen is of het spel op pauze staat.
+let area = null;
+async function areaPrefetch(m) {
+  const job = { map: m.map, stop: false };
+  if (area) area.stop = true;
+  area = job;
+  const { map, tx: cx, tz: cz, radius: R } = m;
+  const list = [];
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const tx = cx + dx, tz = cz + dz;
+    if (tx < 0 || tz < 0 || tx >= map.tiles || tz >= map.tiles || dx * dx + dz * dz > (R + 0.5) ** 2) continue;
+    list.push([dx * dx + dz * dz, tx, tz]);
+  }
+  list.sort((a, b) => a[0] - b[0]);
+  let done = 0;
+  for (const [, tx, tz] of list) {
+    if (job.stop) return;
+    try { await cityTile({ map, tx, tz, prefetch: true }); } catch { /* volgende keer opnieuw */ }
+    done++;
+    if (done % 4 === 0 || done === list.length) self.postMessage({ type: 'areaProgress', id: m.id, done, total: list.length });
+  }
+}
+async function cityTileInner(m) {
   const { tx, tz, map } = m;
   const key = keys.tile(map, tx, tz);
   const cached = await cacheGet(key);

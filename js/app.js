@@ -307,7 +307,10 @@ async function playMap(id) {
   $('#menu').hidden = true;
   $('#tp-wrap').hidden = !isCity;
   $('#game-title').textContent = meta.name;
-  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map) }, provider, saveTile);
+  const prefetchArea = (tx, tz, radius) => ask({ type: 'area', map, tx, tz, radius }, (m) => {
+    if (m.type === 'areaProgress' && game && game.tiled) game.aheadProgress = m;
+  });
+  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map), prefetchArea }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
