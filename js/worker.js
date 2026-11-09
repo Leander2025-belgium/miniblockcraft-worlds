@@ -2,8 +2,8 @@
 import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './city.js';
 import { BLOCKS } from './blocks.js';
 import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor } from './osm.js';
-import { CITY, MX, tileCenter, superBox } from './frankfurt.js';
-import { cacheGet, cachePut, rleEncode, rleDecode } from './storage.js';
+import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
+import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
 
 const col = new Uint8Array(HEIGHT);
 
@@ -59,8 +59,14 @@ self.onmessage = (e) => {
     }
     self.postMessage({ type: 'preview', id: m.id, size, data }, [data.buffer]);
   } else if (m.type === 'cityTile') {
-    cityTile(m).then(r => self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]))
-      .catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
+    cityTile(m).then(r => {
+      if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
+      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H }, [r.vox.buffer]);
+    }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
+  } else if (m.type === 'dropSuper') {
+    const k = keys.osm(m.map, m.sx, m.sz);
+    supers.delete(k);
+    cacheDelete(k).then(() => self.postMessage({ type: 'dropped', id: m.id }));
   } else if (m.type === 'osm') {
     realWorld(m).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'region') {
@@ -107,14 +113,14 @@ async function realWorld(m) {
 // ---------- vaste stadskaart in tegels ----------
 const supers = new Map();
 let fetchChain = Promise.resolve();
-function getSuper(sx, sz) {
-  const key = `${CITY.id}-osm-${sx}-${sz}`;
+function getSuper(map, sx, sz) {
+  const key = keys.osm(map, sx, sz);
   if (supers.has(key)) return supers.get(key);
   const p = (async () => {
     let text = await cacheGet(key);
     if (!text) {
       // één download tegelijk, zodat de OpenStreetMap-server ons niet weigert
-      const job = fetchChain.then(() => fetchOSMBox(superBox(sx, sz)));
+      const job = fetchChain.then(() => fetchOSMBox(superBox(map, sx, sz)));
       fetchChain = job.catch(() => {});
       text = await job;
       await cachePut(key, text);
@@ -123,19 +129,23 @@ function getSuper(sx, sz) {
   })();
   p.catch(() => supers.delete(key));
   supers.set(key, p);
-  if (supers.size > 6) supers.delete(supers.keys().next().value);
+  if (supers.size > 4) supers.delete(supers.keys().next().value);
   return p;
 }
 async function cityTile(m) {
-  const { tx, tz } = m;
-  const key = `${CITY.id}-tile-v${CITY.version}-${tx}-${tz}`;
+  const { tx, tz, map } = m;
+  const key = keys.tile(map, tx, tz);
   const cached = await cacheGet(key);
-  if (cached && cached.rle) return { vox: rleDecode(cached.rle, CITY.tile * CITY.tile * cached.H), H: cached.H };
-  const osm = await getSuper(Math.floor(tx / CITY.superTiles), Math.floor(tz / CITY.superTiles));
-  const c = tileCenter(tx, tz);
-  const b = bboxFor(c.lat, c.lon, CITY.tile, 30);
+  if (cached && cached.rle) {
+    if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
+    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H };
+  }
+  const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
+  const c = tileCenter(map, tx, tz);
+  const b = bboxFor(c.lat, c.lon, map.tile, 30);
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
-  const r = rasterize(sub, c.lat, c.lon, CITY.tile, null, 1, { mx: MX, ox: tx * CITY.tile, oz: tz * CITY.tile });
-  await cachePut(key, { rle: rleEncode(r.vox), H: r.H });
-  return { vox: r.vox, H: r.H };
+  const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile });
+  const rle = rleEncode(r.vox);
+  await cachePut(key, { rle, H: r.H });
+  return { vox: r.vox, H: r.H, bytes: rle.length };
 }

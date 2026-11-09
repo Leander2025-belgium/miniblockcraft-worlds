@@ -2,7 +2,8 @@
 import { WIDTH, LENGTH, HEIGHT, districtAt, riverX } from './city.js';
 import * as store from './storage.js';
 import { topView } from './osm.js';
-import { CITY, SPAWN, SIZE, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
+import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
+import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -57,7 +58,7 @@ function drawOverlay() {
     octx.fillStyle = '#fff'; octx.fillText(`${km} km`, 18, y + 4);
   }
   for (const r of state.regions) {
-    if (r.real) continue;
+    if (r.real || r.kind === 'map') continue;
     octx.fillStyle = 'rgba(80, 220, 120, 0.35)';
     octx.strokeStyle = 'rgba(80, 220, 120, 0.95)'; octx.lineWidth = 1;
     const x = r.x0 / MAP_SCALE, y = r.z0 / MAP_SCALE, s = r.size / MAP_SCALE;
@@ -195,6 +196,7 @@ async function refreshList() {
     return;
   }
   for (const r of state.regions) {
+    if (r.kind === 'map') { list.appendChild(mapCard(r)); continue; }
     const card = document.createElement('div');
     card.className = 'region';
     const edited = r.edited ? ' · bewerkt' : '';
@@ -280,31 +282,35 @@ async function play(id) {
   game.start();
 }
 
-// ---------- vaste stadskaart: Frankfurt ----------
-const CITY_PLAYER_KEY = `${CITY.id}-player`;
-const editKey = (tx, tz) => `${CITY.id}-edit-${tx}-${tz}`;
-async function playCity() {
+// ---------- grote kaarten (kilometers, in tegels) ----------
+function mapMeta(map) {
+  return { id: map.id, kind: 'map', name: map.name, map, size: mapSize(map), ground: map.ground,
+    real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
+}
+async function playMap(id) {
+  let meta = await store.getRegionMeta(id);
+  if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
+  if (!meta) return notify('Deze kaart bestaat niet meer.');
   await ensureGame();
-  const saved = await store.cacheGet(CITY_PLAYER_KEY);
-  const meta = { id: 'city-' + CITY.id, name: CITY.name, real: { lat: CITY.lat, lon: CITY.lon, scale: 1 }, size: SIZE, ground: CITY.ground, player: saved && saved.player };
-  const T = CITY.tile;
+  const map = meta.map, T = map.tile;
   const provider = (tx, tz) => new Promise((resolve, reject) => {
-    store.cacheGet(editKey(tx, tz)).then((ed) => {
+    store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
       if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
-      ask({ type: 'cityTile', tx, tz }, (m) => {
+      ask({ type: 'cityTile', tx, tz, map }, (m) => {
         if (m.type === 'cityTile') resolve(m);
         else if (m.type === 'error') reject(new Error(m.message));
       });
     });
   });
-  const saveTile = (tx, tz, vox, H) => store.cachePut(editKey(tx, tz), { rle: store.rleEncode(vox), H });
+  const saveTile = (tx, tz, vox, H) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H });
+  const isCity = map.id === CITY.id;
   $('#menu').hidden = true;
-  $('#tp-wrap').hidden = false;
-  $('#game-title').textContent = CITY.name;
-  game.loadTiled(meta, { ...CITY, spawn: SPAWN }, provider, saveTile);
+  $('#tp-wrap').hidden = !isCity;
+  $('#game-title').textContent = meta.name;
+  game.loadTiled(meta, { ...map, spawn: isCity ? SPAWN : spawnFor(map) }, provider, saveTile);
   game.start();
 }
-$('#btn-city').addEventListener('click', playCity);
+$('#btn-city').addEventListener('click', () => playMap(CITY.id));
 for (const [name, lat, lon] of CITY_PLACES) {
   const b = document.createElement('button');
   b.className = 'chip'; b.textContent = name;
@@ -319,6 +325,114 @@ for (const [name, lat, lon] of CITY_PLACES) {
   $('#tp-list').appendChild(b);
 }
 
+// Alles downloaden: elke tegel ophalen en omzetten, zodat de kaart volledig op dit toestel staat.
+const prefetch = { job: null };
+function stopPrefetch() { if (prefetch.job) prefetch.job.stop = true; }
+async function startPrefetch(meta) {
+  if (prefetch.job && prefetch.job.id === meta.id && !prefetch.job.stop) return;
+  stopPrefetch();
+  try { await navigator.storage?.persist?.(); } catch { /* niet ondersteund */ }
+  const map = meta.map, n = map.tiles, sc = superCount(map);
+  const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0 };
+  prefetch.job = job;
+  // superblokken van het midden naar buiten
+  const supers = [];
+  for (let sz = 0; sz < sc; sz++) for (let sx = 0; sx < sc; sx++) supers.push([sx, sz, (sx - sc / 2 + 0.5) ** 2 + (sz - sc / 2 + 0.5) ** 2]);
+  supers.sort((a, b) => a[2] - b[2]);
+  const one = (tx, tz) => new Promise((resolve) => {
+    ask({ type: 'cityTile', tx, tz, map, prefetch: true }, (m) => {
+      if (m.type === 'cityTile') { job.bytes += m.bytes || 0; resolve(true); }
+      else if (m.type === 'error') { job.lastError = m.message; resolve(false); }
+    });
+  });
+  showPrefetch(job);
+  for (const [sx, sz] of supers) {
+    if (job.stop) break;
+    const tiles = [];
+    for (let tz = sz * map.superTiles; tz < Math.min(n, (sz + 1) * map.superTiles); tz++)
+      for (let tx = sx * map.superTiles; tx < Math.min(n, (sx + 1) * map.superTiles); tx++) tiles.push([tx, tz]);
+    let ok = true;
+    for (let i = 0; i < tiles.length && !job.stop; i += 2) {
+      const res = await Promise.all(tiles.slice(i, i + 2).map(([tx, tz]) => one(tx, tz)));
+      for (const r of res) { if (r) job.done++; else { job.failed++; ok = false; } }
+      showPrefetch(job);
+    }
+    // ruwe kaartdata weggooien als alle tegels klaar zijn: spaart veel opslag
+    if (ok && !job.stop) await new Promise(res => ask({ type: 'dropSuper', map, sx, sz }, res));
+    if (!ok) await new Promise(r => setTimeout(r, 4000));
+  }
+  const m2 = await store.getRegionMeta(meta.id);
+  if (m2) { m2.done = job.done; m2.complete = job.done >= job.total; m2.bytes = (m2.bytes || 0) + job.bytes; await store.saveMeta(m2); }
+  job.finished = true;
+  showPrefetch(job);
+  if (prefetch.job === job) prefetch.job = null;
+  refreshList();
+}
+function showPrefetch(job) {
+  const el = document.getElementById('prog-' + job.id);
+  if (!el) return;
+  const pct = Math.floor(job.done / job.total * 100);
+  el.querySelector('.bar > div').style.width = pct + '%';
+  el.querySelector('.ptext').textContent = job.finished
+    ? (job.done >= job.total ? 'Volledig gedownload ✓' : job.stop ? `Gepauzeerd bij ${pct}%` : `Klaar met fouten: ${job.failed} stukken mislukt (${job.lastError || 'onbekend'}). Probeer opnieuw.`)
+    : `Downloaden… ${job.done} van ${job.total} stukken (${pct}%)${job.failed ? ` · ${job.failed} mislukt` : ''}`;
+}
+function mapCard(r) {
+  const card = document.createElement('div');
+  card.className = 'region';
+  const map = r.map, km = (mapSize(map) / 1000).toLocaleString('nl-BE', { maximumFractionDigits: 1 });
+  const running = prefetch.job && prefetch.job.id === r.id && !prefetch.job.stop;
+  const pct = Math.floor(((r.done || 0) / (map.tiles * map.tiles)) * 100);
+  card.innerHTML = `
+    <div class="r-title"></div>
+    <div class="muted small">Grote kaart · ${km} × ${km} km · 📍 ${map.lat.toFixed(4)}, ${map.lon.toFixed(4)}</div>
+    <div class="prefetch" id="prog-${r.id}">
+      <div class="bar"><div style="width:${r.complete ? 100 : pct}%"></div></div>
+      <div class="ptext small muted">${r.complete ? 'Volledig gedownload ✓' : r.done ? `${pct}% gedownload` : 'Nog niet gedownload: laadt tijdens het spelen, of download alles vooraf.'}</div>
+    </div>
+    <div class="r-actions">
+      <button class="btn primary" data-a="play">▶ Spelen</button>
+      ${r.complete ? '' : `<button class="btn" data-a="dl">${running ? '⏸ Pauzeren' : '⬇ Alles downloaden'}</button>`}
+      <button class="btn" data-a="show">Toon</button>
+      <button class="btn danger" data-a="del">✕</button>
+    </div>`;
+  card.querySelector('.r-title').textContent = r.name;
+  card.querySelector('[data-a=play]').onclick = () => playMap(r.id);
+  const dl = card.querySelector('[data-a=dl]');
+  if (dl) dl.onclick = () => {
+    if (prefetch.job && prefetch.job.id === r.id && !prefetch.job.stop) { stopPrefetch(); dl.textContent = '⬇ Verder downloaden'; }
+    else { startPrefetch(r); dl.textContent = '⏸ Pauzeren'; }
+  };
+  card.querySelector('[data-a=show]').onclick = () => { setMode('real'); state.rsize = mapSize(map); setPlace(r.name, map.lat, map.lon); };
+  const del = card.querySelector('[data-a=del]');
+  del.onclick = async () => {
+    if (!del.dataset.sure) {
+      del.dataset.sure = '1'; del.textContent = 'Zeker verwijderen?';
+      setTimeout(() => { delete del.dataset.sure; del.textContent = '✕'; }, 3000);
+      return;
+    }
+    if (prefetch.job && prefetch.job.id === r.id) stopPrefetch();
+    await store.cacheDeletePrefix(mapKeys.prefix(map));
+    await store.deleteRegion(r.id); refreshList();
+  };
+  if (running) setTimeout(() => showPrefetch(prefetch.job), 0);
+  return card;
+}
+async function createBigMap() {
+  const lat = parseFloat($('#lat').value), lon = parseFloat($('#lon').value);
+  if (!(Math.abs(lat) <= 85) || !(Math.abs(lon) <= 180)) return;
+  const km = state.rsize / 1000;
+  const name = $('#real-name').value.trim() || `Kaart ${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+  const map = makeMap({ id: 'map' + Date.now().toString(36), name, lat, lon, km });
+  const meta = mapMeta(map);
+  await store.saveMeta(meta);
+  await refreshList();
+  $('#real-progress').hidden = false;
+  $('#real-bar').style.width = '0%';
+  $('#real-text').textContent = `Grote kaart gemaakt (${map.tiles * map.tiles} stukken). Het downloaden loopt hieronder bij “Mijn stukken”. Je kan nu al spelen.`;
+  startPrefetch(meta);
+}
+
 let saving = null;
 async function saveGame() {
   if (!game || !game.meta) return;
@@ -326,8 +440,10 @@ async function saveGame() {
   if (game.tiled) {
     game.saveDirtyTiles();
     game.dirty = false;
-    saving = store.cachePut(CITY_PLAYER_KEY, { player: game.playerState() })
-      .then(() => flash('Opgeslagen ✓')).finally(() => { saving = null; });
+    const meta = { ...game.meta, player: game.playerState() };
+    game.meta = meta;
+    saving = store.saveMeta(meta)
+      .then(() => flash('Opgeslagen ✓')).catch(err => flash('Opslaan mislukt: ' + err.message)).finally(() => { saving = null; });
     return saving;
   }
   const meta = { ...game.meta, player: game.playerState() };
@@ -380,10 +496,24 @@ document.querySelectorAll('[data-rscale]').forEach(b => b.addEventListener('clic
     ? 'Fijn detail: gebouwen lijken meer op het echte gebouw, maar het stuk is zwaarder. Daarom maximaal 128 m.'
     : 'Normaal detail: snel, ook op een telefoon. 256 m is een goede keuze.';
 }));
+function updateRealButton() {
+  const big = state.rsize >= 1000;
+  const km = (state.rsize / 1000).toLocaleString('nl-BE');
+  $('#btn-real').textContent = big ? `⬇ Grote kaart maken (${km} × ${km} km)` : '⬇ Download echte gebouwen';
+  document.querySelectorAll('[data-rscale="2"]').forEach(o => { o.disabled = big; });
+  if (big && state.rscale > 1) document.querySelector('[data-rscale="1"]').click();
+  if (big) $('#scale-help').textContent = 'Grote kaarten gebruiken altijd 1 blok = 1 m.';
+  else if (state.rscale === 1) $('#scale-help').textContent = 'Normaal detail: snel, ook op een telefoon. 256 m is een goede keuze.';
+  const tiles = Math.ceil(state.rsize / 128) ** 2;
+  $('#size-help').textContent = big
+    ? `Grote kaart zonder randen: ${tiles.toLocaleString('nl-BE')} stukken van 128 m. Alles downloaden duurt ongeveer ${state.rsize >= 10000 ? '30 tot 90 minuten' : state.rsize >= 5000 ? '10 tot 30 minuten' : state.rsize >= 2500 ? '3 tot 10 minuten' : '1 tot 3 minuten'} (hangt af van de OpenStreetMap-server) en neemt ${state.rsize >= 5000 ? 'honderden MB' : 'tientallen MB'} in. Je kan al spelen terwijl het downloadt.`
+    : 'Eén los stuk met een rand. Wolkenkrabbers maken het hoger en zwaarder.';
+}
 document.querySelectorAll('[data-rsize]').forEach(b => b.addEventListener('click', () => {
   state.rsize = +b.dataset.rsize;
   document.querySelectorAll('[data-rsize]').forEach(o => o.classList.toggle('on', o === b));
-  updateRect(false);
+  updateRealButton();
+  updateRect(true);
 }));
 
 const PLACES = [
@@ -410,7 +540,10 @@ function updateRect(fly) {
   const lat = +$('#lat').value, lon = +$('#lon').value;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
   selRect.setBounds(squareBounds(lat, lon, state.rsize));
-  if (fly) lmap.setView([lat, lon], Math.max(lmap.getZoom(), state.rsize > 256 ? 16 : 17));
+  if (fly) {
+    const z = state.rsize >= 10000 ? 12 : state.rsize >= 5000 ? 13 : state.rsize >= 2500 ? 14 : state.rsize >= 1000 ? 15 : state.rsize > 256 ? 16 : 17;
+    lmap.setView([lat, lon], z);
+  }
 }
 let nameReq = 0;
 async function nameFor(lat, lon) {
@@ -479,7 +612,7 @@ function drawSavedOnMap() {
   savedLayer.clearLayers();
   for (const r of state.regions) {
     if (!r.real) continue;
-    L.rectangle(squareBounds(r.real.lat, r.real.lon, regionMeters(r)), { color: '#5fd27a', weight: 2, fillOpacity: 0.2, interactive: true })
+    L.rectangle(squareBounds(r.real.lat, r.real.lon, r.kind === 'map' ? mapSize(r.map) : regionMeters(r)), { color: '#5fd27a', weight: 2, fillOpacity: 0.2, interactive: true })
       .bindTooltip(`${r.name} (gedownload)`).addTo(savedLayer);
   }
 }
@@ -565,6 +698,7 @@ function realJob(msg, name) {
 $('#btn-real').addEventListener('click', () => {
   const lat = parseFloat($('#lat').value), lon = parseFloat($('#lon').value);
   if (!(Math.abs(lat) <= 85) || !(Math.abs(lon) <= 180)) { $('#real-text').textContent = 'Vul een geldige breedte- en lengtegraad in.'; $('#real-progress').hidden = false; return; }
+  if (state.rsize >= 1000) return createBigMap();
   realJob({ type: 'osm', lat, lon, size: state.rsize, scale: state.rscale }, $('#real-name').value.trim());
 });
 $('#osm-file').addEventListener('change', async (e) => {

@@ -42,7 +42,9 @@
   aside { overflow: auto; padding: 14px 16px 30px; background: var(--panel); }
   aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 18px 0 8px; }
   aside h2:first-child { margin-top: 2px; }
-  .seg { display: flex; gap: 6px; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .prefetch { margin-top: 8px; display: grid; gap: 4px; }
+  .prefetch .bar > div { height: 100%; background: var(--accent); transition: width .2s; }
   .seg button, .btn, .chip { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
   .seg button:disabled { opacity: .35; cursor: default; }
   .seg button.on { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
@@ -254,6 +256,13 @@
         <button data-rsize="256" class="on">256 m</button>
         <button data-rsize="384">384 m</button>
       </div>
+      <div class="seg" style="margin-top:6px">
+        <button data-rsize="1000">1 km</button>
+        <button data-rsize="2500">2,5 km</button>
+        <button data-rsize="5000">5 km</button>
+        <button data-rsize="10000">10 km</button>
+      </div>
+      <p class="help" id="size-help">Eén los stuk met een rand. Wolkenkrabbers maken het hoger en zwaarder.</p>
       <h2>3 · Detail</h2>
       <div class="seg">
         <button data-rscale="1" class="on">1 blok = 1 m</button>

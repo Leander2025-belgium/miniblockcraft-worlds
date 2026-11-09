@@ -13,6 +13,13 @@ De echte gebouwen laden in tegels van 128 m rond je terwijl je loopt of vliegt, 
 Messeturm (rood graniet, piramide), Main Tower, Westend Tower (kroon), Opernturm, Tower 185, Silberturm, Trianon,
 ECB, Kaiserdom, Paulskirche, Römer, Alte Oper en vakwerkhuizen in de Altstadt. In het pauzemenu staat **Snel naar**.
 
+### Grote kaarten (1 tot 10 km)
+
+Kies in **Echte wereld** een plek op de kaart en een grootte van **1, 2,5, 5 of 10 km**, en klik **Grote kaart maken**.
+De kaart verschijnt bij “Mijn stukken”: **Alles downloaden** haalt elk stuk op en bewaart het op je toestel
+(met voortgangsbalk, pauzeren kan). Je kan meteen spelen; wat nog niet gedownload is, laadt tijdens het spelen.
+Ruwe kaartdata wordt na het omzetten weggegooid om opslag te sparen.
+
 ### Echte wereld
 
 1. Zoek een plaats, kies een snelknop (Frankfurt Skyline, Römerberg, Messeturm, …) of vul coördinaten in.

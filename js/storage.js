@@ -76,6 +76,30 @@ export async function cachePut(key, value) {
   } catch { /* opslag vol of geblokkeerd: dan maar zonder cache */ }
 }
 
+export async function cacheDelete(key) {
+  try {
+    const d = await db();
+    await new Promise((res, rej) => { const t = d.transaction('cache', 'readwrite'); t.objectStore('cache').delete(key); t.oncomplete = res; t.onerror = () => rej(t.error); });
+  } catch { /* niets */ }
+}
+// alles met een bepaald begin wissen (bv. een volledige grote kaart)
+export async function cacheDeletePrefix(prefix) {
+  try {
+    const d = await db();
+    await new Promise((res, rej) => {
+      const t = d.transaction('cache', 'readwrite');
+      t.objectStore('cache').delete(IDBKeyRange.bound(prefix, prefix + '\uffff'));
+      t.oncomplete = res; t.onerror = () => rej(t.error);
+    });
+  } catch { /* niets */ }
+}
+export async function cacheHas(key) {
+  try {
+    const d = await db();
+    return (await reqP(d.transaction('cache').objectStore('cache').getKey(key))) !== undefined;
+  } catch { return false; }
+}
+
 // ---------- RLE: [waarde, lengte als varint]... ----------
 export function rleEncode(src) {
   let out = new Uint8Array(Math.max(1024, src.length >> 4));
