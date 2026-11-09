@@ -122,12 +122,14 @@ function getSuper(map, sx, sz) {
     let text = await cacheGet(key);
     if (!text) {
       // één download tegelijk, zodat de OpenStreetMap-server ons niet weigert
-      const job = fetchChain.then(() => fetchOSMBox(superBox(map, sx, sz)));
+      const job = fetchChain.then(() => fetchOSMBox(superBox(map, sx, sz), (text) => self.postMessage({ type: 'status', map: map.id, text })));
       fetchChain = job.catch(() => {});
       text = await job;
       await cachePut(key, text);
     }
-    return indexOSM(parseOSM(text));
+    const osm = indexOSM(parseOSM(text));
+    self.postMessage({ type: 'status', map: map.id, text: '' });
+    return osm;
   })();
   p.catch(() => supers.delete(key));
   supers.set(key, p);

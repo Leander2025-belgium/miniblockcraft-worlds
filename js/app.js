@@ -8,10 +8,32 @@ import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigma
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
 
-const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+let worker;
 let reqId = 0;
 const pending = new Map();
-worker.onmessage = (e) => { const h = pending.get(e.data.id); if (h) h(e.data); };
+const liveStatus = new Map(); // kaart-id -> laatste melding van de achtergrondwerker
+function startWorker() {
+  worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+  worker.onmessage = (e) => {
+    const d = e.data;
+    if (d.type === 'status') { liveStatus.set(d.map, d.text); if (prefetch.job) showPrefetch(prefetch.job); return; }
+    const h = pending.get(d.id);
+    if (h) {
+      if (d.type !== 'progress' && d.type !== 'areaProgress' && d.type !== 'mapRows') pending.delete(d.id);
+      h(d);
+    }
+  };
+  // vastgelopen (bv. te weinig geheugen): opnieuw starten en wachtende aanvragen laten weten dat het mislukte
+  worker.onerror = (e) => {
+    e.preventDefault?.();
+    const old = [...pending.values()];
+    pending.clear();
+    try { worker.terminate(); } catch { /* al weg */ }
+    startWorker();
+    for (const h of old) h({ type: 'error', message: 'achtergrondproces liep vast en is opnieuw gestart' });
+  };
+}
+startWorker();
 function ask(msg, handler) { const id = ++reqId; pending.set(id, handler); worker.postMessage({ ...msg, id }); return id; }
 
 const state = { size: 128, sel: null, regions: [], zoom: 1, busy: false };
@@ -293,6 +315,7 @@ async function playMap(id) {
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   await ensureGame();
   const map = meta.map, T = map.tile;
+  map.superTiles = 4;
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
       if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
@@ -335,9 +358,11 @@ async function startPrefetch(meta) {
   if (prefetch.job && prefetch.job.id === meta.id && !prefetch.job.stop) return;
   stopPrefetch();
   try { await navigator.storage?.persist?.(); } catch { /* niet ondersteund */ }
+  meta.map.superTiles = 4;
   const map = meta.map, n = map.tiles, sc = superCount(map);
   const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0 };
   prefetch.job = job;
+  refreshList(); // andere kaart toont nu 'gepauzeerd'
   // superblokken van het midden naar buiten
   const supers = [];
   for (let sz = 0; sz < sc; sz++) for (let sx = 0; sx < sc; sx++) supers.push([sx, sz, (sx - sc / 2 + 0.5) ** 2 + (sz - sc / 2 + 0.5) ** 2]);
@@ -359,6 +384,7 @@ async function startPrefetch(meta) {
       const res = await Promise.all(tiles.slice(i, i + 2).map(([tx, tz]) => one(tx, tz)));
       for (const r of res) { if (r) job.done++; else { job.failed++; ok = false; } }
       showPrefetch(job);
+      if (job.done % 16 === 0) { const m3 = await store.getRegionMeta(meta.id); if (m3) { m3.done = Math.max(m3.done || 0, job.done); await store.saveMeta(m3); } }
     }
     // ruwe kaartdata weggooien als alle tegels klaar zijn: spaart veel opslag
     if (ok && !job.stop) await new Promise(res => ask({ type: 'dropSuper', map, sx, sz }, res));
@@ -378,7 +404,7 @@ function showPrefetch(job) {
   el.querySelector('.bar > div').style.width = pct + '%';
   el.querySelector('.ptext').textContent = job.finished
     ? (job.done >= job.total ? 'Volledig gedownload ✓' : job.stop ? `Gepauzeerd bij ${pct}%` : `Klaar met fouten: ${job.failed} stukken mislukt (${job.lastError || 'onbekend'}). Probeer opnieuw.`)
-    : `Downloaden… ${job.done} van ${job.total} stukken (${pct}%)${job.failed ? ` · ${job.failed} mislukt` : ''}`;
+    : `Downloaden… ${job.done} van ${job.total} stukken (${pct}%)${job.failed ? ` · ${job.failed} mislukt` : ''}${liveStatus.get(job.id) ? ' · ' + liveStatus.get(job.id) : ''}`;
 }
 function mapCard(r) {
   const card = document.createElement('div');
@@ -391,11 +417,11 @@ function mapCard(r) {
     <div class="muted small">Grote kaart · ${km} × ${km} km · 📍 ${map.lat.toFixed(4)}, ${map.lon.toFixed(4)}</div>
     <div class="prefetch" id="prog-${r.id}">
       <div class="bar"><div style="width:${r.complete ? 100 : pct}%"></div></div>
-      <div class="ptext small muted">${r.complete ? 'Volledig gedownload ✓' : r.done ? `${pct}% gedownload` : 'Nog niet gedownload: laadt tijdens het spelen, of download alles vooraf.'}</div>
+      <div class="ptext small muted">${r.complete ? 'Volledig gedownload ✓' : running ? 'Downloaden…' : r.done ? `Gepauzeerd bij ${pct}%` : 'Nog niet gedownload: laadt tijdens het spelen, of download alles vooraf.'}</div>
     </div>
     <div class="r-actions">
       <button class="btn primary" data-a="play">▶ Spelen</button>
-      ${r.complete ? '' : `<button class="btn" data-a="dl">${running ? '⏸ Pauzeren' : '⬇ Alles downloaden'}</button>`}
+      ${r.complete ? '' : `<button class="btn" data-a="dl">${running ? '⏸ Pauzeren' : r.done ? '⬇ Verder downloaden' : '⬇ Alles downloaden'}</button>`}
       <button class="btn" data-a="show">Toon</button>
       <button class="btn danger" data-a="del">✕</button>
     </div>`;

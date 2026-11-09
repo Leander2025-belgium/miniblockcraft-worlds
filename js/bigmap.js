@@ -8,7 +8,7 @@ export const MZ = 110574;
 export function makeMap(spec) {
   const tile = 128;
   const tiles = Math.max(2, Math.ceil((spec.km * 1000) / tile));
-  const superTiles = spec.km > 3 ? 8 : 4; // grotere kaarten: minder, grotere downloads
+  const superTiles = 4; // downloads van ~500 m: klein genoeg om vlot en betrouwbaar te zijn
   return { ...spec, tile, tiles, superTiles, ground: REAL_GROUND, version: MAP_VERSION };
 }
 export function mapMX(m) { return 111320 * Math.cos(m.lat * Math.PI / 180); }
@@ -34,7 +34,7 @@ export function spawnFor(m) {
   return { x: S / 2, y: REAL_GROUND + 45, z: S / 2, yaw: 0, pitch: 0.05, fly: true };
 }
 export const keys = {
-  osm: (m, sx, sz) => `${m.id}-osm-${sx}-${sz}`,
+  osm: (m, sx, sz) => `${m.id}-osm${m.superTiles}-${sx}-${sz}`,
   tile: (m, tx, tz) => `${m.id}-tile-v${m.version}-${tx}-${tz}`,
   edit: (m, tx, tz) => `${m.id}-edit-${tx}-${tz}`,
   player: (m) => `${m.id}-player`,

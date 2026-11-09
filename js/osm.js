@@ -80,19 +80,38 @@ export async function fetchOSM(lat, lon, size, onStatus) {
 }
 export async function fetchOSMBox(b, onStatus) {
   const bb = `${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)}`;
-  const q = `[out:json][timeout:120];(way(${bb});relation["type"="multipolygon"](${bb});node["natural"="tree"](${bb}););(._;>;);out body qt;`;
+  // alleen wat de game gebruikt: veel kleinere downloads dan "alles"
+  const W = ['building', 'building:part', 'highway', 'railway', 'waterway', 'natural', 'landuse', 'leisure', 'water', 'place', 'area:highway'];
+  const R = ['building', 'building:part', 'natural', 'landuse', 'leisure', 'water', 'waterway', 'place'];
+  const q = `[out:json][timeout:180][bbox:${bb}];(` +
+    W.map(k => `way["${k}"];`).join('') + 'way["amenity"="parking"];' +
+    R.map(k => `relation["type"="multipolygon"]["${k}"];`).join('') + 'relation["type"="multipolygon"]["amenity"="parking"];' +
+    'node["natural"="tree"];);(._;>;);out body qt;';
   let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     for (const url of OVERPASS) {
+      const host = new URL(url).host;
+      const ctrl = new AbortController();
+      const t0 = Date.now();
+      const tick = setInterval(() => onStatus?.(`Kaartdata downloaden bij ${host}… ${Math.round((Date.now() - t0) / 1000)} s`), 1000);
+      const kill = setTimeout(() => ctrl.abort(), 200000);
       try {
-        onStatus?.(`Verbinden met ${new URL(url).host}…`);
-        const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        onStatus?.(`Kaartdata downloaden bij ${host}…`);
+        const res = await fetch(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        if (res.status === 429 || res.status === 503 || res.status === 504) throw Object.assign(new Error(`server bezet (${res.status})`), { busy: true });
         if (!res.ok) throw new Error(`server antwoordde ${res.status}`);
-        onStatus?.('Kaartgegevens ontvangen…');
-        return await res.text();
-      } catch (e) { lastErr = e; }
+        const text = await res.text();
+        if (!text.trimStart().startsWith('{')) throw Object.assign(new Error('server bezet'), { busy: true });
+        onStatus?.(`Kaartdata ontvangen (${(text.length / 1e6).toFixed(1)} MB), omzetten…`);
+        return text;
+      } catch (e) {
+        lastErr = e.name === 'AbortError' ? new Error('server reageerde niet op tijd') : e;
+        onStatus?.(`${host}: ${lastErr.message}. Andere server proberen…`);
+      } finally { clearInterval(tick); clearTimeout(kill); }
     }
-    await new Promise(r => setTimeout(r, 3000));
+    const wait = 10 + attempt * 15;
+    for (let k = wait; k > 0; k--) { onStatus?.(`Alle servers bezet. Opnieuw proberen over ${k} s…`); await new Promise(r => setTimeout(r, 1000)); }
   }
   throw new Error('OpenStreetMap kon niet bereikt worden (' + (lastErr?.message || 'netwerkfout') + ')');
 }
