@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 import { LINES, LINE, STATIONS_ALL, TRACK, OX, OZ } from './alpen-net.js';
-import { trackOffset, LIFTS, PATCHES, HEMEL, MW, ML, SUMMIT_XZ, STATIONS as CABLE_ST } from './alpen.js';
+import { trackOffset, LIFTS, PATCHES, HEMEL, MW, ML, SUMMIT_XZ, STATIONS as CABLE_ST, CROSSINGS, groundAt } from './alpen.js';
 
 const KMH = 3.6, P = 14400; // de dienstregeling herhaalt zich elke 4 uur
 const GAP = 0.6; // tussen twee rijtuigen
@@ -318,6 +318,15 @@ export class AlpRail {
     this.tunnel = null; this.tunnelAt = null;
     this.hud = document.getElementById('drive-hud');
     this.player = null; // trein die de speler zelf bestuurt
+    // overwegen: twee rode lampen per paal, knipperen als er een trein nadert
+    this.xLamps = [];
+    for (const c of CROSSINGS) for (const al of [-8, 8]) for (const sd of [-1, 1]) {
+      const x = c.x + c.ux * al - c.uz * sd * (c.hw + 1), z = c.z + c.uz * al + c.ux * sd * (c.hw + 1);
+      this.xLamps.push({ c, x: Math.floor(x) + 0.5, y: groundAt(x, z) + 4.5, z: Math.floor(z) + 0.5 });
+    }
+    this.xMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.max(1, this.xLamps.length));
+    this.xMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, this.xLamps.length) * 3), 3);
+    this.xMesh.frustumCulled = false; this.group.add(this.xMesh);
     this.signals = [];
     for (const L of LINES) for (let s = 600; s < L.len; s += 1200) { const p = L.at(s); if (p.kind === 0 || p.kind === 2) this.signals.push({ L, s, x: p.x, z: p.z, y: p.y, tx: p.tx, tz: p.tz }); }
   }
@@ -428,6 +437,7 @@ export class AlpRail {
     const light = 0.2 + 0.8 * day;
     void light;
     this.updateSignals(act);
+    this.updateCrossings(act);
     this.updateTunnel(p);
     this.updateAboard(dt);
   }
@@ -453,6 +463,18 @@ export class AlpRail {
     }
     this.sigMesh.count = n;
     this.sigMesh.instanceMatrix.needsUpdate = true; if (this.sigMesh.instanceColor) this.sigMesh.instanceColor.needsUpdate = true;
+  }
+  updateCrossings(act) {
+    const m4 = new THREE.Matrix4(), col = new THREE.Color(), blink = Math.floor(this.t * 2) % 2;
+    this.xLamps.forEach((l, i) => {
+      let near = false;
+      for (const a of act) { if (a.run.pr.L.id !== l.c.line || a.t < 0) continue; const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x); if (Math.abs(s - l.c.s) < 700) near = true; }
+      if (this.player && this.player.L.id === l.c.line && Math.abs(this.player.s - l.c.s) < 700) near = true;
+      l.c.closed = near;
+      m4.makeTranslation(l.x, l.y, l.z); this.xMesh.setMatrixAt(i, m4);
+      col.set(near ? ((i + blink) % 2 ? 0xff2010 : 0x300000) : 0x300000); this.xMesh.setColorAt(i, col);
+    });
+    this.xMesh.instanceMatrix.needsUpdate = true; if (this.xMesh.instanceColor) this.xMesh.instanceColor.needsUpdate = true;
   }
   // ---------- tunnelbekleding rond de speler ----------
   updateTunnel(p) {

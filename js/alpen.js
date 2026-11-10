@@ -153,6 +153,58 @@ for (const L of LINES) for (let i = 0; i + 10 < L.n; i += 10) {
   const R = L.tun / 0.7 + BED + 40;
   CG.add({ L, i, j: i + 10 }, Math.min(L.x[i], L.x[i + 10]) - R, Math.min(L.z[i], L.z[i + 10]) - R, Math.max(L.x[i], L.x[i + 10]) + R, Math.max(L.z[i], L.z[i + 10]) + R);
 }
+// ---------- wandelpaden (naar afgelegen gehuchten en naar de top van de Hemelhoorn) ----------
+export const TRAILS = [];
+const trailGrid = new Grid(32);
+function makeTrail(name, pts, zig) {
+  // zigzag: om de 'zig.step' m een haarspeldbocht van 'zig.amp' m naar links en rechts
+  let way = pts;
+  if (zig) {
+    const [a, b] = pts, L = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / L, uz = (b[1] - a[1]) / L, n = Math.max(1, Math.round(L / zig.step));
+    way = [a];
+    for (let i = 1; i < n; i++) { const f = i / n, o = (i % 2 ? 1 : -1) * zig.amp; way.push([a[0] + ux * L * f - uz * o, a[1] + uz * L * f + ux * o]); }
+    way.push(b);
+  }
+  // hoeken afronden en om de 2 m een punt
+  for (let it = 0; it < 2; it++) { const q = [way[0]]; for (let i = 0; i < way.length - 1; i++) { const a = way[i], b = way[i + 1]; q.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25], [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]); } q.push(way[way.length - 1]); way = q; }
+  const xs = [], zs = [];
+  for (let i = 0; i < way.length - 1; i++) { const [ax, az] = way[i], [bx, bz] = way[i + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 2)); for (let k = 0; k < n; k++) { xs.push(ax + (bx - ax) * k / n); zs.push(az + (bz - az) * k / n); } }
+  xs.push(way[way.length - 1][0]); zs.push(way[way.length - 1][1]);
+  const n = xs.length, g = new Float32Array(n), y = new Float32Array(n);
+  for (let i = 0; i < n; i++) g[i] = G + baseHeight(xs[i], zs[i]);
+  // hoogte van het pad: de grond afgevlakt, nooit steiler dan 0,8 m per meter (met de automatische trede te belopen)
+  for (let i = 0; i < n; i++) { let sum = 0, c = 0; for (let j = Math.max(0, i - 8); j <= Math.min(n - 1, i + 8); j++) { sum += g[j]; c++; } y[i] = sum / c; }
+  y[0] = g[0]; y[n - 1] = g[n - 1];
+  for (let it = 0; it < 3; it++) { for (let i = 1; i < n; i++) y[i] = Math.max(y[i - 1] - 1.6, Math.min(y[i - 1] + 1.6, y[i])); for (let i = n - 2; i >= 0; i--) y[i] = Math.max(y[i + 1] - 1.6, Math.min(y[i + 1] + 1.6, y[i])); }
+  const T = { name, n, x: Float32Array.from(xs), z: Float32Array.from(zs), y };
+  TRAILS.push(T);
+  for (let i = 0; i < n - 1; i++) trailGrid.add({ T, i }, Math.min(xs[i], xs[i + 1]) - 8, Math.min(zs[i], zs[i + 1]) - 8, Math.max(xs[i], xs[i + 1]) + 8, Math.max(zs[i], zs[i + 1]) + 8);
+  return T;
+}
+function trailNear(x, z) {
+  let bd = 1e9, by = 0, bi = 0, bT = null;
+  for (const { T, i } of trailGrid.at(x, z)) {
+    const ax = T.x[i], az = T.z[i], vx = T.x[i + 1] - ax, vz = T.z[i + 1] - az, L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
+    const d = Math.hypot(x - ax - vx * t, z - az - vz * t);
+    if (d < bd) { bd = d; by = T.y[i] + (T.y[i + 1] - T.y[i]) * t; bi = i; bT = T; }
+  }
+  return bd < 8 ? { d: bd, y: by, i: bi, T: bT } : null;
+}
+function trailShape(x, z, h) {
+  const t = trailNear(x, z); if (!t) return h;
+  const hy = t.y - G;
+  if (t.d <= 1.7) return hy;
+  const k = sstep(1.7, 8, t.d); return hy + (h - hy) * k;
+}
+{
+  const kl = TOWNS.find(t => t.station === 'Kloosterdal'), gh = TOWNS.find(t => t.name === 'Gemsenhoek');
+  if (kl && gh) makeTrail('Gemsenpad', [[kl.x, kl.z], [gh.x, gh.z]], { step: 260, amp: 90 });
+  const ht = LIFTS.find(L => L.name.startsWith('Hemelhoorn'));
+  if (ht) { const ex = HEMEL.x - ht.ux * 18, ez = HEMEL.z - ht.uz * 18; makeTrail('Hemelhoorn-toppad', [[ht.bx + ht.ux * (ht.stL + 34), ht.bz + ht.uz * (ht.stL + 34)], [ex, ez]], { step: 140, amp: 120 }); }
+  const zs = LIFTS.find(L => L.name.startsWith('Zugspitz'));
+  if (zs) makeTrail('Zugspitz-topweg', [[zs.bx - zs.ux * 6 + zs.uz * 20, zs.bz - zs.uz * 6 - zs.ux * 20], [PZ.px, PZ.pz]]);
+}
+
 // dalen, sleuven en dijken langs het spoor
 function railShape(x, z, h) {
   const list = CG.at(x, z);
@@ -183,7 +235,7 @@ export function natural(x, z) {
   let h = baseHeight(x, z);
   const d = dOld(x, z);
   if (d < 2600) { const t = sstep(0, 2600, d); h = O.natural(x - OX, z - OZ) * (1 - t) + h * t; }
-  return railShape(x, z, h);
+  return trailShape(x, z, railShape(x, z, h));
 }
 export function surfaceAt(x, z) {
   if (inOld(x, z)) return OLDM.surfaceAt(x - OX, z - OZ);
@@ -219,7 +271,7 @@ function layoutTown(t, seed) {
   const sideSign = Math.sign((t.nx * -s + t.nz * c)) || 1;
   const W2 = (u, v) => [t.x + c * u - s * v * sideSign, t.z + s * u + c * v * sideSign];
   const rect = (u0, v0, u1, v1) => { const a = W2(u0, v0), b = W2(u1, v1); return { x0: Math.min(a[0], b[0]), x1: Math.max(a[0], b[0]), z0: Math.min(a[1], b[1]), z1: Math.max(a[1], b[1]) }; };
-  const road = (u0, v0, u1, v1, opt = {}) => { const a = W2(u0, v0), b = W2(u1, v1); addRoad({ ax: a[0], az: a[1], bx: b[0], bz: b[1], hw: opt.hw || 3.5, y: t.y, town: t.name, major: !!opt.major, tram: !!opt.tram, street: opt.street !== false }); };
+  const road = (u0, v0, u1, v1, opt = {}) => { const a = W2(u0, v0), b = W2(u1, v1); addRoad({ ax: a[0], az: a[1], bx: b[0], bz: b[1], hw: opt.hw || 3.5, y: t.y, town: t.name, major: !!opt.major, tram: !!opt.tram, farm: !!opt.farm, street: opt.street !== false }); };
   const F = t.y; // vloer = straatniveau
   const city = t.kind === 'city', town = t.kind === 'town', R = t.r;
   if (t.kind === 'mountain') return;
@@ -228,6 +280,8 @@ function layoutTown(t, seed) {
   const halfU = city ? R * 0.85 : R * 0.8;
   const rows = city ? [vMain - 130, vMain, vMain + 110, vMain + 220, vMain + 330] : town ? [vMain, vMain + 90, vMain + 180] : t.kind === 'village' ? [vMain, vMain + 80] : [vMain];
   rows.forEach((v, i) => road(-halfU, v, halfU, v, { hw: city && i === 1 ? 6 : 3.6, major: i <= 1, tram: city && i === 1 }));
+  // landweg met een overweg over het spoor (alleen voetgangers, geen auto's)
+  if (t.kind === 'village' || t.kind === 'town') road(halfU * 0.95, rows[0], halfU * 0.95, vMain - R * 0.55 - 80, { hw: 2.8, farm: true });
   const step = city ? 90 : 70;
   for (let u = -Math.floor(halfU / step) * step; u <= halfU; u += step) road(u, rows[0] - (city ? 0 : 0), u, rows[rows.length - 1], { hw: 3.2 });
   // gebouwen langs de straten
@@ -279,6 +333,18 @@ function layoutTown(t, seed) {
   }
 }
 TOWNS.forEach((t, i) => layoutTown(t, i * 17 + 3));
+// overwegen: waar een landweg het spoor kruist (knipperlichten in rail.js)
+export const CROSSINGS = [];
+for (const r of ROADS) {
+  if (!r.farm) continue;
+  const L2 = Math.hypot(r.bx - r.ax, r.bz - r.az);
+  for (let d = 0; d <= L2; d += 2) {
+    const x = r.ax + (r.bx - r.ax) * d / L2, z = r.az + (r.bz - r.az) * d / L2;
+    let hit = null;
+    for (const L of LINES) { const q = L.near(x, z, 2); if (q && q.kind === 0 && !L.stationAt(q.s)) hit = { L, q }; }
+    if (hit && !CROSSINGS.some(c => Math.hypot(c.x - x, c.z - z) < 30)) CROSSINGS.push({ x, z, y: Math.round(hit.q.y), line: hit.L.id, s: hit.q.s, ux: (r.bx - r.ax) / L2, uz: (r.bz - r.az) / L2, hw: r.hw, road: r });
+  }
+}
 // stationsgebouwen
 for (const L of LINES) for (const st of L.stations) {
   if (st.old || st.hbf !== undefined) continue;
@@ -353,6 +419,8 @@ function railColumn(x, z, col, top, ctx) {
   // Hauptbahnhof apart
   if (ctx.hbf) { const h = hbfColumn(x, z, col, top); if (h >= 0) return h; }
   const kind = q.kind;
+  // overweg: de landweg loopt over het spoor (rails liggen erin)
+  if (kind === 0 && ad <= bed + 0.5) { const rr = roadAt(x, z); if (rr && rr.r.farm && rr.d <= rr.r.hw + 0.5) { under(col, top, by, B.STONE); for (let y = top + 1; y < by; y++) col[y] = B.GRAVEL; for (let y = by + 1; y <= top + 1; y++) col[y] = 0; col[by] = B.ASPHALT; return by; } }
   // tunnel: uitgraven, de berg erboven blijft
   if (kind === 1) {
     if (ad > bed + 1.2) return -1;
@@ -608,6 +676,15 @@ function liftColumn(x, z, col, top) {
 function roadColumn(x, z, col, top) {
   const q = roadAt(x, z); if (!q) return -1;
   const r = q.r, y = top;
+  if (r.farm) {
+    // landweg: grind; bij de overweg palen met een andreaskruis
+    for (const c of CROSSINGS) if (c.road === r && Math.hypot(x - c.x, z - c.z) < 12) {
+      const along = (x - c.x) * c.ux + (z - c.z) * c.uz, side = Math.abs(-(x - c.x) * c.uz + (z - c.z) * c.ux);
+      if (Math.abs(Math.abs(along) - 8) < 0.6 && Math.abs(side - (r.hw + 1)) < 0.6) { for (let k = y + 1; k <= y + 3; k++) col[k] = B.POST; col[y + 4] = B.PAINT_RED; col[y + 5] = B.PAINT_WHITE; return y + 5; }
+    }
+    if (q.d <= r.hw) { for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.DIRT; col[y] = B.GRAVEL; for (let k = y + 1; k <= y + 3; k++) col[k] = 0; return y; }
+    return -1;
+  }
   if (q.d <= r.hw) {
     for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.GRAVEL;
     col[y] = r.tram && q.d < 1.2 ? B.METAL : (Math.abs(q.d) < 0.5 && Math.floor(q.s / 4) % 2 === 0 && r.hw > 3.3 ? B.LINE_WHITE : B.ASPHALT);
@@ -640,6 +717,19 @@ function fillColumnNew(x, z, col, slope, ctx, hs) {
   const b = bldAt(x, z); if (b) return buildingColumn(b, x, z, col, top);
   const lc = liftColumn(x, z, col, top); if (lc >= 0) return lc;
   const rd = roadColumn(x, z, col, top); if (rd >= 0) return rd;
+  // wandelpad
+  const tr = trailNear(x, z);
+  if (tr && tr.d <= 1.6) {
+    for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.DIRT;
+    col[top] = h > 2400 ? B.COBBLE : B.GRAVEL;
+    if (tr.d > 0.9 && tr.i % 40 === 0 && hash(x, z, 6) < 0.6) { col[top + 1] = B.POST; col[top + 2] = B.PAINT_RED; col[top + 3] = B.PAINT_WHITE; return top + 3; }
+    return top;
+  }
+  // waterval
+  for (const w of fallGrid.at(x, z)) {
+    const ax = w.x[w.i], az = w.z[w.i], vx = w.x[w.i + 1] - ax, vz = w.z[w.i + 1] - az, L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
+    if (Math.hypot(x - ax - vx * t, z - az - vz * t) < w.w) { for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.STONE; col[top] = B.WATER; col[top + 1] = B.WATER; return top + 1; }
+  }
   // natuur
   const snow = h > snowLine(x, z) && slope < 1.5;
   const glacier = h > 2500 && slope < 0.55 && ctx.concave(x, z) < -6;
@@ -694,6 +784,32 @@ for (const L of LIFTS) {
   L.pts = pts; L.sag = sagOf;
   L.pylons = pts.filter(p => p.h).map(p => ({ u: Math.round(p.u), top: Math.round(p.y + 1) }));
   L.cableY = (u) => { if (u <= pts[0].u) return pts[0].y; for (let i = 1; i < pts.length; i++) if (u <= pts[i].u) { const a = pts[i - 1], b = pts[i], span = b.u - a.u, t = (u - a.u) / span; return a.y + (b.y - a.y) * t - sagOf(span) * 4 * t * (1 - t); } return pts[pts.length - 1].y; };
+}
+
+// ---------- watervallen: van een steile wand naar beneden, bij de dorpen ----------
+export const FALLS = [];
+const fallGrid = new Grid(32);
+for (const name of ['Wolkendorf', 'Matterdorf', 'Sneeuwbrück', 'Grenspas', 'Hemelpoort', 'IJsdal', 'Oostpoort']) {
+  const t = TOWNS.find(q => q.station === name || q.name === name); if (!t) continue;
+  let best = null;
+  for (let r = t.r + 300; r < t.r + 1500; r += 60) for (let a = 0; a < 48; a++) {
+    const x = t.x + Math.cos(a / 48 * Math.PI * 2) * r, z = t.z + Math.sin(a / 48 * Math.PI * 2) * r, h = natural(x, z);
+    for (let k = 0; k < 8; k++) { const dx = Math.cos(k / 8 * Math.PI * 2) * 30, dz = Math.sin(k / 8 * Math.PI * 2) * 30, drop = h - natural(x + dx, z + dz); if (drop > 26 && (!best || drop > best.drop)) best = { x, z, dx: dx / 30, dz: dz / 30, drop }; }
+  }
+  if (!best) continue;
+  // naar beneden langs de steilste weg
+  const xs = [best.x], zs = [best.z];
+  let x = best.x, z = best.z, h = natural(x, z);
+  for (let i = 0; i < 90; i++) {
+    let nb = null;
+    for (let k = 0; k < 16; k++) { const nx = x + Math.cos(k / 16 * Math.PI * 2) * 5, nz = z + Math.sin(k / 16 * Math.PI * 2) * 5, nh = natural(nx, nz); if (!nb || nh < nb[2]) nb = [nx, nz, nh]; }
+    if (h - nb[2] < 0.8) break;
+    x = nb[0]; z = nb[1]; h = nb[2]; xs.push(x); zs.push(z);
+  }
+  if (xs.length < 4) continue;
+  const W = { name: `Waterval bij ${t.name}`, x: Float32Array.from(xs), z: Float32Array.from(zs), w: 2.2 };
+  FALLS.push(W);
+  for (let i = 0; i < xs.length - 1; i++) fallGrid.add({ ...W, i }, Math.min(xs[i], xs[i + 1]) - 4, Math.min(zs[i], zs[i + 1]) - 4, Math.max(xs[i], xs[i + 1]) + 4, Math.max(zs[i], zs[i + 1]) + 4);
 }
 
 // ---------- tegel maken ----------
@@ -804,9 +920,11 @@ function tilePaths(X0, Z0, lines) {
     const lane = (off, rev) => { const p = []; for (let s = 0; s <= L; s += 6) p.push([r.ax + ux * s - uz * off, r.az + uz * s + ux * off, r.y]); p.push([r.bx - uz * off, r.bz + ux * off, r.y]); return rev ? p.reverse() : p; };
     const t = r.major ? 'carM' : 'car';
     if (r.tram) { clipPush('tram', lane(0.0, false)); }
-    clipPush(t, lane(-1.8 - (r.tram ? 1.6 : 0), false)); clipPush(t, lane(1.8 + (r.tram ? 1.6 : 0), true));
+    if (!r.farm) { clipPush(t, lane(-1.8 - (r.tram ? 1.6 : 0), false)); clipPush(t, lane(1.8 + (r.tram ? 1.6 : 0), true)); }
     clipPush('walk', lane(r.hw + 1.3, false)); clipPush('walk', lane(-r.hw - 1.3, true));
   }
+  // wandelaars op de wandelpaden
+  for (const T2 of TRAILS) { const pts = []; for (let i = 0; i < T2.n; i += 2) pts.push([T2.x[i], T2.z[i], Math.round(T2.y[i])]); clipPush('walk', pts); }
   // bushaltes en tramhaltes bij elk station
   for (const t of TOWNS) {
     if (t.kind === 'mountain' || t.kind === 'hamlet') continue;
@@ -862,6 +980,9 @@ export function zoneName(x, z) {
   if (b) return b.name ? `${b.name}${b.town ? ' · ' + b.town : ''}` : b.kind === 'chalet' ? `Chalet · ${b.town}` : b.kind === 'apartment' ? `Woonblok · ${b.town}` : b.town || '';
   for (const L of LINES) { const q = L.near(x, z, 12); if (q) { const st = L.stationAt(q.s); if (st) return `Station ${st.name} · ${L.name}`; return `${L.name}${q.kind === 1 ? ' · tunnel' : q.kind === 2 ? ' · viaduct' : ''}`; } }
   for (const L of liftGrid.at(x, z)) { const [u, v] = liftUV(L, x, z); if (Math.abs(v) < L.stW + 2 && (Math.abs(u) < L.stL + 2 || Math.abs(u - L.len) < L.stL + 2)) return `${L.name} · ${Math.abs(u) < L.stL + 2 ? 'dalstation' : 'bergstation'}`; }
+  { const t = trailNear(x, z); if (t && t.d < 2.5) return `${t.T.name} · ${Math.round(t.y - G)} m`; }
+  for (const w of fallGrid.at(x, z)) return w.name;
+  for (const c of CROSSINGS) if (Math.hypot(x - c.x, z - c.z) < 10) return 'Overweg · ' + LINE[c.line].name;
   for (const t of townGrid.at(x, z)) if (Math.hypot(x - t.x, z - t.z) < t.r) return t.name + (t.remote ? ' (afgelegen gehucht)' : '');
   const lk = lakeAt(x, z); if (lk && lk[1] < 1) return lk[0].name;
   for (const P of PATCHES) if (Math.hypot(x - P.px, z - P.pz) < 600) return `${P.name} · ${Math.round(natural(x, z))} m`;
