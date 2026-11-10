@@ -90,8 +90,8 @@ self.onmessage = (e) => {
     self.postMessage({ type: 'preview', id: m.id, size, data }, [data.buffer]);
   } else if (m.type === 'cityTile') {
     cityTile(m).then(r => {
-      if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
-      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths, tunnels: r.tunnels || null }, [r.vox.buffer]);
+      if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes, from: r.from || 'gen' });
+      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths, tunnels: r.tunnels || null, from: r.from || 'gen' }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'lods') {
     sendLods(m);
@@ -167,6 +167,7 @@ async function withSlot(fn) {
   const i = Math.floor(Math.random() * SLOTS.length);
   return navigator.locks.request(SLOTS[i], async () => fn(i));
 }
+const superWasDownloaded = new Set();
 function getSuper(map, sx, sz) {
   const key = keys.osm(map, sx, sz);
   if (supers.has(key)) return supers.get(key);
@@ -180,6 +181,7 @@ function getSuper(map, sx, sz) {
         return fetchOSMBox(superBox(map, sx, sz), (t) => self.postMessage({ type: 'status', map: map.id, text: t }), slot);
       });
       await cachePut(key, text);
+      superWasDownloaded.add(key);
     }
     const parsed = parseOSM(text);
     // luchthaven in dit stuk? dan ook banen, taxibanen en gates ophalen (apart bewaard)
@@ -246,8 +248,8 @@ async function cityTileInner(m) {
   const key = keys.tile(map, tx, tz);
   const cached = await cacheGet(key);
   if (cached && cached.rle) {
-    if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
-    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null };
+    if (m.prefetch) return { H: cached.H, bytes: cached.rle.length, from: 'cache' };
+    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null, from: 'cache' };
   }
   // kant-en-klare tegel van de website (sneller dan zelf omzetten)
   if (map.baked) {
@@ -267,7 +269,7 @@ async function cityTileInner(m) {
     const rle = rleEncode(r.vox), y0 = r.y0 || 0;
     await cachePut(key, { rle, H: r.H, y0, edge: r.edge || null, paths: r.paths });
     await cachePut(lodKey(map, tx, tz), lodFor(r.vox, map.tile, r.H, y0));
-    return { vox: r.vox, H: r.H, y0, edge: r.edge || null, bytes: rle.length, paths: r.paths };
+    return { vox: r.vox, H: r.H, y0, edge: r.edge || null, bytes: rle.length, paths: r.paths, from: 'gen' };
   }
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
@@ -278,7 +280,7 @@ async function cityTileInner(m) {
   const rle = rleEncode(r.vox);
   await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels: r.tunnels && r.tunnels.length ? r.tunnels : null });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths, tunnels: r.tunnels };
+  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths, tunnels: r.tunnels, from: superWasDownloaded.has(keys.osm(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles))) ? 'net' : 'gen' };
 }
 
 // ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------

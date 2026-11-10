@@ -27,7 +27,7 @@ function startWorker(i) {
   workers[i] = w;
   w.onmessage = (e) => {
     const d = e.data;
-    if (d.type === 'status') { liveStatus.set(d.map, d.text); if (prefetch.job) showPrefetch(prefetch.job); return; }
+    if (d.type === 'status') { liveStatus.set(d.map, d.text); if (game && game.meta && game.meta.map && game.meta.map.id === d.map) game.netStatus = d.text; if (prefetch.job) showPrefetch(prefetch.job); return; }
     const p = pending.get(d.id);
     if (p) {
       if (!['progress', 'areaProgress', 'mapRows', 'lodTile'].includes(d.type)) pending.delete(d.id);
@@ -272,6 +272,7 @@ function mapMeta(map) {
     real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
 }
 async function playMap(id, at) {
+  try { navigator.storage?.persist?.(); } catch { /* niet ondersteund */ } // bezochte tegels blijvend bewaren
   if (at && game && game.suspended && game.tiled && game.meta && game.meta.id === id) {
     // zelfde wereld, andere plek: niets opnieuw laden, gewoon erheen vliegen
     const P = PROC[id], gy = P && P.groundAt ? P.groundAt(at.x, at.z) + 40 : game.meta.ground + 90;
@@ -330,6 +331,16 @@ async function playMap(id, at) {
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
+// de hele vaste Frankfurt-kaart vooraf downloaden
+$('#btn-city-dl')?.addEventListener('click', async () => {
+  let meta = await store.getRegionMeta(CITY.id);
+  if (!meta) { meta = mapMeta(CITY); await store.saveMeta(meta); }
+  const b = $('#btn-city-dl');
+  if (prefetch.job && prefetch.job.id === CITY.id && !prefetch.job.stop) { stopPrefetch(); b.textContent = '⬇ Verder downloaden'; return; }
+  b.textContent = '⏸ Pauzeren';
+  await startPrefetch(meta);
+  b.textContent = prefetch.job ? '⬇ Verder downloaden' : '✓ Gedownload';
+});
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
 // overzichtskaart van de Reuzenberg (met wandelpad en kabelbaan)
@@ -397,7 +408,8 @@ async function startPrefetch(meta) {
   meta.map.version = CITY.version;
   meta.map.baked = await bakedBase(meta.map);
   const map = meta.map, n = map.tiles, sc = superCount(map);
-  const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0 };
+  const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0, cached: 0 };
+  try { const e = await navigator.storage?.estimate?.(); if (e) { job.quota = e.quota; job.usage = e.usage; } } catch { /* onbekend */ }
   prefetch.job = job;
   refreshList(); // andere kaart toont nu 'gepauzeerd'
   // superblokken van het midden naar buiten
@@ -406,7 +418,7 @@ async function startPrefetch(meta) {
   supers.sort((a, b) => a[2] - b[2]);
   const one = (tx, tz) => new Promise((resolve) => {
     ask({ type: 'cityTile', tx, tz, map, prefetch: true }, (m) => {
-      if (m.type === 'cityTile') { job.bytes += m.bytes || 0; resolve(true); }
+      if (m.type === 'cityTile') { job.bytes += m.bytes || 0; if (m.from === 'cache') job.cached++; resolve(true); }
       else if (m.type === 'error') { job.lastError = m.message; resolve(false); }
     }, workerFor(map, tx, tz));
   });
@@ -444,9 +456,13 @@ function showPrefetch(job) {
   if (!el) return;
   const pct = Math.floor(job.done / job.total * 100);
   el.querySelector('.bar > div').style.width = pct + '%';
+  // geschatte opslag: wat er al staat, en wat het geheel ongeveer wordt
+  const mb = (b) => (b / 1e6).toLocaleString('nl-BE', { maximumFractionDigits: 0 });
+  const per = job.done ? job.bytes / job.done : 0, est = per * job.total;
+  const store2 = job.quota ? ` · vrije ruimte op dit toestel: ${mb(job.quota - job.usage)} MB` : '';
   el.querySelector('.ptext').textContent = job.finished
-    ? (job.done >= job.total ? 'Volledig gedownload ✓' : job.stop ? `Gepauzeerd bij ${pct}%` : `Klaar met fouten: ${job.failed} stukken mislukt (${job.lastError || 'onbekend'}). Probeer opnieuw.`)
-    : `Downloaden… ${job.done} van ${job.total} stukken (${pct}%)${job.failed ? ` · ${job.failed} mislukt` : ''}${liveStatus.get(job.id) ? ' · ' + liveStatus.get(job.id) : ''}`;
+    ? (job.done >= job.total ? `Volledig gedownload ✓ · ${job.total} stukken · ± ${mb(job.bytes)} MB · speelbaar zonder internet` : job.stop ? `Gepauzeerd bij ${pct}% (${job.done} van ${job.total} stukken klaar)` : `Klaar met fouten: ${job.failed} stukken mislukt (${job.lastError || 'onbekend'}). Probeer opnieuw.`)
+    : `Downloaden… ${job.done} van ${job.total} stukken klaar (${pct}%)${job.cached ? ` · ${job.cached} stonden er al` : ''} · ± ${mb(job.bytes)} van ~${mb(est || 0)} MB${store2}${job.failed ? ` · ${job.failed} mislukt` : ''}${liveStatus.get(job.id) ? ' · ' + liveStatus.get(job.id) : ''}`;
 }
 function mapCard(r) {
   if (r.map && r.map.kind === 'proc') return procCard(r);
@@ -853,7 +869,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-12f';
+const APP_VERSION = '2026-11-13a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

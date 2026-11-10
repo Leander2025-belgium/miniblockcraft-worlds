@@ -181,7 +181,7 @@ export class FarView {
     return g;
   }
   // verberg verre blokken waar de echte tegel geladen is
-  update(env, far, tiles, px, pz) {
+  update(env, far, tiles, px, pz) { // verre blokken alleen verbergen als de echte tegel helemaal opgebouwd is
     const u = this.mat.uniforms;
     u.fogColor.value.set(...env.sky); u.day.value = env.day;
     u.fogNear.value = far * 0.6; u.fogFar.value = far * 1.6; // grond blijft ver zichtbaar, geen lege band onder de horizon
@@ -189,7 +189,8 @@ export class FarView {
     for (const [k, m] of this.meshes) {
       const tx = k % 1000, tz = Math.floor(k / 1000);
       const dx = (tx + 0.5) * this.T - px, dz = (tz + 0.5) * this.T - pz;
-      m.visible = !tiles.has(k) && dx * dx + dz * dz < lim;
+      const t = tiles.get(k);
+      m.visible = !(t && t.ready) && dx * dx + dz * dz < lim;
     }
   }
   dispose() {

@@ -474,6 +474,7 @@ export class Game {
 
   addSource(src) {
     const nc = src.w.nc;
+    src.pendingChunks = nc * nc; src.ready = false;
     for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) this.queue.push([src, cx, cz]);
     this.totalChunks += nc * nc;
     if (this.player) this.sortQueue();
@@ -488,9 +489,54 @@ export class Game {
     }
   }
 
+  // ---------- werkgeheugen: recent bezochte tegels (met hun meshes) blijven klaar staan ----------
+  memBudget() {
+    if (this._mem) return this._mem;
+    const dm = navigator.deviceMemory || (this.touch ? 3 : 8), ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (this.touch && /Mac/.test(navigator.userAgent));
+    // in MB: telefoons zuinig (Safari sluit tabbladen die te veel geheugen gebruiken), computers ruim
+    this._mem = ios ? 140 : this.touch ? Math.min(260, dm * 45) : Math.min(1400, Math.max(350, dm * 110));
+    return this._mem;
+  }
+  tileBytes(src) {
+    if (src.bytes) return src.bytes;
+    let b = src.w.vox.length;
+    for (const c of this.chunks.values()) if (c.src === src) for (const m of [c.o, c.t]) if (m) b += m.geometry.index ? m.geometry.index.count * 4 + m.geometry.attributes.position.count * 36 : 0;
+    if (src.ready) src.bytes = b;
+    return b;
+  }
+  parkTile(k, t) {
+    const td = this.tiled, W = this.world;
+    W.tiles.delete(k);
+    t.parked = true; t.parkedAt = performance.now();
+    td.parked.set(k, t);
+    this.trafficDirty = true;
+    // te veel in het geheugen? de langst niet bezochte tegels opruimen (wijzigingen eerst bewaren)
+    let total = 0;
+    for (const p of td.parked.values()) total += this.tileBytes(p);
+    const budget = this.memBudget() * 1e6;
+    if (total > budget) {
+      const list = [...td.parked.entries()].sort((a, b) => a[1].parkedAt - b[1].parkedAt);
+      for (const [pk, p] of list) {
+        if (total <= budget * 0.85) break;
+        total -= this.tileBytes(p);
+        if (p.dirty) td.saveTile(p.tx, p.tz, p.w.vox, p.w.H, p.w.y0, p.w.edge);
+        this.removeSource(p); td.parked.delete(pk);
+      }
+    }
+  }
+  unparkTile(k) {
+    const td = this.tiled, t = td.parked.get(k);
+    if (!t) return false;
+    td.parked.delete(k); t.parked = false;
+    this.world.tiles.set(k, t);
+    this.trafficDirty = true; td.stats.memory++;
+    return true;
+  }
   updateTiles(force) {
     const td = this.tiled;
     if (!td) return;
+    td.parked = td.parked || new Map(); td.known = td.known || new Set();
+    td.stats = td.stats || { memory: 0, cache: 0, net: 0, gen: 0 };
     const now = performance.now();
     if (!force && now - td.lastCheck < 400) return;
     td.lastCheck = now;
@@ -498,38 +544,52 @@ export class Game {
     const W = this.world, T = W.T, p = this.player.pos;
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
     const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
-    // de worker werkt alvast verder vooruit (ook als het tabblad verborgen is)
-    const ahead = Math.max(R + (document.hidden || !this.active() ? 4 : 2), Math.ceil(this.settings.lod / T));
-    if (td.prefetchArea && (td.aheadKey !== ptx + ',' + ptz + ',' + ahead)) {
-      td.aheadKey = ptx + ',' + ptz + ',' + ahead;
-      td.prefetchArea(ptx, ptz, ahead);
+    // vliegrichting en snelheid: waar ben je over een paar seconden?
+    const v = this.player.vel, sp = Math.hypot(v.x, v.z);
+    const lookT = sp > 60 ? 5 : sp > 25 ? 4 : 2.5;
+    const fx = p.x + v.x * lookT, fz = p.z + v.z * lookT;
+    const ftx = Math.floor(fx / T), ftz = Math.floor(fz / T);
+    td.speed = sp;
+    // de worker werkt alvast verder vooruit (ook als het tabblad verborgen is), rond je toekomstige positie
+    const ahead = Math.max(R + (document.hidden || !this.active() ? 4 : 2), Math.ceil(this.settings.lod / T)) + (sp > 60 ? 3 : sp > 25 ? 1 : 0);
+    const ax = Math.floor((p.x + v.x * lookT * 2) / T), az = Math.floor((p.z + v.z * lookT * 2) / T);
+    if (td.prefetchArea && (td.aheadKey !== ax + ',' + az + ',' + ahead)) {
+      td.aheadKey = ax + ',' + az + ',' + ahead;
+      td.prefetchArea(ax, az, ahead);
     }
-    // tegels die te ver weg zijn opruimen (eerst bewaren als je er iets veranderde)
+    // tegels die ver weg zijn: niet weggooien maar in het werkgeheugen parkeren (snel terug)
+    const keepR = R + 1 + (sp > 25 ? 1 : 0);
     for (const [k, t] of W.tiles) {
-      if (Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)) > R + 1) {
-        if (t.dirty) td.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge);
-        this.removeSource(t);
-        W.tiles.delete(k);
-        this.trafficDirty = true;
-      }
+      const dNow = Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)), dFut = Math.max(Math.abs(t.tx - ftx), Math.abs(t.tz - ftz));
+      if (dNow > keepR && dFut > keepR) this.parkTile(k, t);
     }
-    // ontbrekende tegels aanvragen, dichtstbij eerst
+    // ontbrekende tegels: rond je positie én rond waar je naartoe vliegt; bezochte tegels uit het geheugen terughalen
     const want = [];
-    for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
-      const tx = ptx + dx, tz = ptz + dz;
-      if (tx < 0 || tz < 0 || tx >= W.nx || tz >= W.nz) continue;
-      if ((dx * dx + dz * dz) > (R + 0.5) ** 2) continue;
-      const k = W.key(tx, tz);
-      if (W.tiles.has(k) || td.pending.has(k)) continue;
-      if ((td.failed.get(k) || 0) > now) continue;
-      want.push([dx * dx + dz * dz, tx, tz, k]);
-    }
+    const consider = (cx, cz, bonus) => {
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+        const tx = cx + dx, tz = cz + dz;
+        if (tx < 0 || tz < 0 || tx >= W.nx || tz >= W.nz) continue;
+        if ((dx * dx + dz * dz) > (R + 0.5) ** 2) continue;
+        const k = W.key(tx, tz);
+        if (W.tiles.has(k)) continue;
+        if (this.unparkTile(k)) continue; // meteen terug, niets opnieuw te doen
+        if (td.pending.has(k) || (td.failed.get(k) || 0) > now) continue;
+        // in de lokale opslag (verre blok bekend) = snel; voorrang
+        const known = td.known.has(k) || (this.lod && this.lod.data.has(k));
+        want.push([dx * dx + dz * dz + bonus - (known ? 3 : 0), tx, tz, k, known]);
+      }
+    };
+    consider(ptx, ptz, 0);
+    if (ftx !== ptx || ftz !== ptz) consider(ftx, ftz, 2);
     want.sort((a, b) => a[0] - b[0]);
-    for (const [, tx, tz, k] of want) {
-      if (td.inFlight >= 3) break;
+    const seen = new Set();
+    for (const [, tx, tz, k, known] of want) {
+      if (seen.has(k)) continue; seen.add(k);
+      if (td.inFlight >= (known ? 8 : 4)) break;
       td.inFlight++; td.pending.add(k);
-      td.provider(tx, tz).then(({ vox, H, paths, y0, edge, tunnels }) => {
+      td.provider(tx, tz).then(({ vox, H, paths, y0, edge, tunnels, from }) => {
         if (this.world !== W) return;
+        td.known.add(k); td.stats[from === 'net' ? 'net' : from === 'gen' ? 'gen' : 'cache']++;
         // vlakke tegels: de bodemlaag (grondgesteente) wordt gewone steen, daaronder begint de diepe ondergrond
         if (!y0) for (let i = 0, n = T * T; i < n; i++) if (vox[i * H] === B.BEDROCK) vox[i * H] = B.STONE;
         const w = new World({ size: T, H, y0, edge }, vox);
@@ -550,7 +610,7 @@ export class Game {
   saveDirtyTiles() {
     this.under?.flush();
     if (!this.tiled) return;
-    for (const t of this.world.tiles.values()) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
+    for (const t of [...this.world.tiles.values(), ...(this.tiled.parked ? this.tiled.parked.values() : [])]) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
   }
 
   spawn() {
@@ -594,6 +654,7 @@ export class Game {
     const entry = { o: this.toMesh(out.opaque, this.matOpaque, src), t: this.toMesh(out.trans, this.matTrans, src), src,
       wx: src.ox + cx * CS + 8, wz: src.oz + cz * CS + 8 };
     if (entry.t) entry.t.renderOrder = 1;
+    if (!old && src.pendingChunks > 0 && --src.pendingChunks === 0) src.ready = true; // alle chunks klaar: de verre blokken mogen weg
     this.chunks.set(key, entry);
   }
 
@@ -689,7 +750,8 @@ export class Game {
     if (!this.queue.length) return;
     const t0 = performance.now();
     let n = 0;
-    while (this.queue.length && (performance.now() - t0 < 12 || n === 0)) {
+    const budget = this.tiled && this.tiled.speed > 25 && !this.touch ? 16 : 12;
+    while (this.queue.length && (performance.now() - t0 < budget || n === 0)) {
       const [src, cx, cz] = this.queue.pop();
       this.buildChunk(src, cx, cz);
       this.builtChunks++; n++;
@@ -707,8 +769,12 @@ export class Game {
     const busy = td.inFlight > 0 || this.queue.length > 0;
     this.ui.loading.hidden = !!here && !busy;
     this.ui.loading.classList.toggle('minor', !!here);
-    if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : 'Stad laden… (de eerste keer duurt dit even)';
-    else this.ui.loading.textContent = `Stad laden… ${td.inFlight} stukken onderweg`;
+    // wat er gebeurt: downloaden, uit de opslag halen, 3D voorbereiden, of klaar
+    const net = this.netStatus;
+    const phase = net ? `🌐 Nieuwe kaartgegevens downloaden: ${net}` : td.inFlight > 0 ? `💾 ${td.inFlight} stukken uit de lokale opslag halen of omzetten` : this.queue.length ? `🧱 3D-geometrie voorbereiden: ${this.queue.length} stukjes` : '✓ Alles klaar om te spelen';
+    if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : phase;
+    else this.ui.loading.textContent = phase;
+    this.loadPhase = phase;
     const ap = this.aheadProgress;
     const bg = ap && ap.done < ap.total ? `Omgeving klaarzetten: ${ap.done} van ${ap.total} stukken (gaat door op de achtergrond)` : ap ? 'Omgeving rond je is klaar ✓' : '';
     if (here && !busy && ap && ap.done < ap.total) { this.ui.loading.hidden = false; this.ui.loading.textContent = bg; }
@@ -747,7 +813,7 @@ export class Game {
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
     this.clouds.material.color.setRGB(...env.sky.map((v, i) => Math.min(1, 0.55 + v * 0.5 + env.dusk * [0.3, 0.1, 0][i])));
     this.clouds.material.opacity = 0.35 + env.day * 0.55;
-    if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z);
+    if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z, this.lodNear ? this.settings.lod : 0);
     if (this.traffic && this.settings.traffic !== false) {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
@@ -770,7 +836,7 @@ export class Game {
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
       const dx = c.wx - pcx, dz = c.wz - pcz;
-      const vis = !!this.tiled || dx * dx + dz * dz < lim; // in grote kaarten: alle geladen tegels tonen (geen gat met de verre blokken)
+      const vis = !c.src.parked && (!!this.tiled || dx * dx + dz * dz < lim); // grote kaarten: alle geladen tegels tonen; geparkeerde verbergen
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
