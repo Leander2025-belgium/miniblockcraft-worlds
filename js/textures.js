@@ -316,6 +316,24 @@ painters.checker = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x
 painters.roof_green = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 8; const rib = x % 4 === 0 ? 0.75 : 1; px(x, y, (64 + n) * rib, (118 + n) * rib, (88 + n) * rib); } };
 painters.solar = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const grid = x % 4 === 0 || y % 4 === 0; const n = (r() - 0.5) * 6; if (grid) px(x, y, 180, 186, 196); else px(x, y, 30 + n, 46 + n + y, 86 + n + y * 2); } };
 painters.clay_roof = roofPainter([176, 88, 56]);
+painters.deepslate = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 16, band = (y % 4 === 0) ? 0.82 : 1; px(x, y, (74 + n) * band, (74 + n) * band, (82 + n) * band); } };
+function orePainter(c) {
+  return (px, r) => {
+    for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+      const n = (r() - 0.5) * 26, spot = ((x * 7 + y * 13) % 11 < 2 && (x + y) % 3 !== 0) || r() < 0.06;
+      if (spot) px(x, y, c[0] + n * 0.4, c[1] + n * 0.4, c[2] + n * 0.4); else px(x, y, 122 + n, 122 + n, 122 + n);
+    }
+  };
+}
+painters.coal_ore = orePainter([30, 30, 32]);
+painters.iron_ore = orePainter([214, 170, 140]);
+painters.gold_ore = orePainter([246, 214, 70]);
+painters.diamond_ore = orePainter([90, 230, 226]);
+painters.ladder = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const rail = x < 3 || x > 12, rung = y % 4 === 1 && x >= 3 && x <= 12; const n = (r() - 0.5) * 12; if (rail || rung) px(x, y, 150 + n, 110 + n, 64 + n); else px(x, y, 0, 0, 0, 0); } };
+painters.elevator = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 6, seam = x === 7 || x === 8, frame = x === 0 || x === 15 || y === 0 || y === 15; const v = frame ? 120 : seam ? 90 : 176; px(x, y, v + n, v + 4 + n, v + 10 + n); } };
+painters.elevator_top = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 6, arrow = Math.abs(x - 7.5) < 4 - Math.abs(y - 8) * 0.5 && y > 3 && y < 13; px(x, y, arrow ? 240 : 150 + n, arrow ? 200 : 156 + n, arrow ? 40 : 164 + n); } };
+painters.basalt = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 14, col = x % 5 === 0 ? 0.75 : 1; px(x, y, (54 + n) * col, (54 + n) * col, (60 + n) * col); } };
+painters.clay = solid([150, 140, 128], 14);
 painters.water = (px, r) => {
   for (let i = 0; i < TILE * TILE; i++) {
     const n = (r() - 0.5) * 20;

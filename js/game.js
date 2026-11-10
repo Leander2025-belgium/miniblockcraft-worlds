@@ -12,6 +12,7 @@ import { Missions } from './missions.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
 import { Builder } from './build.js';
+import { Underground } from './underground.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -48,6 +49,10 @@ uniform sampler2D matTex;   // per tegel: glans, reliëf, weerspiegeling
 uniform sampler2D shadowMap;
 uniform mat4 shadowMatrix;
 uniform float shadowOn;
+uniform float isUnder;
+uniform float flashOn;
+uniform vec3 flashPos;
+uniform vec3 flashDir;
 uniform vec2 atlas;      // atlasgrootte in pixels
 uniform vec3 cellInfo;   // celgrootte, rand, tegelgrootte (pixels)
 uniform vec3 fogColor;
@@ -117,6 +122,13 @@ void main() {
   vec3 ambientC = mix(vec3(0.42, 0.40, 0.36), mix(fogColor, skyTop, 0.5) * 0.95 + 0.12, upF);
   float ao = clamp(vLight, 0.22, 1.0);
   vec3 light = ambientC * (0.5 + 0.4 * daylight) * daylight * ao + sunColor * (0.78 * sunF * sh * day) * (0.55 + 0.45 * ao);
+  if (isUnder > 0.5) light = vec3(1.0, 0.82, 0.6) * vLight * 1.25 + vec3(0.035, 0.038, 0.048); // ondergronds: lampen
+  // zaklamp
+  if (flashOn > 0.5) {
+    vec3 tf = vWorld - flashPos; float fd = length(tf); vec3 fdir = tf / max(fd, 0.001);
+    float spot = smoothstep(0.78, 0.93, dot(fdir, flashDir)) * clamp(1.0 - fd / 42.0, 0.0, 1.0) * (0.35 + 0.65 * max(dot(n, -fdir), 0.0));
+    light += vec3(1.0, 0.95, 0.84) * spot * 1.35;
+  }
   light *= 1.0 + relief;
   vec3 col = c.rgb * light * 1.12;
   float a = c.a;
@@ -183,12 +195,17 @@ class World {
   chunkTop(cx, cz) { return this.tops[cz * this.nc + cx]; }
   inside(x, z) { return x >= 0 && z >= 0 && x < this.size && z < this.size; }
   get(x, y, z) {
-    y -= this.y0;
-    if (y < 0 && this.y0 && this.inside(x, z)) return B.STONE;
-    if (y < 0 || y >= this.H || !this.inside(x, z)) return 0;
-    return this.vox[(z * this.size + x) * this.H + y];
+    const yl = y - this.y0;
+    if (yl < 0 && this.inside(x, z)) {
+      if (this.under) return this.under.get(x + this.ox, y, z + this.oz); // diepe ondergrond
+      if (this.y0) return B.STONE;
+    }
+    if (yl < 0 || yl >= this.H || !this.inside(x, z)) return 0;
+    return this.vox[(z * this.size + x) * this.H + yl];
   }
   set(x, y, z, b) {
+    if (y - this.y0 < 0 && this.under && this.inside(x, z)) return this.under.set(x + this.ox, y, z + this.oz, b);
+    if (y - this.y0 === 0 && this.under && this.inside(x, z)) this.under.markDirty(x + this.ox, y - 1, z + this.oz);
     y -= this.y0;
     if (y < 0 || y >= this.H || !this.inside(x, z)) return false;
     this.vox[(z * this.size + x) * this.H + y] = b;
@@ -201,6 +218,7 @@ class World {
     return Math.max(0, this.y0 - 1);
   }
   solidAt(x, y, z) {
+    if (y - this.y0 < 0 && this.under && this.inside(x, z)) return IS_SOLID[this.under.get(x + this.ox, y, z + this.oz)] === 1;
     y -= this.y0;
     if (y < 0 || !this.inside(x, z)) return true; // onzichtbare muur aan de rand
     if (y >= this.H) return false;
@@ -222,7 +240,7 @@ class TileWorld {
   tileAt(x, z) { return this.tiles.get(this.key(Math.floor(x / this.T), Math.floor(z / this.T))); }
   inside(x, z) { return x >= 0 && z >= 0 && x < this.sizeX && z < this.sizeZ; }
   get(x, y, z) {
-    if (!this.inside(x, z) || y < 0) return 0;
+    if (!this.inside(x, z)) return 0;
     const t = this.tileAt(x, z);
     if (!t) return 0;
     return t.w.get(x - t.ox, y, z - t.oz);
@@ -235,7 +253,7 @@ class TileWorld {
     return ok;
   }
   solidAt(x, y, z) {
-    if (y < 0 || !this.inside(x, z)) return true;
+    if (!this.inside(x, z)) return true;
     const t = this.tileAt(x, z);
     if (!t) return y <= (this.groundAt ? this.groundAt(x, z) : this.G); // nog niet geladen: vaste grond
     return t.w.solidAt(x - t.ox, y, z - t.oz);
@@ -276,12 +294,19 @@ export class Game {
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
       shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
+      isUnder: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
     });
     this.matOpaque = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms() });
     this.matTrans = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
     this.matTrans.uniforms.alphaTest.value = 0.02;
+    // ondergrond: geen zon of hemel, alleen lampen en de zaklamp
+    this.matUnder = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms() });
+    this.matUnder.uniforms.isUnder.value = 1;
+    this.matUnderTrans = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
+    this.matUnderTrans.uniforms.isUnder.value = 1; this.matUnderTrans.uniforms.isTrans.value = 1; this.matUnderTrans.uniforms.alphaTest.value = 0.02;
+    this.mats = [this.matOpaque, this.matTrans, this.matUnder, this.matUnderTrans];
     this.matTrans.uniforms.isTrans.value = 1;
     this.clouds = makeClouds(REAL_CLOUD_Y);
     this.scene.add(this.clouds);
@@ -324,6 +349,7 @@ export class Game {
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
     this.dropMountain(); this.leaveVehicle();
+    this.under?.dispose(); this.under = null;
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -364,6 +390,14 @@ export class Game {
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
     this.dropMountain(); this.leaveVehicle();
+    this.under?.dispose();
+    const W = this.world;
+    this.under = new Underground(this.scene, {
+      id: spec.id || meta.id,
+      loaded: (x, z) => !!W.tileAt(x, z),
+      top: (x, z) => { const t = W.tileAt(x, z); return t ? t.w.y0 : (spec.groundAt ? spec.groundAt(x, z) - 24 : 0); },
+      ref: spec.groundAt ? (x, z) => spec.groundAt(x, z) : () => spec.ground,
+    }, { under: this.matUnder, underTrans: this.matUnderTrans });
     if (spec.longView) {
       // Reuzenberg: ver landschap tot aan de horizon en de kabelbaan
       this.far = new MountainView();
@@ -483,7 +517,10 @@ export class Game {
       td.inFlight++; td.pending.add(k);
       td.provider(tx, tz).then(({ vox, H, paths, y0, edge }) => {
         if (this.world !== W) return;
+        // vlakke tegels: de bodemlaag (grondgesteente) wordt gewone steen, daaronder begint de diepe ondergrond
+        if (!y0) for (let i = 0, n = T * T; i < n; i++) if (vox[i * H] === B.BEDROCK) vox[i * H] = B.STONE;
         const w = new World({ size: T, H, y0, edge }, vox);
+        w.ox = tx * T; w.oz = tz * T; w.under = this.under;
         const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
         this.trafficDirty = true;
         w.src = src;
@@ -497,6 +534,7 @@ export class Game {
   }
 
   saveDirtyTiles() {
+    this.under?.flush();
     if (!this.tiled) return;
     for (const t of this.world.tiles.values()) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
   }
@@ -676,13 +714,18 @@ export class Game {
     if (this.settings.cycle) { this.settings.hour = (this.settings.hour + dt / 30) % 24; this.syncTimeUi?.(); } // 1 uur per 30 s
     const env = skyAt(this.settings.hour);
     this.renderer.setClearColor(new THREE.Color(...env.sky));
-    for (const m of [this.matOpaque, this.matTrans]) {
+    // onder de grond: donker, korte zichtafstand, geen lucht
+    const ug = this.under && this.under.active && this.player.pos.y < (this.under.spec.top(Math.floor(p.pos.x), Math.floor(p.pos.z))) - 1;
+    this.isUnderground = ug;
+    for (const m of this.mats) {
       const u = m.uniforms;
+      u.flashOn.value = this.flash ? 1 : 0; u.flashPos.value.copy(this.camera.position); this.camera.getWorldDirection(u.flashDir.value);
       if (this.far) { u.fogNear.value = 3000; u.fogFar.value = 26000; }
       else if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
       else { u.fogNear.value = far * 0.45; u.fogFar.value = far; }
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
       u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
+      if (ug) { u.fogColor.value.set(0.01, 0.01, 0.015); u.fogNear.value = 8; u.fogFar.value = 64; }
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
@@ -711,12 +754,20 @@ export class Game {
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
+    if (this.under) this.under.update(p.pos, (x, y, z) => this.world.get(x, y, z));
+    if (this.lod) for (const m of this.lod.meshes.values()) if (ug) m.visible = false;
+    if (this.lod?.groundMesh) this.lod.groundMesh.visible = !ug && !this.far;
+    this.clouds.visible = !ug;
+    if (this.traffic) this.traffic.group.visible = !ug;
+    if (this.far) this.far.gondolas.group.visible = !ug;
+    this.avatar.group.visible = this.avatar.group.visible && true;
     this.updateShadows(env);
     // lucht, dan (Reuzenberg) het verre berglandschap, dan de blokken eroverheen
     this.renderer.autoClear = false;
+    this.renderer.setClearColor(ug ? 0x020203 : SKY);
     this.renderer.clear();
-    this.sky.render(this.renderer, this.camera, env);
-    if (this.far) { this.renderer.clearDepth(); this.far.render(this.renderer, this.camera, env, 48); }
+    if (!ug) this.sky.render(this.renderer, this.camera, env);
+    if (this.far && !ug) { this.renderer.clearDepth(); this.far.render(this.renderer, this.camera, env, 48); }
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
     this.renderer.autoClear = true;
@@ -754,6 +805,7 @@ export class Game {
     this.drive = new Drive(this, v, mode);
     document.getElementById('drive-choice')?.setAttribute('hidden', '');
   }
+  toggleFlash() { this.flash = !this.flash; this.toast(this.flash ? '🔦 Zaklamp aan' : 'Zaklamp uit'); }
   cycleCamera() {
     const order = ['first', 'third', 'front'];
     if (this.drive) { this.drive.cycleCam(); return; }
@@ -767,7 +819,7 @@ export class Game {
   updateShadows(env) {
     const S = this.shadow, q = this.settings.quality || 'normal';
     const want = this.autoLow || this.settings.shadows === false ? 0 : q === 'sharp' ? 2048 : q === 'normal' ? (this.touch ? 1024 : 2048) : 0;
-    const set = (k, v) => { this.matOpaque.uniforms[k].value = v; this.matTrans.uniforms[k].value = v; };
+    const set = (k, v) => { for (const m of this.mats) m.uniforms[k].value = v; };
     if (!want || env.day < 0.08 || !this.world) { set('shadowOn', 0); return; }
     if (S.size !== want) {
       S.rt?.dispose();
@@ -939,6 +991,8 @@ export class Game {
     const sprint = k.has('ShiftLeft') && !p.fly || k.has('ControlLeft') || this.touchSprint || this.boost;
     const feet = this.world.get(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.4), Math.floor(p.pos.z));
     p.inWater = feet === B.WATER;
+    const body = this.world.get(Math.floor(p.pos.x), Math.floor(p.pos.y + 1.2), Math.floor(p.pos.z));
+    p.onLadder = !p.fly && (feet === B.LADDER || body === B.LADDER);
     let speed = p.fly ? FLY_SPEEDS[this.flyLevel || 0] * (this.boost || this.touchSprint ? 2.5 : 1) : (sprint ? 6.6 : 4.4);
     if (p.inWater && !p.fly) speed *= 0.55;
     const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
@@ -953,6 +1007,9 @@ export class Game {
     const down = (k.has('ShiftLeft') || k.has('KeyC')) && p.fly || this.touchDown;
     if (p.fly) {
       p.vel.y = (up ? speed * 0.8 : down ? -speed * 0.8 : 0) - fz * Math.sin(p.pitch) * speed;
+    } else if (p.onLadder) {
+      // ladder: omhoog met spring/vooruit, omlaag met Shift, anders langzaam zakken
+      p.vel.y = up || len > 0.3 ? 3.2 : (k.has('ShiftLeft') || this.touchDown) ? -3.5 : -1.2;
     } else if (p.inWater) {
       p.vel.y -= 9 * dt;
       if (up) p.vel.y = 3.5;
@@ -977,7 +1034,29 @@ export class Game {
       }
     }
     // automatisch opspringen (aanraakschermen)
-    if (blockedH && p.onGround && (this.touch || this.far) && len > 0.3) p.vel.y = 9.2;
+    if (blockedH && p.onGround && !p.onLadder && len > 0.3) {
+      // automatisch één blok opstappen (trappen van blokken lopen vanzelf)
+      const ahead = this.world.solidAt(Math.floor(p.pos.x + Math.sin(p.yaw) * -0.6), Math.floor(p.pos.y + 1.5), Math.floor(p.pos.z + Math.cos(p.yaw) * -0.6));
+      if (!ahead) p.vel.y = 7.2;
+    }
+    // lift: op een liftblok met spring omhoog, met Shift omlaag naar het volgende liftblok in dezelfde kolom
+    {
+      const goUp = up && !this.upWas, goDown = (k.has('ShiftLeft') || this.touchDown) && !this.downWas;
+      this.upWas = up; this.downWas = k.has('ShiftLeft') || this.touchDown;
+      if ((goUp || goDown) && p.onGround && !p.fly) {
+        const X = Math.floor(p.pos.x), Z = Math.floor(p.pos.z), Y = Math.floor(p.pos.y - 0.5);
+        if (this.world.get(X, Y, Z) === B.ELEVATOR) {
+          const dir = goUp ? 1 : -1;
+          for (let yy = Y + dir * 2; Math.abs(yy - Y) < 320; yy += dir) {
+            if (this.world.get(X, yy, Z) === B.ELEVATOR && !this.world.solidAt(X, yy + 1, Z) && !this.world.solidAt(X, yy + 2, Z)) {
+              p.pos.y = yy + 1.01; p.vel.y = 0;
+              this.toast(`🛗 Lift ${goUp ? 'omhoog' : 'omlaag'} · ${Math.abs(yy - Y)} m`);
+              break;
+            }
+          }
+        }
+      }
+    }
     if (p.pos.y < -10 && !this.tiled) this.spawn();
 
     // muis ingedrukt houden = herhalen
@@ -1271,6 +1350,7 @@ export class Game {
       if (e.code === 'KeyM' && !e.repeat) { e.preventDefault(); this.openMap(); }
       if (e.code === 'KeyP' && !e.repeat) this.togglePhoto();
       if (e.code === 'KeyG' && !e.repeat) this.toggleRide();
+      if (e.code === 'KeyL' && !e.repeat) this.toggleFlash();
       if (e.code === 'KeyV' && !e.repeat && !this.buildKeys?.(e)) this.cycleCamera();
       if ((e.code === 'Enter' || e.code === 'NumpadEnter') && this.photo) this.savePhoto();
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
@@ -1360,6 +1440,7 @@ export class Game {
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
     document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());
     document.getElementById('t-build')?.addEventListener('click', () => this.builder.toggle());
+    document.getElementById('t-flash')?.addEventListener('click', () => this.toggleFlash());
     // voertuigen op de telefoon
     const choice = document.getElementById('drive-choice');
     document.getElementById('t-drive')?.addEventListener('click', () => { if (choice) choice.hidden = !choice.hidden; });

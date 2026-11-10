@@ -164,6 +164,7 @@
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
   #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
+  #t-flash { top: calc(10px + var(--st)); right: calc(312px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
   #t-build { top: calc(10px + var(--st)); right: calc(262px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
   .build-bar { position: absolute; z-index: 9; left: 50%; top: calc(58px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; background: rgba(12,16,24,.78); padding: 6px; border-radius: 12px; max-width: calc(100vw - 24px); }
   .build-bar .btn { padding: 6px 9px; font-size: 13px; }
@@ -406,6 +407,8 @@
       <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
       <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
       <kbd>V</kbd><span>camera: eerste persoon, derde persoon, van voren</span>
+      <kbd>L</kbd><span>zaklamp aan/uit (handig ondergronds)</span>
+      <kbd>Spatie / Shift</kbd><span>op een liftblok: naar het volgende liftblok omhoog / omlaag</span>
       <kbd>B</kbd><span>bouwmodus: klik links/rechts = hoeken, Enter vullen, K muren, Del leeg, C/V kopiëren/plakken, R draaien, O/L blauwdrukken</span>
       <kbd>Z / Y</kbd><span>ongedaan maken / opnieuw</span>
       <kbd>H / J</kbd><span>voertuig zelf besturen / meerijden (auto, bus, tram, trein)</span>
@@ -419,7 +422,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-11b</p>
+    <p class="help" id="app-version">Versie 2026-11-12a</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>
@@ -452,6 +455,7 @@
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
   <button class="touch tbtn" id="t-cam" aria-label="Camera">👁</button>
   <button class="touch tbtn" id="t-build" aria-label="Bouwmodus">🏗</button>
+  <button class="touch tbtn" id="t-flash" aria-label="Zaklamp">🔦</button>
   <div id="build-bar" class="build-bar" hidden>
     <button class="btn" id="bb-c1" title="Hoek 1 = blok waar je naar kijkt (linkerklik)">① hoek</button>
     <button class="btn" id="bb-c2" title="Hoek 2 (rechterklik)">② hoek</button>
@@ -585,6 +589,6 @@
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
-<script type="module" src="./js/app.js?v=2026-11-11b"></script>
+<script type="module" src="./js/app.js?v=2026-11-12a"></script>
 </body>
 </html>

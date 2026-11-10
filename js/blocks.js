@@ -13,6 +13,7 @@ export const B = {
   RED_GRANITE: 49, RED_SANDSTONE: 50, HALF_TIMBER: 51, SNOW: 52, SPRUCE: 53, BALLAST: 54,
   BIRCH_LOG: 55, BIRCH_LEAVES: 56, MOSSY_STONE: 57, DARK_PLANKS: 58, MARBLE: 59, GRANITE: 60, ICE: 61, PAINT_YELLOW: 62,
   WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
+  DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -88,6 +89,15 @@ export const BLOCKS = [
   { id: 68, name: 'Zonnepaneel', color: [36, 52, 86], tex: ['solar', 'metal', 'metal'] },
   { id: 69, name: 'Dennennaalden', color: [44, 92, 52], tex: ['pine_leaves'] },
   { id: 70, name: 'Kleidakpan', color: [176, 88, 56], tex: ['clay_roof'] },
+  { id: 71, name: 'Diepe leisteen', color: [74, 74, 80], tex: ['deepslate'] },
+  { id: 72, name: 'Steenkool-erts', color: [92, 92, 92], tex: ['coal_ore'] },
+  { id: 73, name: 'IJzererts', color: [150, 128, 112], tex: ['iron_ore'] },
+  { id: 74, name: 'Gouderts', color: [170, 150, 80], tex: ['gold_ore'] },
+  { id: 75, name: 'Diamanterts', color: [110, 170, 170], tex: ['diamond_ore'] },
+  { id: 76, name: 'Ladder', color: [150, 110, 64], tex: ['ladder'], cutout: true, climb: true },
+  { id: 77, name: 'Lift (spring = omhoog, Shift = omlaag)', color: [170, 176, 184], tex: ['elevator_top', 'elevator', 'metal'] },
+  { id: 78, name: 'Basalt', color: [52, 52, 58], tex: ['basalt'] },
+  { id: 79, name: 'Klei', color: [150, 140, 128], tex: ['clay'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
@@ -101,7 +111,7 @@ for (const b of BLOCKS) {
   if (b.id === 0) continue;
   if (b.transparent) IS_TRANSPARENT[b.id] = 1;
   if (b.cutout) IS_CUTOUT[b.id] = 1;
-  if (!b.liquid) IS_SOLID[b.id] = 1;
+  if (!b.liquid && !b.climb) IS_SOLID[b.id] = 1;
   if (!b.transparent && !b.cutout) IS_OPAQUE[b.id] = 1;
 }
 
