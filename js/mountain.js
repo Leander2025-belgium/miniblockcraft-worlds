@@ -11,7 +11,7 @@ export const MW = 14000, ML = 14000, G = 12, T = 128;
 export const META = {
   id: 'reuzenberg', name: 'Reuzenberg', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
+  ground: G, version: 4, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
 };
 const PEAK = [7000, 6300];
 
@@ -336,7 +336,7 @@ function fillColumnBase(x, z, col, hs) {
   const rock = !snow && (hReal > rockLine(x, z) || slope > 1.15);
   const meadow = !rock && !snow && hReal > treeLine(x, z);
   // bovenlagen
-  if (rock || snow) for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.STONE;
+  if (rock || snow) for (let y = Math.max(1, top - 3); y < top; y++) col[y] = strata(x, y, z);
   else for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.DIRT;
   if (onPath) {
     col[top] = hReal > rockLine(x, z) ? B.COBBLE : B.GRAVEL;
@@ -347,10 +347,14 @@ function fillColumnBase(x, z, col, hs) {
     return top;
   }
   if (h < 2.5 && h > -1.5 && Math.hypot(x - LAKE.x, (z - LAKE.z) * 1.35) < LAKE.r * 1.25) { col[top] = B.SAND; return top; }
+  // losse sneeuwvelden onder de sneeuwgrens (vooral in vlakke kommen, meer naar boven toe)
+  if (!snow && hReal > snowLine(x, z) - 170 && slope < 0.9 && noise(x / 16, z / 16, 91) > 0.66 - (hReal - snowLine(x, z) + 170) / 420) {
+    col[top] = B.SNOW; if (slope < 0.35 && hash(x, z, 92) < 0.3) { col[top + 1] = B.SNOW; return top + 1; } return top;
+  }
   if (snow) { col[top] = B.SNOW; if (slope < 0.6 && hash(x, z, 7) < 0.6) { col[top + 1] = B.SNOW; return top + 1; } return top; }
   if (rock) {
     const r = noise(x / 7, z / 7, 8);
-    col[top] = r < 0.25 ? B.GRAVEL : r > 0.8 ? B.ASHLAR : B.STONE;
+    col[top] = r < 0.22 ? B.GRAVEL : strata(x, top, z);
     if (hash(x, z, 9) < 0.004) treeKind = 4;
     return top;
   }
@@ -378,10 +382,18 @@ function fillColumnBase(x, z, col, hs) {
   const dense = hReal < 560 ? 0.92 : hReal < 900 ? 0.8 : 0.55;
   if (treeSpot(x, z, 4, dense)) {
     const conifer = hReal > 560 || (hReal > 260 && hash(x, z, 14) < (hReal - 260) / 300) || hash(x, z, 15) < 0.12;
-    treeKind = conifer ? 2 : 1;
+    const r = hash(x, z, 19);
+    // loofbomen, berken, sparren en dennen
+    treeKind = conifer ? (hReal > 280 && hReal < 950 && r < 0.3 ? 6 : 2) : (r < 0.28 ? 5 : 1);
   } else if (hash(x, z, 16) < 0.035) treeKind = 3;
+  else if (hash(x, z, 20) < 0.004) treeKind = 7;
   else if (hash(x, z, 17) < 0.02) col[top] = B.FLOWERS;
   return top;
+}
+// gesteentelagen (zichtbaar in steile wanden)
+function strata(x, y, z) {
+  const band = Math.floor((y + noise(x / 60, z / 60, 93) * 9) / 3) % 5;
+  return band === 0 ? B.GRANITE : band === 2 ? B.ASHLAR : band === 4 && hash(x, z, y) < 0.5 ? B.GRAVEL : B.STONE;
 }
 // boomplekken op een rooster van s × s m met een willekeurige plek per vak
 function treeSpot(x, z, s, p) {
@@ -419,6 +431,29 @@ function stationColumn(dx, dz, s, col, isTop) {
   return roof;
 }
 
+// ---------- berk en den ----------
+function placeBirch(x, z, gy, th, set) {
+  for (let y = gy + 1; y <= gy + th; y++) set(x, y, z, B.BIRCH_LOG, true);
+  for (let y = gy + th - 3; y <= gy + th + 1; y++) {
+    const r = y >= gy + th ? 1 : 2;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dz * dz > r * r + 0.5 || (dx === 0 && dz === 0 && y <= gy + th)) continue;
+      if (Math.abs(dx) + Math.abs(dz) === 2 * r && hash(x + dx, z + dz, y) < 0.6) continue;
+      set(x + dx, y, z + dz, B.BIRCH_LEAVES, false);
+    }
+  }
+}
+function placePine(x, z, gy, th, set) {
+  for (let y = gy + 1; y <= gy + th; y++) set(x, y, z, B.LOG, true);
+  for (let y = gy + th - 2; y <= gy + th + 1; y++) {
+    const r = y === gy + th + 1 ? 1 : y === gy + th - 2 ? 2 : 3;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dz * dz > r * r || (dx === 0 && dz === 0 && y <= gy + th)) continue;
+      if (hash(x + dx, z + dz, y + 3) < 0.15) continue;
+      set(x + dx, y, z + dz, B.PINE_LEAVES, false);
+    }
+  }
+}
 // ---------- spar ----------
 function placeSpruce(x, z, gy, th, set) {
   for (let y = gy + 1; y <= gy + th; y++) set(x, y, z, B.LOG, true);
@@ -454,7 +489,7 @@ export function generateTile(tx, tz) {
     if (!inside) {
       // buiten de tegel: enkel boomkruinen die over de rand hangen
       const tp = fillColumn(gx, gz, spare, slope);
-      if (treeKind === 1 || treeKind === 2) trees.push(x, z, tp, treeKind);
+      if (treeKind === 1 || treeKind === 2 || treeKind === 5 || treeKind === 6) trees.push(x, z, tp, treeKind);
       continue;
     }
     col.fill(0);
@@ -490,7 +525,10 @@ export function generateTile(tx, tz) {
     const x = trees[i], z = trees[i + 1], gy = trees[i + 2], k = trees[i + 3], r = hash(x + X0, z + Z0, 44);
     if (k === 1) placeTree(x, z, gy, 5 + Math.floor(r * 4), null, set);
     else if (k === 2) placeSpruce(x, z, gy, 8 + Math.floor(r * 9), set);
-    else if (k === 3) { set(x, gy + 1, z, B.LEAVES); if (r < 0.4) set(x + 1, gy + 1, z, B.LEAVES); }
+    else if (k === 3) { const lb = r < 0.5 ? B.LEAVES : B.BIRCH_LEAVES; set(x, gy + 1, z, lb); if (r < 0.4) set(x + 1, gy + 1, z, lb); if (r > 0.8) set(x, gy + 2, z, lb); }
+    else if (k === 5) placeBirch(x, z, gy, 6 + Math.floor(r * 4), set);
+    else if (k === 6) placePine(x, z, gy, 11 + Math.floor(r * 6), set);
+    else if (k === 7) { set(x, gy + 1, z, B.MOSSY_STONE, true); set(x + 1, gy + 1, z, B.MOSSY_STONE, true); if (r < 0.5) set(x, gy + 2, z, B.MOSSY_STONE, true); }
     else if (k === 4) { // rotsblok
       const s = 1 + Math.floor(r * 2.5);
       for (let dz = -s; dz <= s; dz++) for (let dx = -s; dx <= s; dx++) for (let dy = 0; dy <= s; dy++) {
