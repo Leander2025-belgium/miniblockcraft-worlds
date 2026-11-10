@@ -160,6 +160,12 @@
   .mission .mi { font-size: 16px; color: var(--muted); }
   .mission.ok .mi { color: var(--accent); }
   .mp { color: var(--muted); font-variant-numeric: tabular-nums; }
+  @media (max-width: 520px) {
+    #t-menu, #t-fly, #t-speed, #t-inv, #t-cam, #t-build, #t-flash { width: 38px; height: 38px; font-size: 15px; }
+    #t-menu { right: calc(6px + var(--sr)); } #t-fly { right: calc(48px + var(--sr)); } #t-speed { right: calc(90px + var(--sr)); }
+    #t-inv { right: calc(132px + var(--sr)); } #t-cam { right: calc(174px + var(--sr)); } #t-build { right: calc(216px + var(--sr)); } #t-flash { right: calc(258px + var(--sr)); }
+    #hud-tl { max-width: calc(100vw - 320px); overflow: hidden; }
+  }
   .look { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 10px; }
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
