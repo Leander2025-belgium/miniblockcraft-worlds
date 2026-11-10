@@ -10,7 +10,7 @@ export const MW = 14000, ML = 14000, G = 12, T = 128;
 export const META = {
   id: 'reuzenberg', name: 'Reuzenberg', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 1, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
+  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
 };
 const PEAK = [7000, 6300];
 
@@ -484,6 +484,16 @@ export function generateTile(tx, tz) {
       }
     }
   }
-  return { vox, H, y0: Y0, edge, ground: G, paths: [] };
+  // wandelaars op het pad
+  const paths = [];
+  let run = [];
+  const flush = () => { if (run.length >= 6) paths.push({ type: 'walk', pts: new Float32Array(run) }); run = []; };
+  for (let i = 0; i < TRAIL.length; i += 3) {
+    const x = TRAIL[i] - X0, z = TRAIL[i + 1] - Z0;
+    if (x < -4 || z < -4 || x > T + 4 || z > T + 4) { flush(); continue; }
+    run.push(x, z, Math.round(G + surfaceAt(TRAIL[i], TRAIL[i + 1])));
+  }
+  flush();
+  return { vox, H, y0: Y0, edge, ground: G, paths };
 }
 const spare = new Uint8Array(2200);

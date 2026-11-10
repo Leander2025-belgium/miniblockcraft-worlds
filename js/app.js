@@ -282,9 +282,11 @@ async function playMap(id, at) {
   }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
-      if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null });
+      const mine = ed && ed.rle ? { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null } : null;
+      // ook voor zelf bebouwde stukken de paden voor het verkeer ophalen
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
-        if (m.type === 'cityTile') resolve(m);
+        if (m.type === 'cityTile') resolve(mine ? { ...mine, paths: m.paths || [] } : m);
+        else if (m.type === 'error' && mine) resolve(mine);
         else if (m.type === 'error') reject(new Error(m.message));
       }, workerFor(map, tx, tz));
     });
@@ -825,7 +827,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-10b';
+const APP_VERSION = '2026-11-10c';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

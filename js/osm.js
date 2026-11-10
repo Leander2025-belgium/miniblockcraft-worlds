@@ -557,6 +557,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   const paths = [];          // voor verkeer: { type, pts: [x,z,...] } in tegelcoördinaten
   const lampSpots = [];      // automatische straatlantaarns
   const hasOsmLamps = (osm.pois || []).some(q => q[2] === 'lamp');
+  const MAJOR = new Set(['trunk', 'primary', 'secondary', 'tertiary', 'trunk_link', 'primary_link', 'secondary_link']);
   const NO_CARS = new Set(['footway', 'path', 'cycleway', 'steps', 'pedestrian', 'track', 'bridleway']);
   const offsetLine = (l, off) => {
     const out = [];
@@ -587,8 +588,9 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       if (!NO_CARS.has(r.hw) && r.hw !== 'service') {
         // rechts rijden: één rijstrook per richting
         const lane = width / 4;
-        paths.push({ type: 'car', pts: offsetLine(r.l, lane) });
-        if (r.tags.oneway !== 'yes') paths.push({ type: 'car', pts: offsetLine(r.l.slice().reverse(), lane) });
+        const ct = MAJOR.has(r.hw) ? 'carM' : 'car'; // grote wegen: daar rijden ook bussen
+        paths.push({ type: ct, pts: offsetLine(r.l, lane) });
+        if (r.tags.oneway !== 'yes') paths.push({ type: ct, pts: offsetLine(r.l.slice().reverse(), lane) });
         paths.push({ type: 'walk', pts: offsetLine(r.l, width / 2 + 1.2 * scale) });
       } else if (r.hw === 'footway' || r.hw === 'pedestrian' || r.hw === 'path') paths.push({ type: 'walk', pts: r.l.flat() });
       if (!hasOsmLamps && !foot && blk === B.ASPHALT && !isBridge) {
@@ -618,7 +620,6 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
   const rails = [];
-  const poles = [];
   for (const w of osm.ways) {
     const rw = w.tags.railway;
     if (!rw || !['rail', 'light_rail', 'narrow_gauge', 'tram', 'subway'].includes(rw)) continue;
@@ -630,23 +631,20 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (inTileLine(l) && rw !== 'subway') paths.push({ type: tram ? 'tram' : 'train', pts: l.flat() });
     const rb = w.tags.bridge && w.tags.bridge !== 'no';
     const rdeck = rb ? Math.max(...l.map(q => gyAt(Math.floor(q[0]), Math.floor(q[1])))) : 0;
-    let nextPole = 20 * scale;
-    strokeLine(l, (tram ? 2 : 5) * scale, size, (x, z, d, along) => {
+    // spoorbed: ballast (de rails, dwarsliggers en bovenleiding worden in 3D getekend)
+    strokeLine(l, (tram ? 3 : 4.4) * scale, size, (x, z) => {
       const i = z * size + x;
       if (surf[i] === B.WATER && !rb) return;
       if (rb && (surf[i] === B.WATER || bridge[i])) { bridge[i] = 1; bridgeY[i] = Math.max(bridgeY[i], rdeck); }
-      const ds = d / scale;
-      if (tram) { if (ds > 0.3 && ds < 0.8) surf[i] = B.METAL; }
-      else if (ds > 0.45 && ds < 1.0) surf[i] = B.METAL;                                         // twee rails
-      else if (ds <= 0.45) surf[i] = Math.floor(along / scale) % 2 === 0 ? B.PLANKS : B.GRAVEL;     // dwarsliggers
-      else surf[i] = B.GRAVEL;
+      // trams in de straat: het wegdek blijft
+      if (tram && (surf[i] === B.ASPHALT || surf[i] === B.LINE_WHITE || surf[i] === B.TILE || surf[i] === B.COBBLE || surf[i] === B.SIDEWALK)) { marks[i] = 1; treeD[i] = 0; return; }
+      surf[i] = B.BALLAST;
       marks[i] = 1; treeD[i] = 0;
-      // bovenleidingpaal om de 40 m, naast het spoor
-      if (!tram && ds > 2.0 && ds < 2.6 && along >= nextPole) { nextPole = along + 40 * scale; poles.push([x, z, l, along]); }
     });
   }
   // perrons (verhoogd, met overkapping)
   const platform = new Uint8Array(N);
+  const railStops = [], busStops = [];
   for (const w of osm.ways) {
     if (w.tags.railway !== 'platform' && !(w.tags.public_transport === 'platform' && (w.tags.train === 'yes' || w.tags.railway))) continue;
     const l = line(w.nds);
@@ -654,6 +652,9 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     const mark = (x, z) => { const i = z * size + x; platform[i] = w.tags.covered === 'no' ? 1 : 2; surf[i] = B.CONCRETE; marks[i] = 1; treeD[i] = 0; };
     if (w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length - 1]) fillRings([l], size, mark);
     else strokeLine(l, (parseLen(w.tags.width) || 5) * scale, size, (x, z) => mark(x, z));
+    // halte voor treinen: midden van het perron
+    let cx = 0, cz = 0; for (const q of l) { cx += q[0]; cz += q[1]; } cx /= l.length; cz /= l.length;
+    if (cx >= 0 && cz >= 0 && cx < size && cz < size) railStops.push([cx, cz]);
   }
   onProgress?.(0.35);
 
@@ -1079,6 +1080,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     else if (kind === 'bikes') { const s2 = nearSidewalk(x, z, 3); if (s2) for (let k = 0; k < 4; k += 2) if (free(s2[0] + k, s2[1])) set(s2[0] + k, gyc(s2[0] + k, s2[1]) + 1, s2[1], B.METAL); }
     else if (kind === 'fountain') { if (free(x, z)) { set(x, gyc(x, z) + 1, z, B.COBBLE); set(x, gyc(x, z) + 2, z, B.WATER); } }
     else if (kind === 'bus_stop') {
+      busStops.push([x + 0.5, z + 0.5]);
       const s2 = nearSidewalk(x, z, 6 * scale); if (!s2) continue; [x, z] = s2;
       // klein bushokje: glazen achterwand, dak, bankje
       const g0 = gyc(x, z);
@@ -1097,31 +1099,27 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (s2) lamp(...s2);
   }
 
-  // perrons: verhoogd, met overkapping op palen
+  // perrons: verhoogd, witte veiligheidslijn, overkapping van glas op palen, banken, lampen en naambordjes
+  const isP = (x, z) => x >= 0 && z >= 0 && x < size && z < size && platform[z * size + x];
+  const edgeOf = (x, z) => !isP(x - 1, z) || !isP(x + 1, z) || !isP(x, z - 1) || !isP(x, z + 1);
   for (let z = 0; z < size; z++) for (let x = 0; x < size; x++) {
     const i = z * size + x, pk = platform[i];
     if (!pk) continue;
     const g0 = gy[i];
     if (vox[i * H + g0 + 1]) continue;
-    set(x, g0 + 1, z, B.CONCRETE);
-    if (pk === 2) {
-      const edgeP = !platform[i - 1] || !platform[i + 1] || !platform[i - size] || !platform[i + size];
-      if (!edgeP || (x + OX) % 2 === 0) set(x, g0 + 5 * scale, z, B.METAL);
-      if (!edgeP && (x + OX) % (8 * scale) === 0 && (z + OZ) % (3 * scale) === 0) for (let y = 2; y < 5 * scale; y++) set(x, g0 + y, z, B.POST);
+    const edge = edgeOf(x, z);
+    const ring = !edge && (edgeOf(x - 1, z) || edgeOf(x + 1, z) || edgeOf(x, z - 1) || edgeOf(x, z + 1));
+    set(x, g0 + 1, z, edge ? B.CONCRETE : ring ? B.LINE_WHITE : B.TILE);
+    if (pk === 2 && !edge && !ring) {
+      const roof = g0 + 1 + 4 * scale, X = x + OX, Z = z + OZ;
+      set(x, roof, z, (X % 6 === 0 || Z % 6 === 0) ? B.METAL : B.GLASS);
+      const inner = !edgeOf(x - 1, z) && !edgeOf(x + 1, z) && !edgeOf(x, z - 1) && !edgeOf(x, z + 1);
+      if (inner && X % (9 * scale) === 0 && Z % (9 * scale) === 0) {
+        for (let y = g0 + 2; y < roof; y++) set(x, y, z, B.POST);
+        if (hash(X, Z, 71) < 0.5) set(x, g0 + 3, z, B.PAINT_BLUE); // naambord
+      } else if (inner && X % (9 * scale) === 4 && Z % (9 * scale) === 4) set(x, roof - 1, z, B.LAMP);
+      else if (inner && X % (9 * scale) === 2 && Z % (9 * scale) === 0) set(x, g0 + 2, z, B.PLANKS); // bank
     }
-  }
-  for (const [x, z] of poles) {
-    if (x < 1 || z < 1 || x >= size - 1 || z >= size - 1) continue;
-    const g0 = gy[z * size + x], top = g0 + 7 * scale;
-    if (vox[(z * size + x) * H + g0 + 1]) continue;
-    for (let y = g0 + 1; y <= top; y++) set(x, y, z, B.POST);
-    // arm richting het spoor
-    let best = null, bd2 = 99;
-    for (const [dx, dz] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) for (let k = 1; k <= 3; k++) {
-      const b0 = vox[((z + dz * k) * size + x + dx * k) * H + gyc(x + dx * k, z + dz * k)];
-      if ((b0 === B.METAL || b0 === B.PLANKS) && k < bd2) { bd2 = k; best = [dx, dz]; }
-    }
-    if (best) for (let k = 1; k <= 3; k++) set(x + best[0] * k, top, z + best[1] * k, B.POST);
   }
 
   // 5. bomen
@@ -1183,6 +1181,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
     flush();
   }
+  for (const [x, z] of railStops) pathsOut.push({ type: 'railstop', pts: new Float32Array([x, z, surfY(x, z) + 1]) });
+  for (const [x, z] of busStops) pathsOut.push({ type: 'busstop', pts: new Float32Array([x, z, surfY(x, z)]) });
   return { vox, H, ground: G, buildings: count, paths: pathsOut };
 }
 

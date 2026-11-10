@@ -258,6 +258,12 @@ painters.snow_side = (px, r) => {
     else px(x, y, 125 + n * 2, 125 + n * 2, 125 + n * 2);
   }
 };
+painters.ballast = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const n = r(), v = n < 0.3 ? 0.72 : n > 0.85 ? 1.18 : 1;
+    px(x, y, 122 * v, 114 * v, 104 * v);
+  }
+};
 painters.spruce = (px, r) => {
   for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
     const n = r(); const v = n < 0.3 ? 0.62 : 1;
