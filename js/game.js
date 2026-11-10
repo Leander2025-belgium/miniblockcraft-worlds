@@ -52,6 +52,7 @@ uniform sampler2D shadowMap;
 uniform mat4 shadowMatrix;
 uniform float shadowOn;
 uniform float isUnder;
+uniform float wet;
 uniform float flashOn;
 uniform vec3 flashPos;
 uniform vec3 flashDir;
@@ -162,6 +163,12 @@ void main() {
     // glans (metaal, verf, tegels, natte straat) en weerspiegeling van de lucht
     if (refl > 0.01) col = mix(col, skyRefl, refl * (0.08 + 0.6 * fr));
     if (shine > 0.01) col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 8.0 + shine * 60.0) * shine * 0.55 * day * sh;
+    // natte oppervlakken: donkerder, met weerspiegeling van lucht en lichten op horizontale vlakken
+    if (wet > 0.01 && n.y > 0.5 && isUnder < 0.5) {
+      col *= 1.0 - 0.28 * wet;
+      float puddle = smoothstep(0.55, 0.75, h3(floor(vWorld * vec3(0.5, 1.0, 0.5))));
+      col = mix(col, skyRefl * 0.9, wet * (0.12 + 0.5 * fr) * (0.5 + 0.5 * puddle));
+    }
   }
   // atmosfeer: verre dingen nemen de luchtkleur aan, warmer in de richting van de zon
   float fog = smoothstep(fogNear, fogFar, vDist);
@@ -296,7 +303,7 @@ export class Game {
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
       shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
-      isUnder: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
+      wet: { value: 0 }, isUnder: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
     });
@@ -720,6 +727,7 @@ export class Game {
     this.clock += dt;
     if (this.settings.cycle) { this.settings.hour = (this.settings.hour + dt / 30) % 24; this.syncTimeUi?.(); } // 1 uur per 30 s
     const env = skyAt(this.settings.hour);
+    this.applyWeather(env, dt);
     this.renderer.setClearColor(new THREE.Color(...env.sky));
     // onder de grond: donker, korte zichtafstand, geen lucht
     const ug = this.under && this.under.active && this.player.pos.y < (this.under.spec.top(Math.floor(p.pos.x), Math.floor(p.pos.z))) - 1;
@@ -733,6 +741,7 @@ export class Game {
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
       u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
       if (ug) { u.fogColor.value.set(0.01, 0.01, 0.015); u.fogNear.value = 8; u.fogFar.value = 64; }
+      else if (this.curWeather === 'rain' || this.curWeather === 'storm' || this.curWeather === 'snow') { u.fogNear.value = Math.min(u.fogNear.value, 60); u.fogFar.value = Math.min(u.fogFar.value, this.curWeather === 'storm' ? 380 : 650); }
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
@@ -874,6 +883,54 @@ export class Game {
     this.toast({ first: '👁 Eerste persoon', third: '🎥 Derde persoon', front: '🙂 Van voren' }[this.settings.cam]);
   }
 
+  // ---------- weer: regen, onweer, sneeuw en natte wegen ----------
+  applyWeather(env, dt) {
+    let w = this.settings.weather || 'clear';
+    if (w === 'auto') { const t = Math.floor(this.clock / 240) % 5; w = ['clear', 'cloudy', 'rain', 'clear', 'storm'][t]; }
+    this.curWeather = w;
+    const grey = { clear: 0, cloudy: 0.35, rain: 0.55, storm: 0.75, snow: 0.45 }[w] || 0;
+    if (grey) {
+      const g = 0.62 * env.day + 0.05;
+      env.sky = env.sky.map(v => v * (1 - grey) + g * grey);
+      env.top = env.top.map(v => v * (1 - grey) + g * 0.85 * grey);
+      env.sunColor = env.sunColor.map(v => v * (1 - grey * 0.75));
+    }
+    // natheid neemt langzaam toe en droogt weer op
+    const wantWet = w === 'rain' ? 0.8 : w === 'storm' ? 1 : 0;
+    this.wet = (this.wet || 0) + (wantWet - (this.wet || 0)) * Math.min(1, dt * (wantWet > (this.wet || 0) ? 0.08 : 0.03));
+    for (const m of this.mats) m.uniforms.wet.value = this.wet;
+    // bliksem
+    if (w === 'storm' && Math.random() < dt * 0.06) this.flashT = 0.25;
+    if (this.flashT > 0) { this.flashT -= dt; env.sky = env.sky.map(v => Math.min(1, v + 0.5)); }
+    // neerslag rond de camera
+    const want = (w === 'rain' || w === 'storm') ? 'rain' : w === 'snow' ? 'snow' : null;
+    if (!this.precip || this.precip.kind !== want) {
+      if (this.precip) { this.scene.remove(this.precip.obj); this.precip.obj.geometry.dispose(); }
+      this.precip = null;
+      if (want) {
+        const N = want === 'rain' ? 2600 : 2200, pos = new Float32Array(N * (want === 'rain' ? 6 : 3));
+        for (let i = 0; i < N; i++) { const x = (Math.random() - 0.5) * 60, y = Math.random() * 40, z = (Math.random() - 0.5) * 60; if (want === 'rain') pos.set([x, y, z, x, y - 0.7, z], i * 6); else pos.set([x, y, z], i * 3); }
+        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const obj = want === 'rain' ? new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xc8d4e0, transparent: true, opacity: 0.8 })) : new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 0.18, transparent: true, opacity: 0.9 }));
+        obj.frustumCulled = false; this.scene.add(obj);
+        this.precip = { kind: want, obj, pos, N };
+      }
+    }
+    if (this.precip) {
+      const P = this.precip, c = this.camera.position, rain = P.kind === 'rain', vy = rain ? (w === 'storm' ? 34 : 24) : 1.6, stride = rain ? 6 : 3;
+      P.obj.visible = !this.isUnderground;
+      for (let i = 0; i < P.N; i++) {
+        const o = i * stride;
+        let y = P.pos[o + 1] - vy * dt;
+        if (!rain) { P.pos[o] += Math.sin(this.clock + i) * dt * 0.4; }
+        if (y < 0) { y += 40; }
+        P.pos[o + 1] = y; if (rain) P.pos[o + 4] = y - 0.7;
+      }
+      P.obj.position.set(Math.floor(c.x / 60) * 0 + c.x, c.y - 20, c.z);
+      P.obj.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
   // ---------- schaduwen van de zon (rond de speler) ----------
   updateShadows(env) {
     const S = this.shadow, q = this.settings.quality || 'normal';
@@ -966,6 +1023,18 @@ export class Game {
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(mc, 0, 0, c.width, c.height);
+    // bezienswaardigheden: stations, metro, bushaltes, luchthavens, schepen
+    const mark = (x, z, emoji, label) => {
+      ctx.font = '16px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(emoji, x * k, z * k + 6);
+      if (label) { ctx.font = 'bold 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(label, x * k + 1, z * k + 20); ctx.fillStyle = '#fff'; ctx.fillText(label, x * k, z * k + 19); }
+    };
+    const seen = new Set();
+    for (const st of this.traffic?.net.stops || []) {
+      const lbl = st.name && !seen.has(st.name) ? st.name : ''; if (lbl) seen.add(lbl);
+      mark(st.x, st.z, st.kind === 'metrostop' ? '🚇' : st.kind === 'railstop' ? '🚉' : '🚏', st.kind === 'busstop' ? '' : lbl);
+    }
+    for (const r of this.airports?.runways || []) mark((r.a[0] + r.b[0]) / 2, (r.a[2] + r.b[2]) / 2, '✈', 'Luchthaven');
+    for (const v of this.ships?.list.values() || []) mark(v.pos.x, v.pos.z, '🚢', '');
     this.drawArrow(ctx, this.player.pos.x * k, this.player.pos.z * k, 9);
     if (!c.dataset.bound) {
       c.dataset.bound = '1';
@@ -1401,6 +1470,13 @@ export class Game {
     if (ql) {
       ql.value = this.settings.quality || 'normal';
       if (!ql.dataset.bound) { ql.dataset.bound = '1'; ql.addEventListener('change', () => { this.settings.quality = ql.value; saveSettings(this.settings); this.applyQuality(); }); }
+    }
+    const wSel = document.getElementById('set-weather');
+    if (wSel) { wSel.value = this.settings.weather || 'clear'; if (!wSel.dataset.bound) { wSel.dataset.bound = '1'; wSel.addEventListener('change', () => { this.settings.weather = wSel.value; saveSettings(this.settings); }); } }
+    const fov = document.getElementById('set-fov');
+    if (fov) {
+      fov.value = this.settings.fov || 75; document.getElementById('set-fov-label').textContent = `${fov.value}°`; this.camera.fov = +fov.value; this.camera.updateProjectionMatrix();
+      if (!fov.dataset.bound) { fov.dataset.bound = '1'; fov.addEventListener('input', () => { this.settings.fov = +fov.value; document.getElementById('set-fov-label').textContent = `${fov.value}°`; this.camera.fov = +fov.value; this.camera.updateProjectionMatrix(); saveSettings(this.settings); }); }
     }
     const camSel = document.getElementById('set-cam');
     if (camSel) { camSel.value = this.settings.cam || 'first'; if (!camSel.dataset.bound) { camSel.dataset.bound = '1'; camSel.addEventListener('change', () => { this.settings.cam = camSel.value; saveSettings(this.settings); }); } }
