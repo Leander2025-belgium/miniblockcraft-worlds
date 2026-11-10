@@ -5,12 +5,13 @@
 import { B } from './blocks.js';
 import { hash, noise, placeTree } from './city.js';
 import { TRAIL_WAYPOINTS } from './mountain-trail.js';
+import { makeExtras } from './mountain-extras.js';
 
 export const MW = 14000, ML = 14000, G = 12, T = 128;
 export const META = {
   id: 'reuzenberg', name: 'Reuzenberg', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
+  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
 };
 const PEAK = [7000, 6300];
 
@@ -227,6 +228,9 @@ export const PLACES = [
   ['Diep bos', 3600, 11600], ['Bergweide', ...tp(0.8)],
 ];
 export const SPAWN = { x: CX + 20.5, y: STATIONS[0].y + 2, z: CABLE_Z0 + 14.5 };
+// dorp, station, skigebied, restaurant, platformen… (bovenop het terrein, de berg zelf blijft gelijk)
+export const EXTRAS = makeExtras({ B, G, hash, noise, natural, surfaceAt, TRAIL, STATIONS, SUMMIT: SUMMIT_XZ, LAKE, MW, ML });
+PLACES.push(...EXTRAS.PLACES);
 
 // ---------- zones ----------
 const snowLine = (x, z) => 1720 + fbm(x / 300, z / 300, 3, 500) * 90;
@@ -235,6 +239,7 @@ const treeLine = (x, z) => 1120 + fbm(x / 220, z / 220, 3, 520) * 90;
 export function zoneName(x, z) {
   if (x < 0 || z < 0 || x >= MW || z >= ML) return 'Buiten de wereld';
   for (const s of STATIONS) if (Math.abs(x - s.x) < ST_W + 6 && Math.abs(z - s.z) < ST_L + 6) return s.name;
+  const ez = EXTRAS.zone(x, z); if (ez) return ez;
   if (Math.hypot(x - SUMMIT[0], z - SUMMIT[1]) < 40) return 'Top van de Reuzenberg';
   const h = natural(x, z);
   if (h < 0) return 'Bergmeer';
@@ -271,6 +276,12 @@ export function trailMapPoints() { return TRAIL; }
 // ---------- kolom ----------
 let treeKind = 0; // 0 geen, 1 loofboom, 2 spar, 3 struik, 4 rotsblok
 function fillColumn(x, z, col, hs) {
+  let t = fillColumnBase(x, z, col, hs);
+  if (treeKind && EXTRAS.noTrees(x, z)) treeKind = 0;
+  if (t >= G) t = EXTRAS.deco(x, z, col, t);
+  return t;
+}
+function fillColumnBase(x, z, col, hs) {
   treeKind = 0;
   const hReal = natural(x, z);
   let h = surfaceAt(x, z);
@@ -316,6 +327,9 @@ function fillColumn(x, z, col, hs) {
     if (sdz === 0 && SUMMIT_TOP + 6 > top) { col[SUMMIT_TOP + 6] = B.LOG; return SUMMIT_TOP + 6; }
     return top;
   }
+  // dorp, station, wegen, pistes, gebouwen
+  const ex = EXTRAS.column(x, z, col, top, hReal, slope);
+  if (ex >= 0) return ex;
   const tr = trailNear(x, z);
   const onPath = tr && tr[0] <= PATH_W;
   const snow = hReal > snowLine(x, z) && slope < 1.5;
@@ -494,6 +508,7 @@ export function generateTile(tx, tz) {
     run.push(x, z, Math.round(G + surfaceAt(TRAIL[i], TRAIL[i + 1])));
   }
   flush();
+  paths.push(...EXTRAS.paths(X0, Z0, T)); // wegen, spoor, haltes
   return { vox, H, y0: Y0, edge, ground: G, paths };
 }
 const spare = new Uint8Array(2200);

@@ -336,6 +336,14 @@ function drawBergMap() {
   ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1.5; ctx.beginPath();
   for (let i = 0; i < tr.length; i += 3) (i ? ctx.lineTo : ctx.moveTo).call(ctx, tr[i] / S, tr[i + 1] / S);
   ctx.stroke();
+  // spoor, wegen en pistes
+  for (const l of BERGW.EXTRAS.MAP) {
+    ctx.strokeStyle = l.color; ctx.lineWidth = l.w; ctx.beginPath();
+    for (let i = 0; i < l.pts.n; i += 4) (i ? ctx.lineTo : ctx.moveTo).call(ctx, l.pts.x[i] / S, l.pts.z[i] / S);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#e8d9b0';
+  for (const o of BERGW.EXTRAS.BLD) ctx.fillRect(o.x0 / S, o.z0 / S, Math.max(1, (o.x1 - o.x0) / S), Math.max(1, (o.z1 - o.z0) / S));
   const [a, b] = BERGW.STATIONS;
   ctx.strokeStyle = '#e33'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x / S, a.z / S); ctx.lineTo(b.x / S, b.z / S); ctx.stroke();
   ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
@@ -827,7 +835,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-10c';
+const APP_VERSION = '2026-11-11a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

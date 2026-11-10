@@ -12,7 +12,7 @@ function shadeFor(nx, ny, nz) {
   return 0.68 + 0.04 * Math.sign(nz);
 }
 
-class Parts {
+export class Parts {
   constructor() { this.p = { paint: [], trim: [], light: [] }; }
   // doos (gecentreerd op x, y, z) — taper: bovenkant smaller/korter (voor ruiten en neuzen)
   box(kind, w, h, l, x, y, z, color = 0xffffff, taper = null) {

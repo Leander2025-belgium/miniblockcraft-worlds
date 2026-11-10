@@ -1,6 +1,7 @@
 // Reuzenberg in beeld: het verre berglandschap (tot ~16 km ver) en de kabelbaan met bewegende gondels.
 import * as THREE from 'three';
-import { heightAt, overviewColor, CABLE, cableY, CX, STATIONS, CABLE_ATTACH, MW, ML } from './mountain.js';
+import { heightAt, overviewColor, CABLE, cableY, CX, STATIONS, CABLE_ATTACH, MW, ML, EXTRAS } from './mountain.js';
+import { Parts } from './vehicles.js';
 
 // ---------- ver landschap ----------
 const VERT = `
@@ -111,10 +112,23 @@ export class Gondolas {
       return m;
     };
     this.group = new THREE.Group();
-    this.body = mk(new THREE.BoxGeometry(2.6, 2.3, 2.6), 0xc8282c);
-    this.win = mk(new THREE.BoxGeometry(2.7, 0.9, 2.7), 0x9fc8e0);
-    this.hang = mk(new THREE.BoxGeometry(0.18, 3.0, 0.18), 0x40444a);
-    this.group.add(this.body, this.win, this.hang);
+    // gondel: rode onderbak, rondom ramen, wit dak, deurnaad, ophangarm met klem
+    const P = new Parts();
+    P.box('trim', 2.6, 0.95, 2.6, 0, -0.68, 0, 0xc4262b);
+    P.box('trim', 2.5, 0.25, 2.5, 0, -1.22, 0, 0x8f1b1f, { sx: 0.9 });
+    P.box('trim', 2.64, 1.05, 2.64, 0, 0.33, 0, 0x2a3846);
+    P.box('trim', 2.6, 0.08, 2.6, 0, 0.9, 0, 0xc4262b);
+    P.box('trim', 2.5, 0.3, 2.5, 0, 1.08, 0, 0xf1f1f1, { sx: 0.82, front: 0.2, back: 0.2 });
+    P.box('trim', 0.05, 1.9, 0.04, 1.33, -0.2, 0, 0x30333a);
+    P.box('trim', 0.05, 1.9, 0.04, -1.33, -0.2, 0, 0x30333a);
+    P.box('trim', 0.14, 2.6, 0.14, 0, 2.45, 0, 0x3a3d42);
+    P.box('trim', 0.7, 0.3, 0.4, 0, 3.75, 0, 0x55595f);
+    this.model = P.done().trim;
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.body = new THREE.InstancedMesh(this.model, this.mat, this.N); this.body.frustumCulled = false;
+    this.group.add(this.body);
+    this.chairs = new Chairlift();
+    this.group.add(this.chairs.group);
     // kabels (dichtbij in de gewone scène, ver weg in het verre landschap)
     const pts = [];
     for (const side of [1, -1]) {
@@ -153,9 +167,8 @@ export class Gondolas {
   update(dt, day) {
     this.t += dt;
     const light = 0.2 + 0.8 * day;
-    this.body.material.color.setRGB(0.78 * light, 0.16 * light, 0.17 * light);
-    this.win.material.color.setRGB(0.62 * light, 0.78 * light, 0.88 * light);
-    this.hang.material.color.setScalar(0.27 * light);
+    this.mat.color.setScalar(light);
+    this.chairs.update(dt, light);
     this.lines.material.color.setScalar(0.12 + 0.1 * day);
     this.cabMats[0].color.setRGB(0.78 * light, 0.16 * light, 0.17 * light);
     this.cabMats[1].color.setScalar(0.23 * light);
@@ -165,10 +178,8 @@ export class Gondolas {
       this.v.set(g.x, g.y, g.z);
       this.m4.compose(this.v, this.q, this.sc);
       this.body.setMatrixAt(i, this.m4);
-      this.v.y += 0.25; this.m4.compose(this.v, this.q, this.sc); this.win.setMatrixAt(i, this.m4);
-      this.v.y += 2.4; this.m4.compose(this.v, this.q, this.sc); this.hang.setMatrixAt(i, this.m4);
     }
-    for (const m of [this.body, this.win, this.hang]) m.instanceMatrix.needsUpdate = true;
+    this.body.instanceMatrix.needsUpdate = true;
   }
   dispose() {
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
@@ -185,3 +196,42 @@ export function stationNear(p) {
   return -1;
 }
 export { STATIONS, CABLE_ATTACH, D0 as CABLE_D0, D1 as CABLE_D1 };
+
+// ---------- stoeltjeslift in het skigebied ----------
+class Chairlift {
+  constructor() {
+    const L = EXTRAS.LIFT, P0 = L.pts[0], P1 = L.pts[L.pts.length - 1];
+    this.L = L; this.len = P0.z - P1.z; this.N = Math.floor(2 * this.len / 22);
+    const P = new Parts();
+    P.box('trim', 1.9, 0.12, 0.6, 0, -2.6, 0.05, 0x24364f);   // zitting
+    P.box('trim', 1.9, 0.6, 0.1, 0, -2.25, -0.25, 0x24364f);  // rugleuning
+    P.box('trim', 1.9, 0.05, 0.05, 0, -1.95, 0.4, 0xbfc3c8);  // beugel
+    P.box('trim', 0.08, 2.6, 0.08, 0, -1.3, -0.25, 0x55595f); // ophanging
+    P.box('trim', 0.4, 0.2, 0.3, 0, 0, -0.25, 0x3a3d42);      // klem
+    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.mesh = new THREE.InstancedMesh(P.done().trim, this.mat, this.N); this.mesh.frustumCulled = false;
+    const pts = [];
+    for (const side of [1, -1]) {
+      let prev = null;
+      for (let z = P0.z; z >= P1.z - 0.01; z -= 4) { const p = [L.x + side * L.track, EXTRAS.liftY(z), z]; if (prev) pts.push(...prev, ...p); prev = p; }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.line = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x222222 })); this.line.frustumCulled = false;
+    this.group = new THREE.Group(); this.group.add(this.mesh, this.line);
+    this.t = 0; this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.sc = new THREE.Vector3(1, 1, 1);
+    this.qDown = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+  }
+  update(dt, light) {
+    this.t += dt;
+    this.mat.color.setScalar(light);
+    const L = this.L, P0 = L.pts[0], len = this.len;
+    for (let i = 0; i < this.N; i++) {
+      let s = (this.t * 2.6 + i * (2 * len / this.N)) % (2 * len);
+      const up = s < len, z = P0.z - (up ? s : 2 * len - s);
+      this.v.set(L.x + (up ? L.track : -L.track), EXTRAS.liftY(z), z);
+      this.m4.compose(this.v, up ? this.qDown : this.q, this.sc);
+      this.mesh.setMatrixAt(i, this.m4);
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}

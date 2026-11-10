@@ -11,6 +11,8 @@ export const B = {
   GLASS_GREEN: 38, MIRROR: 39, GLASS_BLUE: 40, PANEL_WHITE: 41, PANEL_DARK: 42, BRICK_DARK: 43,
   PLASTER_BEIGE: 44, PLASTER_GREY: 45, TERRACOTTA: 46, COPPER: 47, PLASTER_PINK: 48,
   RED_GRANITE: 49, RED_SANDSTONE: 50, HALF_TIMBER: 51, SNOW: 52, SPRUCE: 53, BALLAST: 54,
+  BIRCH_LOG: 55, BIRCH_LEAVES: 56, MOSSY_STONE: 57, DARK_PLANKS: 58, MARBLE: 59, GRANITE: 60, ICE: 61, PAINT_YELLOW: 62,
+  WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -70,6 +72,22 @@ export const BLOCKS = [
   { id: 52, name: 'Sneeuw', color: [236, 240, 246], tex: ['snow', 'snow_side', 'stone'] },
   { id: 53, name: 'Sparrennaalden', color: [34, 80, 50], tex: ['spruce'] },
   { id: 54, name: 'Spoorballast', color: [118, 110, 102], tex: ['ballast'] },
+  { id: 55, name: 'Berkenstam', color: [220, 216, 206], tex: ['birch_top', 'birch', 'birch_top'] },
+  { id: 56, name: 'Berkenblad', color: [118, 168, 70], tex: ['birch_leaves'] },
+  { id: 57, name: 'Bemoste steen', color: [104, 116, 92], tex: ['mossy_stone'] },
+  { id: 58, name: 'Donker hout', color: [86, 60, 40], tex: ['dark_planks'] },
+  { id: 59, name: 'Marmer', color: [232, 230, 226], tex: ['marble'] },
+  { id: 60, name: 'Graniet', color: [146, 138, 134], tex: ['granite'] },
+  { id: 61, name: 'IJs', color: [176, 210, 236], tex: ['ice'] },
+  { id: 62, name: 'Gele verf', color: [236, 196, 40], tex: ['paint_yellow'] },
+  { id: 63, name: 'Rode stof', color: [168, 36, 40], tex: ['wool_red'] },
+  { id: 64, name: 'Boekenkast', color: [120, 84, 50], tex: ['planks', 'bookshelf', 'planks'] },
+  { id: 65, name: 'Houten kist', color: [150, 110, 64], tex: ['crate'] },
+  { id: 66, name: 'Dambordvloer', color: [128, 128, 128], tex: ['checker'] },
+  { id: 67, name: 'Groen metalen dak', color: [64, 118, 88], tex: ['roof_green'] },
+  { id: 68, name: 'Zonnepaneel', color: [36, 52, 86], tex: ['solar', 'metal', 'metal'] },
+  { id: 69, name: 'Dennennaalden', color: [44, 92, 52], tex: ['pine_leaves'] },
+  { id: 70, name: 'Kleidakpan', color: [176, 88, 56], tex: ['clay_roof'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
