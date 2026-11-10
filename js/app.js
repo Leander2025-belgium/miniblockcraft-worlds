@@ -224,6 +224,8 @@ function updateResume() {
 }
 
 async function play(id) {
+  if (resumeSuspended(id)) return;
+  setInGame({ kind: 'region', id });
   const meta = await store.getRegionMeta(id);
   const vox = await store.loadRegionData(id);
   if (!meta || !vox) return notify('Dit stuk kon niet geladen worden.');
@@ -256,6 +258,14 @@ function mapMeta(map) {
     real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
 }
 async function playMap(id, at) {
+  if (at && game && game.suspended && game.tiled && game.meta && game.meta.id === id) {
+    // zelfde wereld, andere plek: niets opnieuw laden, gewoon erheen vliegen
+    const P = PROC[id], gy = P && P.groundAt ? P.groundAt(at.x, at.z) + 40 : game.meta.ground + 90;
+    Object.assign(game.player, { fly: true, pitch: -0.15 }); game.player.pos.set(at.x, gy, at.z); game.player.vel.set(0, 0, 0);
+    game.tiled.aheadKey = null;
+  }
+  if (resumeSuspended(id)) { if (at) game.updateTiles(true); return; }
+  setInGame({ kind: 'map', id });
   if (location.hash === '#debug') window.blokGame = () => game;
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
@@ -545,11 +555,27 @@ function flash(t) {
 $('#btn-save').addEventListener('click', () => saveGame());
 $('#btn-exit').addEventListener('click', async () => {
   await saveGame();
-  game.stop();
+  // de wereld blijft klaar in het geheugen: opnieuw spelen gaat meteen verder waar je was
+  game.suspend();
+  setInGame(null);
   $('#menu').hidden = false;
   refreshList();
 });
 window.addEventListener('beforeunload', () => { if (game && game.running && game.dirty) saveGame(); });
+// gsm: naar een andere app = de pagina kan zomaar gesloten worden, dus nu bewaren
+document.addEventListener('visibilitychange', () => { if (document.hidden && game && game.running) saveGame(true); });
+window.addEventListener('pagehide', () => { if (game && game.running) saveGame(true); });
+
+// welke wereld open stond (blijft bewaard als de browser de pagina op de achtergrond herlaadt)
+function setInGame(v) { try { v ? sessionStorage.setItem('blokstad-ingame', JSON.stringify(v)) : sessionStorage.removeItem('blokstad-ingame'); } catch { /* geen opslag */ } }
+// dezelfde wereld staat nog klaar in het geheugen?
+function resumeSuspended(id) {
+  if (!game || !game.suspended || !game.meta || game.meta.id !== id) return false;
+  $('#menu').hidden = true;
+  setInGame({ kind: game.tiled ? 'map' : 'region', id });
+  game.start();
+  return true;
+}
 
 // ---------- echte wereld ----------
 function setMode(mode) {
@@ -799,7 +825,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-10a';
+const APP_VERSION = '2026-11-10b';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {
@@ -817,4 +843,10 @@ fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ versi
 let startMode = 'real';
 try { startMode = localStorage.getItem('blokstad-mode') || 'real'; } catch { /* geen opslag */ }
 setPlace('Frankfurt – Skyline', 50.1113, 8.6718);
-refreshList().then(() => setMode(startMode));
+refreshList().then(() => {
+  setMode(startMode);
+  // de browser herlaadde de pagina terwijl je speelde (bv. na een andere app op de gsm): meteen terug in je wereld
+  let ing = null;
+  try { ing = JSON.parse(sessionStorage.getItem('blokstad-ingame') || 'null'); } catch { /* geen opslag */ }
+  if (ing && ing.id) (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => setInGame(null));
+});

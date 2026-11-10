@@ -538,6 +538,7 @@ export class Game {
   start() {
     if (this.running) return;
     this.running = true;
+    this.suspended = false;
     this.ui.root.hidden = false;
     this.resize();
     this.last = performance.now();
@@ -556,7 +557,17 @@ export class Game {
     if (this.touch) this.setPaused(false);
     else this.showOverlay('start');
   }
+  // naar het menu zonder iets weg te gooien: terugkomen in dezelfde wereld gaat meteen
+  suspend() {
+    if (!this.running) return;
+    this.running = false;
+    this.suspended = true;
+    cancelAnimationFrame(this.raf);
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.ui.root.hidden = true;
+  }
   stop() {
+    this.suspended = false;
     this.running = false;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
