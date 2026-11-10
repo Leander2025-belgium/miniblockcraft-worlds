@@ -63,7 +63,7 @@ class Network {
       if (!t.paths) continue;
       t.paths.forEach((p, pi) => {
         if (p.type === 'railstop' || p.type === 'busstop') {
-          if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) stops.push({ kind: p.type, x: t.ox + p.pts[0], y: p.pts[2], z: t.oz + p.pts[1] });
+          if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) stops.push({ kind: p.type, x: t.ox + p.pts[0], y: p.pts[2], z: t.oz + p.pts[1], name: p.name || '' });
           return;
         }
         const net = NET_OF[p.type]; if (!net) return;
@@ -131,7 +131,7 @@ class Network {
         if (Math.abs(e.pts[0] - s.x) > e.len + r || Math.abs(e.pts[2] - s.z) > e.len + r) continue;
         let bd = 1e9, bdd = 0;
         for (let d = 0; d <= e.len; d += 2) { at(e, d, tmp); const q = Math.hypot(tmp.x - s.x, tmp.z - s.z); if (q < bd) { bd = q; bdd = d; } }
-        if (bd < r && bdd > 6 && bdd < e.len - 6) e.stops.push(bdd);
+        if (bd < r && bdd > 6 && bdd < e.len - 6) { e.stops.push(bdd); (e.stopNames || (e.stopNames = [])).push(s.name || (s.kind === 'railstop' ? 'Station' : 'Halte')); }
       }
     }
     this.edges = edges; this.stops = stops;
@@ -216,6 +216,8 @@ export class Traffic {
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(0, 0, 0, 'YXZ');
     this.v = new THREE.Vector3(); this.s = new THREE.Vector3(1, 1, 1); this.c = new THREE.Color();
     this.tmpA = {}; this.tmpB = {}; this.clock = 0;
+    this.parked = [];   // auto's die de speler zelf bestuurt of liet staan
+
   }
 
   // tegels geladen of weg: netwerk opnieuw maken (de voertuigen blijven waar ze zijn)
@@ -377,6 +379,16 @@ export class Traffic {
   }
   choose(a, opts) {
     if (opts.length === 1) return opts[0];
+    if (a.player) {
+      // wissel: de speler kiest links, rechtdoor of rechts
+      const cur = a.route[0], out = cur.dir > 0 ? cur.e.t1 : [-cur.e.t0[0], -cur.e.t0[1]];
+      const info = opts.map(o => { const inn = o.dir > 0 ? o.e.t0 : [-o.e.t1[0], -o.e.t1[1]]; return { o, dot: out[0] * inn[0] + out[1] * inn[1], side: out[0] * inn[1] - out[1] * inn[0] }; });
+      info.sort((x, y) => y.dot - x.dot);
+      const pref = a.switchPref || 'straight';
+      if (pref === 'left') return info.reduce((m, i) => (i.side < m.side ? i : m)).o;
+      if (pref === 'right') return info.reduce((m, i) => (i.side > m.side ? i : m)).o;
+      return info[0].o;
+    }
     const cur = a.route[0];
     const out = cur.dir > 0 ? cur.e.t1 : [-cur.e.t0[0], -cur.e.t0[1]];
     const score = (o) => { const inn = o.dir > 0 ? o.e.t0 : [-o.e.t1[0], -o.e.t1[1]]; return out[0] * inn[0] + out[1] * inn[1]; };
@@ -411,6 +423,8 @@ export class Traffic {
       const opts = e.next[k];
       if (!opts.length) {
         a.d = r.dir > 0 ? e.len : 0;
+        if (a.player) { a.v = 0; a.endOfLine = true; return; }
+        if (a.passenger && (a.kind === 'car' || a.kind === 'bus')) { a.v = 0; a.wait = 3; a.reverseAfter = true; return; } // met passagier: keren
         if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; return; }
         if (a.kind === 'walk') { r.dir = -r.dir; return; }
         // eindstation: even wachten en terugrijden
@@ -447,7 +461,7 @@ export class Traffic {
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA);
-      if (Math.hypot(h.x - player.x, h.z - player.z) > RANGE + 120) a.dead = true;
+      if (Math.hypot(h.x - player.x, h.z - player.z) > RANGE + 120 && !a.player && !a.passenger) a.dead = true;
       else have[a.kind]++;
     }
     for (const k of Object.keys(want)) {
@@ -481,6 +495,7 @@ export class Traffic {
           const l2 = onEdge.get(n.e.id); if (!l2) continue;
           for (const b of l2) { const g = left + (n.dir > 0 ? b.d : n.e.len - b.d) - b.L; if (b !== a && g < gap) gap = g; }
         }
+        a.gapAhead = gap;
         if (gap < 1e8) target = Math.min(target, Math.max(0, (gap - 3) * 0.9));
         // haltes
         if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train') && e.stops.length) {
@@ -496,6 +511,17 @@ export class Traffic {
           }
         }
       }
+      if (a.player) {
+        // bestuurd door de speler: tractie en rem (en noodstop vlak achter een ander voertuig)
+        const c = a.player, vmax = a.kind === 'train' ? 44 : 19;
+        const acc = (a.kind === 'train' ? 1.0 : 1.3) * c.throttle - (a.kind === 'train' ? 1.2 : 1.6) * c.brake - 0.004 * a.v - (c.emergency ? 2.5 : 0);
+        a.v = Math.max(0, Math.min(vmax, a.v + acc * dt));
+        if (c.doors || a.endOfLine && c.throttle === 0) a.v = 0;
+        if ((a.gapAhead ?? 1e9) < 4) a.v = 0; // niet op een ander voertuig botsen
+        a.nextStop = this.nextStop(a);
+        if (a.v > 0) { a.endOfLine = false; this.move(a, a.v * dt); }
+        continue;
+      }
       const acc = a.kind === 'train' ? 0.8 : a.kind === 'walk' ? 3 : 2.5;
       a.v += Math.max(-6 * dt, Math.min(acc * dt, target - a.v));
       if (a.v > 0) this.move(a, a.v * dt);
@@ -505,6 +531,34 @@ export class Traffic {
     this.flush(player, day);
   }
 
+  // volgende halte vóór de neus (op deze rand en de volgende)
+  nextStop(a) {
+    const r = a.route[0], e = r.e;
+    let best = null;
+    const look = (edge, dir, base, from) => {
+      edge.stops.forEach((sd, i) => {
+        const dist = base + (dir > 0 ? sd - from : from - sd);
+        if (dist > -a.L && (!best || dist < best.dist)) best = { dist, name: (edge.stopNames && edge.stopNames[i]) || 'Station', key: edge.id + '@' + sd };
+      });
+    };
+    look(e, r.dir, 0, a.d);
+    const left = r.dir > 0 ? e.len - a.d : a.d;
+    for (const n of e.next[r.dir > 0 ? 1 : 0]) look(n.e, n.dir, left, n.dir > 0 ? 0 : n.e.len);
+    return best;
+  }
+  // in de buurt van de speler: dichtstbijzijnde voertuig (om in te stappen)
+  nearestVehicle(p, maxD = 7) {
+    let best = null, bd = maxD;
+    for (const a of this.agents) {
+      if (a.kind === 'walk' || a.dead) continue;
+      for (let s = 0; s <= a.L; s += 4) {
+        const q = this.behind(a, s, this.tmpA), d = Math.hypot(q.x - p.x, q.z - p.z);
+        if (d < bd && Math.abs(q.y - p.y) < 5) { bd = d; best = a; }
+      }
+    }
+    for (const c of this.parked) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < bd) { bd = d; best = c; } }
+    return best;
+  }
   // matrices klaarzetten (alleen wat dichtbij is)
   place(a) { a.vis = true; }
   flush(player) {
@@ -559,6 +613,15 @@ export class Traffic {
           if (kind === 'paint') m.setColorAt(i, this.c.setHex(a.color));
         }
       }
+    }
+    // vrij bestuurde en geparkeerde voertuigen
+    this.parked = this.parked.filter(c => c.driving || Math.hypot(c.x - player.x, c.z - player.z) < RANGE + 200);
+    for (const c of this.parked) {
+      const M = this.meshes[c.m]; if (!M || M.n >= M.max) continue;
+      this.e.set(-c.pitch, c.yaw, c.roll || 0); this.q.setFromEuler(this.e);
+      this.v.set(c.x, c.y, c.z); this.s.set(1, 1, 1); this.m4.compose(this.v, this.q, this.s);
+      const i = M.n++;
+      for (const [kind, m] of Object.entries(M.set)) { m.setMatrixAt(i, this.m4); if (kind === 'paint') m.setColorAt(i, this.c.setHex(c.color)); }
     }
     for (const M of Object.values(this.meshes)) for (const m of Object.values(M.set)) {
       m.count = M.n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;

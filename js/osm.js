@@ -654,7 +654,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     else strokeLine(l, (parseLen(w.tags.width) || 5) * scale, size, (x, z) => mark(x, z));
     // halte voor treinen: midden van het perron
     let cx = 0, cz = 0; for (const q of l) { cx += q[0]; cz += q[1]; } cx /= l.length; cz /= l.length;
-    if (cx >= 0 && cz >= 0 && cx < size && cz < size) railStops.push([cx, cz]);
+    if (cx >= 0 && cz >= 0 && cx < size && cz < size) railStops.push([cx, cz, w.tags.name || w.tags['ref:name'] || '']);
   }
   onProgress?.(0.35);
 
@@ -1181,7 +1181,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
     flush();
   }
-  for (const [x, z] of railStops) pathsOut.push({ type: 'railstop', pts: new Float32Array([x, z, surfY(x, z) + 1]) });
+  for (const [x, z, name] of railStops) pathsOut.push({ type: 'railstop', name, pts: new Float32Array([x, z, surfY(x, z) + 1]) });
   for (const [x, z] of busStops) pathsOut.push({ type: 'busstop', pts: new Float32Array([x, z, surfY(x, z)]) });
   return { vox, H, ground: G, buildings: count, paths: pathsOut };
 }

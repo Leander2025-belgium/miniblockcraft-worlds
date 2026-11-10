@@ -164,6 +164,25 @@
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
   #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
+  #t-drive { display: none; left: calc(50% + 44px); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
+  .is-touch #t-drive.show { display: grid; }
+  .driving #t-drive, .driving #t-ride { display: none !important; }
+  .drive-choice { position: absolute; z-index: 12; left: 50%; bottom: calc(170px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 8px; background: rgba(15,20,30,.85); padding: 10px; border-radius: 12px; }
+  .drive-hud { left: 50%; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(10,14,22,.72); border-radius: 12px; padding: 8px 14px; display: flex; gap: 14px; align-items: center; pointer-events: none; max-width: calc(100vw - 32px); }
+  .drive-hud .dh-speed { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+  .drive-hud .dh-speed small { font-size: 13px; font-weight: 600; }
+  .drive-hud .dh-row { font-size: 13px; line-height: 1.5; }
+  .drive-hud .warn { color: #ff8a7a; } .drive-hud .ok { color: #8be38b; }
+  .driving #hotbar-wrap, .driving #crosshair, .driving #t-jump, .driving #t-down, .driving #t-break, .driving #t-place, .driving #t-fly, .driving #t-speed, .driving #t-inv { display: none !important; }
+  .drive-pad { position: absolute; inset: 0; z-index: 7; pointer-events: none; }
+  .drive-pad .tbtn { position: static; pointer-events: auto; }
+  .drive-pad > div { position: absolute; display: flex; gap: 10px; }
+  .drive-pad .dp-left { left: calc(18px + var(--sl)); bottom: calc(24px + var(--sb)); }
+  .drive-pad .dp-right { right: calc(18px + var(--sr)); bottom: calc(24px + var(--sb)); }
+  .drive-pad .dp-top { right: calc(12px + var(--sr)); top: calc(62px + var(--st)); }
+  .drive-pad .dp-left .tbtn, .drive-pad .dp-right .tbtn { width: 66px; height: 66px; font-size: 26px; }
+  .drive-pad[data-mode=road] .rail-only, .drive-pad[data-mode=pass] .rail-only, .drive-pad[data-mode=pass] .dp-left, .drive-pad[data-mode=pass] .dp-right { display: none; }
+  .driving #t-move { display: none !important; }
   #t-ride { display: none; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
   .is-touch #t-ride.show { display: grid; }
   .photo #t-ride { display: none !important; }
@@ -381,6 +400,9 @@
       <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
       <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
       <kbd>V</kbd><span>camera: eerste persoon, derde persoon, van voren</span>
+      <kbd>H / J</kbd><span>voertuig zelf besturen / meerijden (auto, bus, tram, trein)</span>
+      <kbd>W S A D</kbd><span>in een voertuig: gas/tractie, rem, sturen of wissel kiezen</span>
+      <kbd>Q N R</kbd><span>trein/tram: deuren, omroep, rijrichting omkeren</span>
       <kbd>2× W</kbd><span>boost (W ingedrukt houden)</span>
       <kbd>Linkerklik</kbd><span>blok breken</span>
       <kbd>Rechterklik</kbd><span>blok plaatsen</span>
@@ -422,6 +444,25 @@
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
   <button class="touch tbtn" id="t-cam" aria-label="Camera">👁</button>
   <button class="tbtn" id="t-ride" aria-label="Kabelbaan">🚡</button>
+  <button class="tbtn" id="t-drive" aria-label="Voertuig">🚗</button>
+  <div id="drive-choice" class="drive-choice" hidden>
+    <button class="btn primary" id="dc-drive">🎮 Zelf besturen</button>
+    <button class="btn" id="dc-ride">🪑 Meerijden</button>
+    <button class="btn" id="dc-cancel">✕</button>
+  </div>
+  <div id="drive-hud" class="hud drive-hud" hidden></div>
+  <div id="drive-pad" class="drive-pad" hidden>
+    <div class="dp-left">
+      <button class="tbtn" id="dp-left">◀</button><button class="tbtn" id="dp-right">▶</button>
+    </div>
+    <div class="dp-right">
+      <button class="tbtn" id="dp-up">▲</button><button class="tbtn" id="dp-down">▼</button><button class="tbtn" id="dp-stop">✋</button>
+    </div>
+    <div class="dp-top">
+      <button class="tbtn rail-only" id="dp-doors">🚪</button><button class="tbtn rail-only" id="dp-ann">📢</button><button class="tbtn rail-only" id="dp-rev">↩</button>
+      <button class="tbtn" id="dp-cam">🎥</button><button class="tbtn" id="dp-exit">⏏</button>
+    </div>
+  </div>
   <button class="tbtn" id="t-shot" aria-label="Foto opslaan">📷</button>
   <button class="tbtn" id="t-photo-exit" aria-label="Fotomodus sluiten">✕</button>
 

@@ -10,6 +10,7 @@ import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
+import { Drive } from './drive.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -320,7 +321,7 @@ export class Game {
     this.tiled = null;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
-    this.dropMountain();
+    this.dropMountain(); this.leaveVehicle();
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -360,7 +361,7 @@ export class Game {
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
-    this.dropMountain();
+    this.dropMountain(); this.leaveVehicle();
     if (spec.longView) {
       // Reuzenberg: ver landschap tot aan de horizon en de kabelbaan
       this.far = new MountainView();
@@ -374,6 +375,7 @@ export class Game {
     this.updateHud(true);
   }
 
+  leaveVehicle() { if (this.drive) { this.drive.show(false); this.drive = null; } }
   dropMountain() {
     if (this.far) { this.far.dispose(); this.far = null; }
     this.ride = null;
@@ -740,6 +742,16 @@ export class Game {
     cam.position.set(ox - fx * d, oy - fy * d, oz - fz * d);
     cam.rotation.set(pitch, yaw, 0);
   }
+  // in een voertuig stappen: zelf besturen of meerijden
+  enterVehicle(mode) {
+    if (this.drive || !this.traffic) return;
+    const v = this.traffic.nearestVehicle(this.player.pos, 8);
+    if (!v) { this.toast('Geen voertuig in de buurt (ga tot naast een auto, bus, tram of trein)'); return; }
+    if (mode === 'passenger' && v.free) mode = 'drive';
+    if (v.player || v.passenger) return;
+    this.drive = new Drive(this, v, mode);
+    document.getElementById('drive-choice')?.setAttribute('hidden', '');
+  }
   cycleCamera() {
     const order = ['first', 'third', 'front'];
     if (this.drive) { this.drive.cycleCam(); return; }
@@ -897,6 +909,17 @@ export class Game {
 
   update(dt) {
     const p = this.player, k = this.keys;
+    if (this.drive) { this.drive.update(dt); this.updateHud(); return; }
+    // voertuig in de buurt? (instappen)
+    if (this.traffic && (this.nearT = (this.nearT || 0) + dt) > 0.4) {
+      this.nearT = 0;
+      const v = this.traffic.nearestVehicle(p.pos, 7);
+      if (!!v !== !!this.nearVehicle) {
+        document.getElementById('t-drive')?.classList.toggle('show', !!v);
+        if (v && !this.drivingHintShown) { this.drivingHintShown = true; this.toast(this.touch ? '🚗 Tik op 🚗 om in te stappen' : '🚗 H = zelf besturen · J = meerijden'); }
+      }
+      this.nearVehicle = v;
+    }
     if (this.ride) { this.updateRide(dt); if (this.tiled) this.updateTiles(); this.updateHud(); return; }
     if (this.far) {
       const near = stationNear(p.pos) >= 0;
@@ -1222,6 +1245,10 @@ export class Game {
       }
       if (!this.active()) return;
       this.keys.add(e.code);
+      if (this.drive && !e.repeat && this.drive.key(e.code)) { e.preventDefault(); return; }
+      if (this.drive) { if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
+      if (e.code === 'KeyH' && !e.repeat) { this.enterVehicle('drive'); return; }
+      if (e.code === 'KeyJ' && !e.repeat) { this.enterVehicle('passenger'); return; }
       if (e.code.startsWith('Digit')) { const n = +e.code.slice(5); if (n >= 1) this.selectSlot(n - 1); }
       if (e.code === 'KeyF') this.toggleFly();
       const now = performance.now();
@@ -1322,6 +1349,20 @@ export class Game {
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
     document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());
+    // voertuigen op de telefoon
+    const choice = document.getElementById('drive-choice');
+    document.getElementById('t-drive')?.addEventListener('click', () => { if (choice) choice.hidden = !choice.hidden; });
+    document.getElementById('dc-drive')?.addEventListener('click', () => this.enterVehicle('drive'));
+    document.getElementById('dc-ride')?.addEventListener('click', () => this.enterVehicle('passenger'));
+    document.getElementById('dc-cancel')?.addEventListener('click', () => { choice.hidden = true; });
+    for (const [id, flag] of [['dp-up', 'padUp'], ['dp-down', 'padDown'], ['dp-left', 'padLeft'], ['dp-right', 'padRight'], ['dp-stop', 'padStop']]) {
+      const el = document.getElementById(id); if (!el) continue;
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); this[flag] = true; });
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, () => { this[flag] = false; });
+    }
+    for (const [id, code] of [['dp-doors', 'KeyQ'], ['dp-ann', 'KeyN'], ['dp-rev', 'KeyR'], ['dp-exit', 'KeyH'], ['dp-cam', 'KeyV']]) {
+      document.getElementById(id)?.addEventListener('click', () => this.drive?.key(code));
+    }
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));
     ui.minimap?.addEventListener('click', () => this.openMap());
     ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });

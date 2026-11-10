@@ -451,7 +451,7 @@ export function makeExtras(ctx) {
     const touches = (L) => { for (let i = 0; i < L.n; i += 8) if (L.x[i] > X0 - 40 && L.x[i] < X0 + T + 40 && L.z[i] > Z0 - 40 && L.z[i] < Z0 + T + 40) return true; return false; };
     if (touches(rail)) {
       clip(sample(rail, 0, false, 4), 'train');
-      const m = STA.mid; if (m.x >= X0 && m.x < X0 + T && m.z >= Z0 && m.z < Z0 + T) out.push({ type: 'railstop', pts: new Float32Array([m.x - X0, m.z - Z0, STA.y + 1]) });
+      const m = STA.mid; if (m.x >= X0 && m.x < X0 + T && m.z >= Z0 && m.z < Z0 + T) out.push({ type: 'railstop', name: 'Reuzendal', pts: new Float32Array([m.x - X0, m.z - Z0, STA.y + 1]) });
     }
     for (const rd of ROADS) {
       if (!touches(rd)) continue;
