@@ -440,6 +440,18 @@ export class AlpRail {
     this.updateCrossings(act);
     this.updateTunnel(p);
     this.updateAboard(dt);
+    // wachten op het perron: automatisch instappen zodra er een trein stilstaat
+    if (this.waitAt && !g.aboard && !g.drive) {
+      if (Math.hypot(p.x - this.waitAt.x, p.z - this.waitAt.z) > 40) this.waitAt = null;
+      else if (this.nearestDoor(30)) { const d = this.nearestDoor(30); if (d.d > 14) { /* naar de deur stappen */ const w = d.c.body.toWorld(new THREE.Vector3(-1.2, 1.05, d.dz + 0.5), new THREE.Vector3()); g.player.pos.set(w.x, w.y, w.z); } this.board(); }
+    }
+    // knop om in te stappen (telefoon) naast een trein of op een perron
+    if ((this.btnT = (this.btnT || 0) + dt) > 0.4) {
+      this.btnT = 0;
+      const show = !g.aboard && !g.drive && (!!this.nearestDoor() || !!this.stationHere());
+      this.canBoard = show;
+      if (show !== !!this.btnShown) { this.btnShown = show; document.getElementById('t-drive')?.classList.toggle('show', show || !!g.nearVehicle); if (show && !this.boardHint) { this.boardHint = true; g.toast(g.touch ? '🚆 Tik op 🚗 → Meerijden om in de trein te stappen' : '🚆 Druk J om in de trein te stappen (of om op de volgende trein te wachten)'); } }
+    }
   }
   // ---------- seinen: rood als het volgende blok (1200 m) bezet is ----------
   updateSignals(act) {
@@ -541,21 +553,44 @@ export class AlpRail {
     void flip;
   }
   // instappen: aan een perron naast een stilstaande trein
-  board() {
-    const g = this.g, p = g.player.pos;
-    let best = null, bd = 9;
+  // dichtste deur van een (bijna) stilstaande trein: { tr, c, dz, d }
+  nearestDoor(maxD = 14) {
+    const p = this.g.player.pos, tmp = new THREE.Vector3();
+    let best = null;
     for (const tr of this.trains.values()) {
-      if ((tr.v || 0) > 0.3 && !(this.player && this.player.tr === tr)) continue;
+      const mine = this.player && this.player.tr === tr;
+      if ((mine ? this.player.v : tr.v || 0) > 1.2) continue;
       for (const c of tr.cars) {
         if (!c.d.walk) continue;
-        const l = c.body.toLocal(p, new THREE.Vector3());
-        for (const dz of c.d.doors) { const d = Math.hypot(l.z - dz - 0.5, Math.min(Math.abs(l.x + 0.5), Math.abs(l.x - c.d.W - 0.5))); if (d < bd && Math.abs(l.y) < 4) { bd = d; best = { tr, c, dz }; } }
+        const l = c.body.toLocal(p, tmp);
+        if (Math.abs(l.y - 1) > 5) continue;
+        const side = Math.max(0, -l.x, l.x - c.d.W); // afstand tot de zijkant van het rijtuig
+        for (const dz of c.d.doors) { const d = Math.hypot(l.z - dz - 0.5, side); if (d < maxD && (!best || d < best.d)) best = { tr, c, dz, d }; }
       }
     }
-    if (!best) return false;
+    return best;
+  }
+  // station waar de speler staat (perron of stationsplein)
+  stationHere() {
+    const p = this.g.player.pos;
+    for (const L of LINES) { const q = L.near(p.x, p.z, 30); if (!q) continue; const st = L.stationAt(q.s); if (st && Math.abs(p.y - (st.y ?? q.y)) < 8) return st; }
+    return null;
+  }
+  // instappen: aan een perron naast een (bijna) stilstaande trein; anders wachten op de volgende trein
+  board() {
+    const g = this.g, best = this.nearestDoor();
+    if (!best) {
+      const st = this.stationHere();
+      if (!st) { this.waitAt = null; return false; }
+      const dep = departures(st.name, railClock(), 1)[0];
+      this.waitAt = { name: st.name, x: g.player.pos.x, z: g.player.pos.z };
+      g.toast(dep ? `🚉 ${st.name}: de volgende trein is de ${dep.run.sv.name} naar ${dep.dest} (${hhmm(dep.at)}, over ${Math.max(1, Math.round(dep.in / 60))} min). Blijf op het perron staan: je stapt automatisch in zodra hij stilstaat.` : `🚉 ${st.name}: even wachten op de volgende trein…`);
+      return true;
+    }
+    this.waitAt = null;
     const { tr, c, dz } = best;
-    g.aboard = c.body; g.player.loc = new THREE.Vector3(2.5, 2.02, dz + 0.5); g.player.yawLoc = Math.PI; g.player.fly = false; g.player.vel.set(0, 0, 0);
-    g.toast(`🚆 Ingestapt: ${tr.name}. Kies een plaats (J), loop door de trein, in de cabine H = zelf rijden.`);
+    g.aboard = c.body; g.player.loc = new THREE.Vector3(2.5, 2.02, dz + 0.5); g.player.yawLoc = c.flip ? 0 : Math.PI; g.player.fly = false; g.player.vel.set(0, 0, 0);
+    g.toast(`🚆 Ingestapt: ${tr.name}. J = zitplaats kiezen · loop gerust door de trein · aan de deur J = uitstappen`);
     this.say(`Welkom aan boord van de ${tr.sv.name} naar ${tr.a ? tr.a.run.pr.last.name : ''}.`);
     return true;
   }

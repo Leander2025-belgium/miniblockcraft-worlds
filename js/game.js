@@ -1273,7 +1273,7 @@ export class Game {
       this.nearT = 0;
       const v = this.traffic.nearestVehicle(p.pos, 7);
       if (!!v !== !!this.nearVehicle) {
-        document.getElementById('t-drive')?.classList.toggle('show', !!v);
+        document.getElementById('t-drive')?.classList.toggle('show', !!v || !!this.alpRail?.canBoard);
         if (v && !this.drivingHintShown) { this.drivingHintShown = true; this.toast(this.touch ? '🚗 Tik op 🚗 om in te stappen' : '🚗 H = zelf besturen · J = meerijden'); }
       }
       this.nearVehicle = v;
