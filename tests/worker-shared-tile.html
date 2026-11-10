@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Regressietest: gedeelde tegelaanvragen</title>
+<!-- Stuurt veel gelijktijdige aanvragen voor dezelfde tegel naar de worker (echte aanvragen en vooruitladen
+     door elkaar) en controleert dat elke ontvanger een eigen, volledige voxelbuffer krijgt zonder fouten.
+     Openen via een lokale webserver: /tests/worker-shared-tile.html -->
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<pre id="out">bezig…</pre>
+<script type="module">
+import { META } from '../js/metropolis.js';
+import { CITY } from '../js/frankfurt.js';
+const out = document.getElementById('out'), log = [];
+const w = new Worker(new URL('../js/worker.js', import.meta.url), { type: 'module' });
+let id = 0; const wait = new Map(), errors = [];
+w.onmessage = (e) => { const d = e.data; if (d.type === 'error') errors.push(d.message); const h = wait.get(d.id); if (h && (d.type === 'cityTile' || d.type === 'error')) { wait.delete(d.id); h(d); } };
+w.onerror = (e) => errors.push('worker: ' + e.message);
+const ask = (msg) => new Promise((res) => { const i = ++id; wait.set(i, res); w.postMessage({ ...msg, id: i }); });
+async function run(name, map, tx, tz, n) {
+  const T = map.tile, t0 = performance.now();
+  const reqs = [];
+  for (let i = 0; i < n; i++) reqs.push(ask({ type: 'cityTile', map, tx, tz, prefetch: i % 3 === 1 }));
+  const res = await Promise.all(reqs);
+  const full = res.filter(r => r.type === 'cityTile' && r.vox), bad = res.filter(r => r.type !== 'cityTile');
+  const sizes = new Set(full.map(r => r.vox.length));
+  const okLen = full.every(r => r.vox.length === T * T * r.H && r.vox.byteLength > 0);
+  // alle ontvangers krijgen exact dezelfde voxels (niets verloren)
+  let same = true;
+  for (const r of full.slice(1)) { if (r.vox.length !== full[0].vox.length) { same = false; break; } for (let i = 0; i < r.vox.length; i += 97) if (r.vox[i] !== full[0].vox[i]) { same = false; break; } }
+  // elke ontvanger een eigen buffer: een buffer aanpassen mag de andere niet veranderen
+  let independent = true;
+  if (full.length > 1) { full[0].vox[0] = 254; independent = full.slice(1).every(r => r.vox[0] !== 254 || r.vox === full[0].vox); }
+  // daarna nog eens: moet uit de lokale opslag komen
+  const again = await ask({ type: 'cityTile', map, tx, tz });
+  log.push(`${name}: ${n} gelijktijdige aanvragen → ${full.length} met voxels, ${res.length - full.length - bad.length} vooruitladen, ${bad.length} fouten · lengte juist: ${okLen} · zelfde inhoud: ${same} · eigen buffers: ${independent} · groottes: ${[...sizes].join(',')} · ${Math.round(performance.now() - t0)} ms · nog eens: ${again.from}`);
+  return bad.length === 0 && okLen && same && independent && again.from === 'cache';
+}
+const metro = { ...META };
+const city = { ...CITY };
+let pass = true;
+pass = await run('Nova Metropool', metro, 97, 118, 9) && pass;
+pass = await run('Nova Metropool (andere tegel, 20×)', metro, 98, 118, 20) && pass;
+pass = await run('Frankfurt', city, 10, 10, 9) && pass;
+log.push(errors.length ? 'FOUTEN: ' + errors.join(' | ') : 'geen fouten van de worker');
+log.push(pass && !errors.length ? 'GESLAAGD' : 'MISLUKT');
+out.textContent = log.join('\n');
+document.title = pass && !errors.length ? 'GESLAAGD' : 'MISLUKT';
+</script>

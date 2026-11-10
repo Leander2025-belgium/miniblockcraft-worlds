@@ -90,8 +90,9 @@ self.onmessage = (e) => {
     self.postMessage({ type: 'preview', id: m.id, size, data }, [data.buffer]);
   } else if (m.type === 'cityTile') {
     cityTile(m).then(r => {
-      if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes, from: r.from || 'gen' });
-      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths, tunnels: r.tunnels || null, from: r.from || 'gen' }, [r.vox.buffer]);
+      if (m.prefetch) { self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.rle.length, from: r.from || 'gen' }); return; }
+      const vox = takeVox(r, m.map.tile); // eigen buffer voor deze ontvanger
+      self.postMessage({ type: 'cityTile', id: m.id, vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths, tunnels: r.tunnels || null, from: r.from || 'gen' }, [vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'lods') {
     sendLods(m);
@@ -206,9 +207,11 @@ function getSuper(map, sx, sz) {
   return p;
 }
 // dezelfde tegel nooit twee keer tegelijk maken
+// Eén lopende aanvraag per tegel (ook vooruitladen en echte aanvragen delen ze): nooit dubbel genereren.
+// Het gedeelde record bevat geen buffers die bij postMessage worden overgedragen.
 const making = new Map();
 function cityTile(m) {
-  const k = keys.tile(m.map, m.tx, m.tz) + (m.prefetch ? '-p' : '');
+  const k = keys.tile(m.map, m.tx, m.tz);
   if (making.has(k)) return making.get(k);
   const p = cityTileInner(m).finally(() => making.delete(k));
   making.set(k, p);
@@ -243,13 +246,15 @@ async function areaPrefetch(m) {
     if (done % 4 === 0 || done === list.length) self.postMessage({ type: 'areaProgress', id: m.id, done, total: list.length });
   }
 }
+// Maakt of leest één tegel en geeft een GEDEELD record terug zonder overdraagbare buffers:
+// { rle, H, y0, edge, paths, tunnels, from, fresh? }. 'fresh' is de net gegenereerde voxelbuffer,
+// die precies één keer aan een ontvanger mag worden overgedragen (zie takeVox).
 async function cityTileInner(m) {
   const { tx, tz, map } = m;
   const key = keys.tile(map, tx, tz);
   const cached = await cacheGet(key);
   if (cached && cached.rle) {
-    if (m.prefetch) return { H: cached.H, bytes: cached.rle.length, from: 'cache' };
-    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null, from: 'cache' };
+    return { rle: cached.rle, H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null, from: 'cache' };
   }
   // kant-en-klare tegel van de website (sneller dan zelf omzetten)
   if (map.baked) {
@@ -258,8 +263,7 @@ async function cityTileInner(m) {
       if (res.ok) {
         const t = unpackTile(await gunzipMaybe(await res.arrayBuffer()));
         await cachePut(key, { rle: t.rle, H: t.H, paths: t.paths });
-        if (m.prefetch) return { H: t.H, bytes: t.rle.length };
-        return { vox: rleDecode(t.rle, map.tile * map.tile * t.H), H: t.H, paths: t.paths };
+        return { rle: t.rle, H: t.H, y0: 0, edge: null, paths: t.paths, tunnels: null, from: 'net' };
       }
     } catch { /* dan zelf omzetten */ }
   }
@@ -269,18 +273,25 @@ async function cityTileInner(m) {
     const rle = rleEncode(r.vox), y0 = r.y0 || 0;
     await cachePut(key, { rle, H: r.H, y0, edge: r.edge || null, paths: r.paths });
     await cachePut(lodKey(map, tx, tz), lodFor(r.vox, map.tile, r.H, y0));
-    return { vox: r.vox, H: r.H, y0, edge: r.edge || null, bytes: rle.length, paths: r.paths, from: 'gen' };
+    return { rle, fresh: r.vox, H: r.H, y0, edge: r.edge || null, paths: r.paths, tunnels: null, from: 'gen' };
   }
+  const sk = keys.osm(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
   const b = bboxFor(c.lat, c.lon, map.tile, 30);
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
   const elev = await superElev(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
-  const rle = rleEncode(r.vox);
-  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels: r.tunnels && r.tunnels.length ? r.tunnels : null });
+  const rle = rleEncode(r.vox), tunnels = r.tunnels && r.tunnels.length ? r.tunnels : null;
+  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths, tunnels: r.tunnels, from: superWasDownloaded.has(keys.osm(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles))) ? 'net' : 'gen' };
+  return { rle, fresh: r.vox, H: r.H, y0: 0, edge: null, paths: r.paths, tunnels, from: superWasDownloaded.has(sk) ? 'net' : 'gen' };
+}
+// Elke ontvanger krijgt zijn EIGEN voxelbuffer: de eerste mag de verse buffer hebben,
+// alle andere krijgen een nieuwe kopie uit de (nooit overgedragen) RLE-gegevens.
+export function takeVox(rec, T) {
+  if (rec.fresh && !rec.freshTaken && rec.fresh.byteLength) { rec.freshTaken = true; const v = rec.fresh; rec.fresh = null; return v; }
+  return rleDecode(rec.rle, T * T * rec.H);
 }
 
 // ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------

@@ -585,7 +585,7 @@ export class Game {
     const seen = new Set();
     for (const [, tx, tz, k, known] of want) {
       if (seen.has(k)) continue; seen.add(k);
-      if (td.inFlight >= (known ? 8 : 4)) break;
+      if (td.inFlight >= (known ? 8 : sp > 60 ? 6 : 4)) break; // op 120 m/s meer nieuwe tegels tegelijk
       td.inFlight++; td.pending.add(k);
       td.provider(tx, tz).then(({ vox, H, paths, y0, edge, tunnels, from }) => {
         if (this.world !== W) return;
