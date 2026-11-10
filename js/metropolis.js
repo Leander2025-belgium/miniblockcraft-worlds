@@ -9,7 +9,7 @@ export const MW = 25000, ML = 30000, G = 12, T = 128;
 export const META = {
   id: 'metropool', name: 'Nova Metropool', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
+  ground: G, version: 4, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
 };
 const CBD = [12500, 13500];
 export const PLACES = [
@@ -572,5 +572,17 @@ function makePaths(X0, Z0) {
   };
   for (const off of [-26, 26]) lane((z) => [riverX(z) + off, z], Math.max(0, Z0 - 20), Math.min(ML, Z0 + T + 20), 'boatL');
   for (const off of [700, 1400]) lane((x) => [x, coastZ(x) + off], Math.max(0, X0 - 20), Math.min(MW, X0 + T + 20), 'sea');
+  // luchthavens: start- en landingsbanen en vrije gates (voor bewegende vliegtuigen)
+  for (const ap of AIRPORTS) {
+    if (ap.x1 < X0 || ap.x0 > X0 + T || ap.z1 < Z0 || ap.z0 > Z0 + T) continue;
+    const W = ap.x1 - ap.x0, D = ap.z1 - ap.z0;
+    for (const rz of [Math.round(D * 0.25), Math.round(D * 0.75)]) add('runway', [ap.x0 + 300 - X0, ap.z0 + rz - Z0, G, ap.x1 - 300 - X0, ap.z0 + rz - Z0, G]);
+    const mid = Math.round(D * 0.5);
+    for (let gate = 0; 620 + gate * 90 < W - 620; gate++) for (const side of [1, -1]) {
+      if (hash(ap.x0 + gate, side, 621) < 0.75) continue; // daar staat al een vliegtuig
+      const gx = ap.x0 + 620 + gate * 90 + 45, gz = ap.z0 + mid + side * 74;
+      if (gx >= X0 && gx < X0 + T && gz >= Z0 && gz < Z0 + T) add('gate', [gx - X0, gz - Z0, G, side > 0 ? Math.PI : 0]);
+    }
+  }
   return paths;
 }

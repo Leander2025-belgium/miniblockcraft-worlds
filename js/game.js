@@ -14,6 +14,7 @@ import { Drive } from './drive.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { Ships } from './vessel.js';
+import { Airports, FlightControl, Plane } from './aircraft.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -352,6 +353,7 @@ export class Game {
     this.dropMountain(); this.leaveVehicle();
     this.under?.dispose(); this.under = null;
     this.ships?.dispose(); this.ships = null; this.aboard = null;
+    this.airports?.dispose(); this.airports = null;
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -392,6 +394,7 @@ export class Game {
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
     this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
+    this.airports?.dispose(); this.airports = new Airports(this);
     this.dropMountain(); this.leaveVehicle();
     this.under?.dispose();
     const W = this.world;
@@ -740,11 +743,10 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
     }
-    if (this.ships) {
-      this.ships.update(dt);
-      // aan boord: meebewegen met het schip (na het verplaatsen van het schip)
-      if (this.aboard && this.player.loc) { this.aboard.toWorld(this.player.loc, this.player.pos); this.player.yaw = (this.player.yawLoc ?? 0) + this.aboard.yaw; this.placeCamera(); }
-    }
+    if (this.ships) this.ships.update(dt);
+    if (this.airports) this.airports.update(dt, env.day);
+    // aan boord: meebewegen met het schip of vliegtuig (na het verplaatsen ervan)
+    if (this.aboard && this.player.loc && !this.drive) { this.aboard.toWorld(this.player.loc, this.player.pos); this.player.yaw = (this.player.yawLoc ?? 0) + this.aboard.yaw; this.placeCamera(); }
     {
       const pl = this.player, mode = this.ride || this.drive ? 'first' : this.settings.cam || 'first';
       this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y, visOff: this.visOff || 0 },
@@ -833,6 +835,17 @@ export class Game {
   enterVehicle(mode) {
     if (this.drive || !this.traffic) return;
     let v = this.traffic.nearestVehicle(this.player.pos, 8);
+    // vliegtuig: aan de gate instappen, in de cockpit zelf vliegen
+    if (!v && this.airports) {
+      if (this.aboard && this.aboard.cab) {
+        const pl = this.aboard, c = pl.cab.cockpit, l = this.player.loc;
+        if (mode === 'drive' && Math.hypot(l.x - c[0], l.z - c[2]) < 3.5) { this.leaveVessel(); this.drive = new FlightControl(this, pl); return; }
+        if (mode === 'drive') { this.toast('Ga naar de cockpit (vooraan) om zelf te vliegen'); return; }
+      } else if (!this.aboard) {
+        const pl = this.airports.nearest(this.player.pos, 45);
+        if (pl) { if (pl.state !== 'parked' && pl.speed > 1) { this.toast('Dit vliegtuig rijdt of vliegt al'); return; } this.boardVessel(pl, true); return; }
+      }
+    }
     // schip: in de stuurhut = sturen, anders aan boord gaan
     if (!v && this.ships) {
       if (this.aboard) {
@@ -1008,11 +1021,33 @@ export class Game {
   }
 
   makeWorld(meta, vox) { return new World(meta, vox); }
+  announce(text) { try { const u = new SpeechSynthesisUtterance(text); u.lang = 'nl-BE'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch { /* geen spraak */ } }
+  // passagier van het ene vliegtuig naar het andere (bv. na een rondvlucht weer naderen)
+  transferAboard(from, to) {
+    if (this.aboard !== from) return;
+    const l = this.player.loc.clone();
+    this.aboard = to; this.player.loc = l; this.player.yawLoc = this.player.yaw - from.yaw;
+  }
+  // reizen: tijdens het klimmen een bestemming kiezen
+  offerTravel(pl) {
+    const box = document.getElementById('travel'), list = document.getElementById('travel-list');
+    const dests = this.ui.travelList?.() || [];
+    if (!box || !dests.length) return;
+    this.announce('Dames en heren, wij hebben onze kruishoogte bijna bereikt. U kan nu uw bestemming kiezen.');
+    list.innerHTML = '';
+    for (const d of dests) { const b = document.createElement('button'); b.className = 'btn'; b.textContent = `${d.icon || '✈'} ${d.name}`; b.onclick = () => { box.hidden = true; this.ui.onTravel?.(d, pl); }; list.appendChild(b); }
+    box.hidden = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
   // ---------- aan boord van een schip ----------
   boardVessel(v, toDeck) {
     const p = this.player;
     this.aboard = v;
-    if (toDeck) {
+    if (toDeck && v.cab) {
+      // vliegtuig: door de deur naar binnen
+      p.loc = new THREE.Vector3(v.cab.door[0] + 1.5, v.cab.door[1], v.cab.door[2]);
+      p.fly = false; p.vel.set(0, 0, 0);
+    } else if (toDeck) {
       // naar het hoogste vrije plekje midden op het schip
       const x = Math.floor(v.g.W / 2), z = Math.floor(v.g.L * 0.5);
       let y = v.g.H - 1; while (y > 0 && !v.world.solidAt(x, y - 1, z)) y--;
@@ -1020,7 +1055,7 @@ export class Game {
       p.fly = false; p.vel.set(0, 0, 0);
     } else p.loc = v.toLocal(p.pos, new THREE.Vector3());
     p.yawLoc = p.yaw - v.yaw;
-    this.toast(`⚓ Aan boord: ${v.T.name}. Rondlopen kan gewoon; H in de stuurhut = sturen.`);
+    this.toast(v.cab ? `✈ Aan boord van een ${v.T.name}. Zoek een plaatsje! H in de cockpit = zelf vliegen.` : `⚓ Aan boord: ${v.T.name}. Rondlopen kan gewoon; H in de stuurhut = sturen.`);
   }
   leaveVessel() {
     const v = this.aboard; if (!v) return;
@@ -1545,7 +1580,12 @@ export class Game {
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); this[flag] = true; });
       for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, () => { this[flag] = false; });
     }
-    for (const [id, code] of [['dp-doors', 'KeyQ'], ['dp-ann', 'KeyN'], ['dp-rev', 'KeyR'], ['dp-exit', 'KeyH'], ['dp-cam', 'KeyV']]) {
+    for (const [id, flag] of [['dp-plus', 'padPlus'], ['dp-minus', 'padMinus']]) {
+      const el = document.getElementById(id); if (!el) continue;
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); this[flag] = true; });
+      for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, () => { this[flag] = false; });
+    }
+    for (const [id, code] of [['dp-flaps', 'KeyF'], ['dp-gear', 'KeyG'], ['dp-doors', 'KeyQ'], ['dp-ann', 'KeyN'], ['dp-rev', 'KeyR'], ['dp-exit', 'KeyH'], ['dp-cam', 'KeyV']]) {
       document.getElementById(id)?.addEventListener('click', () => this.drive?.key(code));
     }
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));

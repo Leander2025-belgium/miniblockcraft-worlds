@@ -1,7 +1,7 @@
 // Web Worker: berekent de stadskaart, voorbeelden en volledige 3D-gebieden.
 import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './city.js';
 import { BLOCKS } from './blocks.js';
-import { parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
+import { aerowayQuery, parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
 import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
 import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
 import { elevationSampler, elevationBase } from './terrain.js';
@@ -181,7 +181,20 @@ function getSuper(map, sx, sz) {
       });
       await cachePut(key, text);
     }
-    const osm = indexOSM(parseOSM(text));
+    const parsed = parseOSM(text);
+    // luchthaven in dit stuk? dan ook banen, taxibanen en gates ophalen (apart bewaard)
+    if (/"aeroway"|"building":"(hangar|terminal)"|Flughafen|Airport|Luchthaven|Aéroport/.test(text)) {
+      try {
+        const ak = key + '-aero';
+        let at = await cacheGet(ak);
+        if (!at) { at = await withSlot((slot) => fetchOSMBox(superBox(map, sx, sz), (t) => self.postMessage({ type: 'status', map: map.id, text: 'Luchthaven: ' + t }), slot, aerowayQuery)); await cachePut(ak, at); }
+        const extra = parseOSM(at), ids = new Set(parsed.ways.map(w => w.id));
+        for (const [k, v] of extra.nodes) if (!parsed.nodes.has(k)) parsed.nodes.set(k, v);
+        for (const w of extra.ways) if (!ids.has(w.id)) parsed.ways.push(w);
+        parsed.pois.push(...extra.pois);
+      } catch { /* zonder luchthavendetails */ }
+    }
+    const osm = indexOSM(parsed);
     self.postMessage({ type: 'status', map: map.id, text: '' });
     return osm;
   })();

@@ -206,6 +206,20 @@ async function ensureGame() {
         brk: $('#t-break'), put: $('#t-place'), fly: $('#t-fly'), speed: $('#t-speed'), inv: $('#t-inv'), menu: $('#t-menu'),
       },
       onSave: (quiet) => saveGame(quiet),
+      // reizen met het vliegtuig naar een andere wereld
+      travelList: () => {
+        const cur = game && game.meta && game.meta.id, out = [];
+        for (const P of Object.values(PROC)) if (P.META.id !== cur) out.push({ id: P.META.id, name: P.META.name + (P.META.id === METRO.id ? ' (Luchthaven West)' : ''), icon: P.META.id === METRO.id ? '🛬' : '⛰', at: P.META.id === METRO.id ? { x: 4000, z: 5600 } : null });
+        if (cur !== CITY.id) out.push({ id: CITY.id, name: CITY.name, icon: '🏙' });
+        for (const r of state.regions) if (r.kind === 'map' && r.id !== cur && !PROC[r.id] && r.id !== CITY.id) out.push({ id: r.id, name: r.name, icon: '🗺' });
+        return out;
+      },
+      onTravel: async (d) => {
+        await saveGame(true);
+        game.toast(`✈ Vlucht naar ${d.name}…`);
+        await playMap(d.id, d.at || null);
+        game.pendingArrival = { name: d.name, t: performance.now() };
+      },
     });
   }
   return game;
@@ -839,7 +853,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-12c';
+const APP_VERSION = '2026-11-12d';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

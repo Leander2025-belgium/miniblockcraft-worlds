@@ -22,7 +22,7 @@ const POI_KINDS = { street_lamp: 'lamp', traffic_signals: 'signal', bus_stop: 'b
   waste_basket: 'bin', post_box: 'bin', fountain: 'fountain', telephone: 'bin' };
 export function parseOSM(text) {
   const nodes = new Map(), ways = [], rels = [], trees = [], pois = [];
-  const poiKind = (t) => !t ? null : POI_KINDS[t.highway] || POI_KINDS[t.amenity] || (t.public_transport === 'platform' && !t.highway ? 'bus_stop' : null);
+  const poiKind = (t) => !t ? null : POI_KINDS[t.highway] || POI_KINDS[t.amenity] || (t.aeroway === 'gate' || t.aeroway === 'parking_position' ? 'gate' : null) || (t.public_transport === 'platform' && !t.highway ? 'bus_stop' : null);
   let bounds = null;
   const t = text.trimStart();
   if (t[0] === '{') {
@@ -85,6 +85,11 @@ export function bboxFor(lat, lon, size, margin = 25) {
 export async function fetchOSM(lat, lon, size, onStatus) {
   return fetchOSMBox(bboxFor(lat, lon, size), onStatus);
 }
+// extra luchthavengegevens (banen, taxibanen, platforms, gates) – apart bewaard
+export function aerowayQuery(b) {
+  const bb = `${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)}`;
+  return `[out:json][timeout:120][bbox:${bb}];(way["aeroway"~"^(runway|taxiway|apron|taxilane)$"];node["aeroway"~"^(gate|parking_position)$"];);(._;>;);out body qt;`;
+}
 export function overpassQuery(b) {
   const bb = `${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)}`;
   // alleen wat de game gebruikt: veel kleinere downloads dan "alles"
@@ -97,8 +102,8 @@ export function overpassQuery(b) {
     'node["amenity"~"^(bench|bicycle_parking|waste_basket|post_box|fountain)$"];node["public_transport"="platform"];);(._;>;);out body qt;';
 }
 // start: welke server eerst (verschillende downloads tegelijk verdelen over servers)
-export async function fetchOSMBox(b, onStatus, start = 0) {
-  const q = overpassQuery(b);
+export async function fetchOSMBox(b, onStatus, start = 0, query = overpassQuery) {
+  const q = query(b);
   const servers = start % 2 === 1 ? [OVERPASS[1], OVERPASS[0], OVERPASS[2], OVERPASS[3]] : OVERPASS;
   let lastErr;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -551,6 +556,21 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
 
+  // 2b. luchthaven: platforms, taxibanen en start- en landingsbanen
+  const runwayLines = [];
+  for (const w of osm.ways) {
+    const aw = w.tags.aeroway; if (!aw) continue;
+    const l = line(w.nds); if (!l || !bboxOk(l, 80)) continue;
+    if (aw === 'apron' && w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length - 1]) { fillRings([l], size, (x, z) => { const i = z * size + x; if (prio[i] < 5) { surf[i] = B.CONCRETE; prio[i] = 5; marks[i] = 1; treeD[i] = 0; } }); continue; }
+    if (aw === 'runway') {
+      const width = (parseLen(w.tags.width) || 45) * scale;
+      strokeLine(l, width, size, (x, z, d, along) => { const i = z * size + x; surf[i] = (d < 0.6 * scale && along % (60 * scale) < 30 * scale) || d > width / 2 - 1 ? B.LINE_WHITE : B.ASPHALT; prio[i] = 7; marks[i] = 1; treeD[i] = 0; });
+      runwayLines.push([l[0], l[l.length - 1]]);
+    } else if (aw === 'taxiway' || aw === 'taxilane') {
+      const width = (parseLen(w.tags.width) || (aw === 'taxiway' ? 23 : 12)) * scale;
+      strokeLine(l, width, size, (x, z, d) => { const i = z * size + x; if (prio[i] < 7) { surf[i] = d < 0.5 * scale ? B.LINE_YELLOW : B.ASPHALT; prio[i] = 6; marks[i] = 1; treeD[i] = 0; } });
+    }
+  }
   // 3. wegen en spoor
   const roads = [];
   for (const w of osm.ways) {
@@ -1253,6 +1273,12 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
       } else if (inBox(ax, az)) run.push(ax, az, Y(i, 0, 1, ax, az));
     }
     flush();
+  }
+  for (const [a, b] of runwayLines) pathsOut.push({ type: 'runway', pts: new Float32Array([a[0], a[1], gyAt(Math.floor(a[0]), Math.floor(a[1])), b[0], b[1], gyAt(Math.floor(b[0]), Math.floor(b[1]))]) });
+  for (const [la, lo, kind] of (osm.pois || [])) {
+    if (kind !== 'gate') continue;
+    const q = proj([la, lo]); if (q[0] < 0 || q[1] < 0 || q[0] >= size || q[1] >= size) continue;
+    pathsOut.push({ type: 'gate', pts: new Float32Array([q[0], q[1], gyAt(Math.floor(q[0]), Math.floor(q[1])), 0]) });
   }
   for (const [x, z, name, uy, under] of railStops) pathsOut.push({ type: under ? 'metrostop' : 'railstop', name, pts: new Float32Array([x, z, under ? uy : surfY(x, z) + 1]) });
   for (const [x, z] of busStops) pathsOut.push({ type: 'busstop', pts: new Float32Array([x, z, surfY(x, z)]) });

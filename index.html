@@ -188,6 +188,7 @@
   .drive-pad .dp-right { right: calc(18px + var(--sr)); bottom: calc(24px + var(--sb)); }
   .drive-pad .dp-top { right: calc(12px + var(--sr)); top: calc(62px + var(--st)); }
   .drive-pad .dp-left .tbtn, .drive-pad .dp-right .tbtn { width: 66px; height: 66px; font-size: 26px; }
+  .drive-pad .plane-only { display: none; } .drive-pad[data-mode=plane] .plane-only { display: grid; } .drive-pad[data-mode=plane] .rail-only { display: none; }
   .drive-pad[data-mode=road] .rail-only, .drive-pad[data-mode=pass] .rail-only, .drive-pad[data-mode=pass] .dp-left, .drive-pad[data-mode=pass] .dp-right { display: none; }
   .driving #t-move { display: none !important; }
   #t-ride { display: none; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
@@ -422,7 +423,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-12c</p>
+    <p class="help" id="app-version">Versie 2026-11-12d</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>
@@ -483,6 +484,11 @@
     <button class="btn" id="dc-cancel">✕</button>
   </div>
   <div id="drive-hud" class="hud drive-hud" hidden></div>
+  <div id="travel" class="bp-list" hidden>
+    <div class="row"><b>✈ Waar vliegen we naartoe?</b><span class="sp"></span><button class="btn" onclick="this.closest('#travel').hidden = true">Rondvlucht</button></div>
+    <p class="help">Kies een bestemming: na de vlucht land je daar op de luchthaven (of op de startplek als die wereld geen luchthaven heeft).</p>
+    <div id="travel-list" class="tp-list"></div>
+  </div>
   <div id="drive-pad" class="drive-pad" hidden>
     <div class="dp-left">
       <button class="tbtn" id="dp-left">◀</button><button class="tbtn" id="dp-right">▶</button>
@@ -491,6 +497,7 @@
       <button class="tbtn" id="dp-up">▲</button><button class="tbtn" id="dp-down">▼</button><button class="tbtn" id="dp-stop">✋</button>
     </div>
     <div class="dp-top">
+      <button class="tbtn plane-only" id="dp-plus">＋</button><button class="tbtn plane-only" id="dp-minus">－</button><button class="tbtn plane-only" id="dp-flaps">F</button><button class="tbtn plane-only" id="dp-gear">G</button>
       <button class="tbtn rail-only" id="dp-doors">🚪</button><button class="tbtn rail-only" id="dp-ann">📢</button><button class="tbtn rail-only" id="dp-rev">↩</button>
       <button class="tbtn" id="dp-cam">🎥</button><button class="tbtn" id="dp-exit">⏏</button>
     </div>
@@ -589,6 +596,6 @@
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
-<script type="module" src="./js/app.js?v=2026-11-12c"></script>
+<script type="module" src="./js/app.js?v=2026-11-12d"></script>
 </body>
 </html>
