@@ -4,13 +4,13 @@ import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
 import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
-import * as BERGW from './mountain.js';
+import * as BERGW from './alpen.js';
 const BERG = BERGW.META;
 // zelfgegenereerde werelden
 const PROC = {
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
-  [BERG.id]: { META: BERG, PLACES: BERGW.PLACES, zoneName: BERGW.zoneName, groundAt: (x, z) => Math.round(BERGW.G + BERGW.surfaceAt(x, z)),
-    spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false }, info: 'Bergwereld · 14 × 14 km · top op ± 1550 m' },
+  [BERG.id]: { META: BERG, PLACES: BERGW.PLACES, zoneName: BERGW.zoneName, groundAt: BERGW.groundAt,
+    spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false }, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
 };
 
 const $ = (s) => document.querySelector(s);
@@ -197,7 +197,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map') },
+      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -287,6 +287,7 @@ async function playMap(id, at) {
   const P = PROC[id];
   if (!meta && P) { meta = { id, kind: 'map', name: P.META.name, map: { ...P.META }, size: P.META.tilesX * P.META.tile, ground: P.META.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
+  if (id === BERG.id && !meta.alps) meta = await migrateToAlps(meta);
   await ensureGame();
   const map = meta.map, T = map.tile;
   if (map.kind === 'proc') Object.assign(map, (PROC[map.id] || PROC[METRO.id]).META);
@@ -297,15 +298,27 @@ async function playMap(id, at) {
   }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
-      const mine = ed && ed.rle ? { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null } : null;
+      let mine = ed && ed.rle ? { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null } : null;
       // ook voor zelf bebouwde stukken de paden voor het verkeer ophalen
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
+        if (m.type === 'cityTile' && mine && ed.alpsPartial) { mine = mergePartial(map, tx, tz, mine, m); saveTile(tx, tz, mine.vox, mine.H, mine.y0, mine.edge); }
         if (m.type === 'cityTile') resolve(mine ? { ...mine, paths: m.paths || [], tunnels: m.tunnels || null } : m);
         else if (m.type === 'error' && mine) resolve(mine);
         else if (m.type === 'error') reject(new Error(m.message));
       }, workerFor(map, tx, tz));
     });
   });
+  // oude randtegel met bouwwerken: binnen de oude wereld je eigen blokken, daarbuiten het nieuwe landschap
+  function mergePartial(map, tx, tz, mine, gen) {
+    const A = map.alps, X0 = tx * T - A.ox, Z0 = tz * T - A.oz;
+    const y0 = Math.min(mine.y0, gen.y0 || 0), top = Math.max(mine.y0 + mine.H, (gen.y0 || 0) + gen.H), H = Math.ceil((top - y0) / 8) * 8;
+    const vox = new Uint8Array(T * T * H);
+    for (let z = 0; z < T; z++) for (let x = 0; x < T; x++) {
+      const inside = X0 + x < 14000 && Z0 + z < 14000, src = inside ? mine : gen, sy0 = src.y0 || 0, i = z * T + x;
+      vox.set(src.vox.subarray(i * src.H, (i + 1) * src.H), i * H + (sy0 - y0));
+    }
+    return { vox, H, y0, edge: gen.edge || mine.edge };
+  }
   const saveTile = (tx, tz, vox, H, y0, edge) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H, y0: y0 || 0, edge: edge || null });
   const isCity = map.id === CITY.id, isMetro = map.kind === 'proc', PR = PROC[map.id] || PROC[METRO.id];
   $('#menu').hidden = true;
@@ -343,39 +356,72 @@ $('#btn-city-dl')?.addEventListener('click', async () => {
 });
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
-// overzichtskaart van de Reuzenberg (met wandelpad en kabelbaan)
+// Oude Reuzenberg-saves (14 × 14 km) naar de Alpenwereld: de berg ligt nu 17 920 m verder naar het oosten en het zuiden.
+// Bouwwerken (per tegel), de ondergrond (per stuk van 16³) en de plek van de speler schuiven precies mee,
+// zodat alles op dezelfde plek ten opzichte van de berg blijft.
+async function migrateToAlps(meta) {
+  const A = BERG.alps, pre = `${BERG.id}-edit-`, ug = `${BERG.id}-ug-`;
+  const edits = await store.cacheGetPrefix(pre);
+  for (const { key, value } of edits) {
+    const [tx, tz] = key.slice(pre.length).split('-').map(Number);
+    if (!Number.isFinite(tx) || tx >= A.tiles) continue; // al verschoven
+    const partial = tx === 109 || tz === 109; // deze oude tegels lagen half buiten de oude wereld
+    await store.cachePut(`${pre}${tx + A.tiles}-${tz + A.tiles}`, partial ? { ...value, alpsPartial: true } : value);
+    await store.cacheDelete(key);
+  }
+  const subs = await store.cacheGetPrefix(ug), S = A.ox / 16;
+  for (const { key, value } of subs) {
+    const [sx, sy, sz] = key.slice(ug.length).split('_').map(Number);
+    if (!Number.isFinite(sx) || sx >= S) continue;
+    await store.cachePut(`${ug}${sx + S}_${sy}_${sz + S}`, value);
+    await store.cacheDelete(key);
+  }
+  const m = { ...meta, alps: true, map: { ...BERG }, size: BERG.tilesX * BERG.tile, name: BERG.name };
+  if (m.player) m.player = { ...m.player, x: m.player.x + A.ox, z: m.player.z + A.oz };
+  await store.saveMeta(m);
+  if (edits.length || subs.length) notify(`De Reuzenberg ligt nu in de Alpenwereld van 50 × 50 km. Je ${edits.length} bebouwde stukken en ${subs.length} gegraven stukken zijn mee verhuisd.`);
+  return m;
+}
+// overzichtskaart van de Alpenwereld (50 × 50 km): terrein, spoorlijnen, stations, liften, toppen; stap voor stap getekend
 function drawBergMap() {
   const c = $('#berg-map');
   if (!c || c.dataset.done) return;
   c.dataset.done = '1';
-  const S = 40, W = Math.round(BERGW.MW / S), H = Math.round(BERGW.ML / S);
+  const S = 125, W = Math.round(BERGW.MW / S), H = Math.round(BERGW.ML / S);
   c.width = W; c.height = H;
-  const img = new ImageData(W, H);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const col = BERGW.overviewColor(x * S + S / 2, y * S + S / 2, S), i = (y * W + x) * 4;
-    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255;
-  }
-  const ctx = c.getContext('2d');
-  ctx.putImageData(img, 0, 0);
-  const tr = BERGW.TRAIL;
-  ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1.5; ctx.beginPath();
-  for (let i = 0; i < tr.length; i += 3) (i ? ctx.lineTo : ctx.moveTo).call(ctx, tr[i] / S, tr[i + 1] / S);
-  ctx.stroke();
-  // spoor, wegen en pistes
-  for (const l of BERGW.EXTRAS.MAP) {
-    ctx.strokeStyle = l.color; ctx.lineWidth = l.w; ctx.beginPath();
-    for (let i = 0; i < l.pts.n; i += 4) (i ? ctx.lineTo : ctx.moveTo).call(ctx, l.pts.x[i] / S, l.pts.z[i] / S);
+  const ctx = c.getContext('2d'), img = ctx.createImageData(W, H);
+  let row = 0;
+  const step = () => {
+    const t0 = performance.now();
+    while (row < H && performance.now() - t0 < 12) {
+      for (let x = 0; x < W; x++) { const col = BERGW.overviewColor(x * S + S / 2, row * S + S / 2, S), i = (row * W + x) * 4; img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255; }
+      row++;
+    }
+    ctx.putImageData(img, 0, 0);
+    if (row < H) { requestAnimationFrame(step); return; }
+    overlay();
+  };
+  const overlay = () => {
+    const tr = BERGW.TRAIL;
+    ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let i = 0; i < tr.length; i += 6) (i ? ctx.lineTo : ctx.moveTo).call(ctx, tr[i] / S, tr[i + 1] / S);
     ctx.stroke();
-  }
-  ctx.fillStyle = '#e8d9b0';
-  for (const o of BERGW.EXTRAS.BLD) ctx.fillRect(o.x0 / S, o.z0 / S, Math.max(1, (o.x1 - o.x0) / S), Math.max(1, (o.z1 - o.z0) / S));
-  const [a, b] = BERGW.STATIONS;
-  ctx.strokeStyle = '#e33'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x / S, a.z / S); ctx.lineTo(b.x / S, b.z / S); ctx.stroke();
-  ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
-  for (const [name, x, z] of [['Dalstation', a.x, a.z + 160], ['Top', BERGW.SUMMIT_XZ[0], BERGW.SUMMIT_XZ[1] - 90], ['Bergmeer', BERGW.LAKE.x, BERGW.LAKE.z + 700]]) {
-    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(name, x / S + 1, z / S + 1);
-    ctx.fillStyle = '#fff'; ctx.fillText(name, x / S, z / S);
-  }
+    for (const L of BERGW.LINES) {
+      ctx.strokeStyle = L.color; ctx.lineWidth = 2.2; ctx.beginPath();
+      for (let i = 0; i < L.n; i += 8) (i ? ctx.lineTo : ctx.moveTo).call(ctx, L.x[i] / S, L.z[i] / S);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 2]);
+    for (const L of BERGW.LIFTS) { ctx.beginPath(); ctx.moveTo(L.ax / S, L.az / S); ctx.lineTo(L.bx / S, L.bz / S); ctx.stroke(); }
+    const [a, b] = BERGW.STATIONS; ctx.beginPath(); ctx.moveTo(a.x / S, a.z / S); ctx.lineTo(b.x / S, b.z / S); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center';
+    const label = (t, x, z, col = '#fff') => { ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(t, x / S + 1, z / S + 1); ctx.fillStyle = col; ctx.fillText(t, x / S, z / S); };
+    for (const t of BERGW.TOWNS) if (t.kind === 'city' || t.kind === 'town') { ctx.fillStyle = '#f1e2b8'; ctx.fillRect(t.x / S - 3, t.z / S - 3, 6, 6); label(t.name, t.x, t.z - 260); }
+    for (const st of BERGW.STATIONS_ALL) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(st.x / S, st.z / S, 2.2, 0, 7); ctx.fill(); }
+    for (const [n, x, z] of [['Reuzenberg', BERGW.SUMMIT_XZ[0], BERGW.SUMMIT_XZ[1]], ['Zugspitze', BERGW.PATCHES[2].px, BERGW.PATCHES[2].pz], ['Matterhorn', BERGW.PATCHES[1].px, BERGW.PATCHES[1].pz], ['Mont Blanc', BERGW.PATCHES[0].px, BERGW.PATCHES[0].pz], ['Hemelhoorn', BERGW.HEMEL.x, BERGW.HEMEL.z]]) label('▲ ' + n, x, z, '#ffe9a8');
+  };
+  step();
   c.addEventListener('click', (e) => { const r = c.getBoundingClientRect(); phoneFullscreen(); playMap(BERG.id, { x: (e.clientX - r.left) / r.width * BERGW.MW, z: (e.clientY - r.top) / r.height * BERGW.ML }); });
 }
 function fillTeleports(list) {

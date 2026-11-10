@@ -16,7 +16,8 @@ import { Underground } from './underground.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
 import { zoneName } from './metropolis.js';
-import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
+import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED, LIFT_SPEED } from './mountainview.js';
+import { AlpRail } from './rail.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -412,11 +413,12 @@ export class Game {
       ref: spec.groundAt ? (x, z) => spec.groundAt(x, z) : () => spec.ground,
     }, { under: this.matUnder, underTrans: this.matUnderTrans });
     if (spec.longView) {
-      // Reuzenberg: ver landschap tot aan de horizon en de kabelbaan
+      // Reuzenberg · Alpen: ver landschap tot aan de horizon, kabelbanen en liften, het spoornet
       this.far = new MountainView();
-      this.scene.add(this.far.gondolas.group);
+      this.scene.add(this.far.gondolas.group, this.far.gondolas.cabRoot, this.far.lifts.group);
       if (this.lod.groundMesh) this.lod.groundMesh.visible = false;
     }
+    if (spec.alps) { this.alpRail = new AlpRail(this); this.traffic.noTrains = true; }
     this.mini = { canvas: this.lod.canvas, scale: this.lod.cell * (spec.miniStep || 1), sizeX: this.world.sizeX, sizeZ: this.world.sizeZ };
     const T = spec.tile;
     spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1);
@@ -427,6 +429,8 @@ export class Game {
   leaveVehicle() { if (this.drive) { this.drive.show(false); this.drive = null; } }
   dropMountain() {
     if (this.far) { this.far.dispose(); this.far = null; }
+    if (this.alpRail) { this.alpRail.dispose(); this.alpRail = null; }
+    this.extVel = null;
     this.ride = null;
     document.getElementById('t-ride')?.classList.remove('show');
   }
@@ -436,14 +440,23 @@ export class Game {
     if (!this.far) return;
     const p = this.player;
     if (this.ride) { // onderweg uitstappen: je blijft zweven
-      this.ride = null; this.far.gondolas.cab.visible = false;
+      this.ride = null; this.far.gondolas.cab.visible = false; this.far.lifts.cab.visible = false;
       p.fly = true; p.vel.set(0, 0, 0);
       this.toast('Uitgestapt. Vliegen staat aan (F om te landen).');
       this.updateHud(true);
       return;
     }
     const st = stationNear(p.pos);
-    if (st < 0) { this.toast('🚡 Ga naar het dal- of topstation om in te stappen.'); return; }
+    if (st < 0) {
+      const ls = this.far.lifts.stationNear(p.pos);
+      if (!ls) { this.toast('🚡 Ga naar een dal- of bergstation van een kabelbaan of lift om in te stappen.'); return; }
+      const L = ls.L, len = L.pts[L.pts.length - 1].u - L.pts[0].u;
+      this.ride = { lift: L, s: ls.top ? len : 0, end: ls.top ? 2 * len - 0.01 : len, top: ls.top, g: {} };
+      this.far.lifts.cab.visible = L.kind !== 'chair';
+      p.vel.set(0, 0, 0);
+      this.toast(`🚡 ${L.name}: op weg naar ${ls.top ? 'het dal' : L.top}! (Shift/⚡ = sneller, G = uitstappen)`);
+      return;
+    }
     this.ride = { s: st === 0 ? 0 : (CABLE_D1 - CABLE_D0), dir: st === 0 ? 1 : -1, to: st === 0 ? 1 : 0, g: {} };
     if (st === 1) this.ride.s = (CABLE_D1 - CABLE_D0); // omlaag langs het westspoor
     this.far.gondolas.cab.visible = true;
@@ -451,6 +464,7 @@ export class Game {
     this.toast(st === 0 ? '🚡 Op weg naar de top! (Shift/⚡ = sneller, G = uitstappen)' : '🚡 Op weg naar het dal! (Shift/⚡ = sneller, G = uitstappen)');
   }
   updateRide(dt) {
+    if (this.ride.lift) { this.updateLiftRide(dt); return; }
     const r = this.ride, p = this.player, L = CABLE_D1 - CABLE_D0;
     const fast = this.keys.has('ShiftLeft') || this.keys.has('ControlLeft') || this.touchSprint || this.boost;
     r.s += RIDE_SPEED * (fast ? 4 : 1) * dt;
@@ -470,6 +484,29 @@ export class Game {
     this.far.gondolas.cab.position.set(g.x, g.y, g.z);
     const left = Math.max(0, r.dir > 0 ? L - r.s : 2 * L - r.s) / (RIDE_SPEED * (fast ? 4 : 1));
     this.rideInfo = `🚡 Kabelbaan · nog ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} · G = uitstappen`;
+  }
+
+  // nieuwe kabelbanen, gondelbanen en stoeltjesliften van de Alpenwereld
+  updateLiftRide(dt) {
+    const r = this.ride, p = this.player, L = r.lift, lifts = this.far.lifts;
+    const fast = this.keys.has('ShiftLeft') || this.keys.has('ControlLeft') || this.touchSprint || this.boost;
+    const sp = LIFT_SPEED[L.kind] * (fast ? 4 : 1);
+    r.s = Math.min(r.end, r.s + sp * dt);
+    const g = lifts.at(L, r.s, r.g);
+    if (r.s >= r.end) {
+      this.ride = null; lifts.cab.visible = false;
+      const toTop = !r.top, u = toTop ? L.len - L.stL + 6 : L.stL - 6, y = toTop ? L.yb : L.ya;
+      p.pos.set(L.ax + L.ux * u + 0.5, y + 1.05, L.az + L.uz * u + 0.5); p.vel.set(0, 0, 0); p.fly = false;
+      this.toast(toTop ? `⛰ ${L.top} (${y - (this.meta.ground ?? GROUND)} m)` : `🚡 Terug in het dalstation van de ${L.name}.`);
+      if (this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
+      return;
+    }
+    const seat = L.kind === 'chair' ? -2.4 : L.kind === 'cable' ? -2.9 : -1.1;
+    p.pos.set(g.x, g.y + seat, g.z); p.vel.set(0, 0, 0); p.fly = false; p.onGround = true;
+    this.extVel = new THREE.Vector3(L.ux * sp * (g.up ? 1 : -1), 0, L.uz * sp * (g.up ? 1 : -1));
+    if (L.kind !== 'chair') lifts.cab.position.set(g.x, g.y + (L.kind === 'cable' ? -1.6 : 0), g.z);
+    const left = (r.end - r.s) / sp;
+    this.rideInfo = `🚡 ${L.name} · nog ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} · G = uitstappen`;
   }
 
   addSource(src) {
@@ -545,7 +582,7 @@ export class Game {
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
     const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
     // vliegrichting en snelheid: waar ben je over een paar seconden?
-    const v = this.player.vel, sp = Math.hypot(v.x, v.z);
+    const v = this.extVel || this.player.vel, sp = Math.hypot(v.x, v.z);
     const lookT = sp > 60 ? 5 : sp > 25 ? 4 : 2.5;
     const fx = p.x + v.x * lookT, fz = p.z + v.z * lookT;
     const ftx = Math.floor(fx / T), ftz = Math.floor(fz / T);
@@ -820,7 +857,8 @@ export class Game {
     }
     if (this.ships) this.ships.update(dt);
     if (this.airports) this.airports.update(dt, env.day);
-    // aan boord: meebewegen met het schip of vliegtuig (na het verplaatsen ervan)
+    if (this.alpRail) this.alpRail.update(dt, env.day);
+    // aan boord: meebewegen met het schip, het vliegtuig of de trein (na het verplaatsen ervan)
     if (this.aboard && this.player.loc && !this.drive) { this.aboard.toWorld(this.player.loc, this.player.pos); this.player.yaw = (this.player.yawLoc ?? 0) + this.aboard.yaw; this.placeCamera(); }
     {
       const pl = this.player, mode = this.ride || this.drive ? 'first' : this.settings.cam || 'first';
@@ -829,8 +867,10 @@ export class Game {
     }
     if (this.far) {
       this.far.gondolas.update(dt, env.day);
+      this.far.lifts.update(dt, env.day);
+      this.far.budget = this.touch ? 3 : 5;
       const lu = this.lod && this.lod.mat.uniforms;
-      if (lu) { lu.fogNear.value = 3000; lu.fogFar.value = 26000; }
+      if (lu) { lu.fogNear.value = 5000; lu.fogFar.value = 60000; }
     }
     this.camera.far = (this.tiled ? Math.max(far, this.settings.lod * 1.6) : far) + 60; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
@@ -845,7 +885,7 @@ export class Game {
     if (this.lod?.groundMesh) this.lod.groundMesh.visible = !ug && !this.far;
     this.clouds.visible = !ug;
     if (this.traffic) this.traffic.group.visible = !ug;
-    if (this.far) this.far.gondolas.group.visible = !ug;
+    if (this.far) { this.far.gondolas.group.visible = !ug; this.far.lifts.group.visible = !ug; }
     this.avatar.group.visible = this.avatar.group.visible && true;
     this.updateShadows(env);
     // lucht, dan (Reuzenberg) het verre berglandschap, dan de blokken eroverheen
@@ -909,6 +949,7 @@ export class Game {
   // in een voertuig stappen: zelf besturen of meerijden
   enterVehicle(mode) {
     if (this.drive || !this.traffic) return;
+    if (this.alpRail && this.alpRail.handleKey(mode)) return;
     let v = this.traffic.nearestVehicle(this.player.pos, 8);
     // vliegtuig: aan de gate instappen, in de cockpit zelf vliegen
     if (!v && this.airports) {
@@ -1079,6 +1120,7 @@ export class Game {
   }
   // grote kaart (M): klik om erheen te vliegen
   openMap() {
+    if (this.alpRail && !this.mapPlain && this.alpRail.openMap()) return;
     this.ensureMini();
     if (!this.mini) return;
     const c = this.ui.bigmap, mc = this.mini.canvas;
@@ -1231,7 +1273,7 @@ export class Game {
     }
     if (this.ride) { this.updateRide(dt); if (this.tiled) this.updateTiles(); this.updateHud(); return; }
     if (this.far) {
-      const near = stationNear(p.pos) >= 0;
+      const near = stationNear(p.pos) >= 0 || !!this.far.lifts.stationNear(p.pos);
       if (near !== !!this.nearStation) { this.nearStation = near; document.getElementById('t-ride')?.classList.toggle('show', near); if (near) this.toast(this.touch ? '🚡 Tik op 🚡 om met de kabelbaan te gaan' : '🚡 Druk op G om met de kabelbaan te gaan'); }
     }
     if (this.tiled && !this.world.tileAt(p.pos.x, p.pos.z)) { this.updateTarget(); this.updateHud(); return; }

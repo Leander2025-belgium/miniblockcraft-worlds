@@ -518,7 +518,7 @@ export class Traffic {
       car: Math.min(260, Math.floor(L.road / 40)),
       bus: L.road > 400 ? Math.min(14, Math.max(1, Math.floor((L.major > 300 ? L.major : L.road / 3) / 380))) : 0,
       tram: L.tram > 250 ? Math.min(10, Math.max(1, Math.floor(L.tram / 650))) : 0,
-      train: L.rail > 500 ? Math.min(6, Math.max(1, Math.floor(L.rail / 1800))) : 0,
+      train: L.rail > 500 && !this.noTrains ? Math.min(6, Math.max(1, Math.floor(L.rail / 1800))) : 0, // Alpenwereld: treinen volgens de dienstregeling (rail.js)
       walk: Math.min(this.PMAX, Math.floor(L.walk / (L.road > 0 ? 20 : 70))), // op een bergpad minder druk
       metro: L.metro > 200 ? Math.min(8, Math.max(1, Math.floor(L.metro / 600))) : 0,
       ship: Math.min(9, Math.floor(L.water / 450) + Math.floor(L.sea / 1400) + (L.water + L.sea > 200 ? 1 : 0)),

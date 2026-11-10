@@ -560,3 +560,6 @@ export function generateTile(tx, tz) {
   return { vox, H, y0: Y0, edge, ground: G, paths };
 }
 const spare = new Uint8Array(2200);
+
+// ---------- voor de Alpenwereld (js/alpen.js): dezelfde kolommen en bomen, niets verandert hier ----------
+export const _internal = { natural, fillColumn, treeKind: () => treeKind, placeBirch, placePine, placeSpruce, strata, treeSpot, SUMMIT_COL };

@@ -22,6 +22,17 @@ export function carveAt(seg, x, z, y) {
     if (y === ty + 4 && Math.round(s) % 12 === 0) return B.LAMP;
     return B.CONCRETE;
   }
+  if (seg.type === 'tube2') {
+    // dubbelsporige spoortunnel (Alpen): 10 m breed, 6 m hoog, lampen langs de wand
+    if (d > 6.2 || y < ty - 1 || y > ty + 8) return -1;
+    if (d <= 5.4) {
+      if (y === ty) return d <= 4.7 ? B.BALLAST : B.CONCRETE;
+      if (y > ty && y <= ty + 6) return 0;
+      return B.CONCRETE;
+    }
+    if (y === ty + 5 && Math.round(s) % 24 === 0) return B.LAMP;
+    return B.CONCRETE;
+  }
   if (seg.type === 'hall') {
     const hw = seg.hw; // halve breedte van het perron
     const W = hw + 4.6;
@@ -74,12 +85,19 @@ export class CarveIndex {
     const k = seg.key || `${seg.type}:${seg.ax.toFixed(1)},${seg.az.toFixed(1)},${seg.bx.toFixed(1)},${seg.bz.toFixed(1)}`;
     if (this.keys.has(k)) return false;
     this.keys.add(k); this.list.push(seg);
-    const R = seg.type === 'hall' ? (seg.hw + 6) : seg.type === 'lift' ? 3 : 5;
+    const R = seg.type === 'hall' ? (seg.hw + 6) : seg.type === 'lift' ? 3 : seg.type === 'tube2' ? 7 : 5;
     for (let cz = Math.floor((Math.min(seg.az, seg.bz) - R) / 32); cz <= Math.floor((Math.max(seg.az, seg.bz) + R) / 32); cz++)
       for (let cx = Math.floor((Math.min(seg.ax, seg.bx) - R) / 32); cx <= Math.floor((Math.max(seg.ax, seg.bx) + R) / 32); cx++) {
         const key = cz * 100000 + cx; let l = this.grid.get(key); if (!l) this.grid.set(key, l = []); l.push(seg);
       }
     return true;
+  }
+  // laagste vloer van een tunnel op deze plek (of null)
+  minY(x, z) {
+    const l = this.grid.get(Math.floor(z / 32) * 100000 + Math.floor(x / 32));
+    if (!l) return null;
+    let m = null; for (const sg of l) { const y = Math.min(sg.ay, sg.by) - 2; if (m === null || y < m) m = y; }
+    return m;
   }
   // blok op deze plek, of -1 als er niets gegraven wordt
   at(x, y, z) {

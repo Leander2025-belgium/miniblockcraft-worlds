@@ -50,15 +50,16 @@ export class Underground {
     for (const sg of list) if (this.carves.add(sg)) added = true;
     if (added) { this.cache.clear(); for (const k of this.meshes.keys()) this.dirty.add(k); }
   }
-  floorAt(x, z) { return Math.floor(this.spec.ref(x, z)) - DEPTH; }
+  floorAt(x, z) { const f = Math.floor(this.spec.ref(x, z)) - DEPTH, t = this.carves.minY(x, z); return t !== null && t - 4 < f ? t - 4 : f; }
   // ---------- het gesteente op een plek ----------
   natural(x, y, z, ref = this.spec.ref(x, z)) {
-    const floor = Math.floor(ref) - DEPTH;
+    // diepe spoortunnels onder hoge bergen liggen soms onder de gewone bodem van 300 m
+    const cv0 = this.carves.at(x, y, z);
+    if (cv0 >= 0) return cv0;
+    const floor = Math.min(Math.floor(ref) - DEPTH, this.carves.minY(x, z) ?? 1e9);
     if (y <= floor) return B.BEDROCK;
     if (y === floor + 1 && h3(x, y, z, 7) < 0.6) return B.BEDROCK;
     if (y === floor + 2 && h3(x, y, z, 8) < 0.25) return B.BEDROCK;
-    const cv = this.carves.at(x, y, z);
-    if (cv >= 0) return cv;
     const d = ref - y;
     // grotten (niet te dicht bij het maaiveld)
     if (d > 28 && y > floor + 4) {
