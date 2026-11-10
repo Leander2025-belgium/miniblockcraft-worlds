@@ -1,6 +1,6 @@
 // De 3D-game: rendering, besturing, natuurkunde, bouwen en breken.
 import * as THREE from 'three';
-import { meshChunk, CS } from './mesher.js';
+import { meshChunk, CS, SMOOTH, OVER } from './mesher.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
 import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, RES as TS, materialTexture } from './textures.js';
 import { districtAt, GROUND } from './city.js';
@@ -738,7 +738,7 @@ export class Game {
     }
     {
       const pl = this.player, mode = this.ride || this.drive ? 'first' : this.settings.cam || 'first';
-      this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y },
+      this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y, visOff: this.visOff || 0 },
         0.2 + 0.8 * env.day, (mode !== 'first' || this.photo === true && this.settings.cam !== 'first') && !this.drive && !this.ride);
     }
     if (this.far) {
@@ -776,9 +776,34 @@ export class Game {
   }
 
   // ---------- camera: eerste persoon, derde persoon of van voren ----------
+  // hoogte van het vloeiende oppervlak onder de speler (zelfde regels als de mesher)
+  smoothGround(x, z, feet) {
+    const w = this.world, X = Math.floor(x), Z = Math.floor(z), Y = Math.floor(feet + 0.01) - 1;
+    const surfAt = (cx, cz, near) => {
+      for (let y = near + 2; y >= near - 2; y--) { const b = w.get(cx, y, cz); if (b && SMOOTH[b] && OVER[w.get(cx, y + 1, cz)]) return y; if (b && !OVER[b] && !SMOOTH[b]) return -1e9; }
+      return -1e9;
+    };
+    const b = w.get(X, Y, Z);
+    if (!SMOOTH[b] || !OVER[w.get(X, Y + 1, Z)]) return null;
+    const S = (dx, dz) => (dx || dz) ? surfAt(X + dx, Z + dz, Y) : Y;
+    const corner = (cx, cz) => { // hoek tussen kolommen (cx-1..cx, cz-1..cz)
+      const v = [S(cx - 1, cz - 1), S(cx, cz - 1), S(cx - 1, cz), S(cx, cz)];
+      const m = Math.max(...v);
+      if (Y < m - 1) return Y + 1;
+      let sum = 0, n = 0; for (const q of v) if (q > -1e8 && q >= m - 1) { sum += q + 1; n++; }
+      return sum / n;
+    };
+    const fx = x - X, fz = z - Z;
+    const h00 = corner(0, 0), h10 = corner(1, 0), h01 = corner(0, 1), h11 = corner(1, 1);
+    return (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
+  }
   placeCamera() {
     const p = this.player, cam = this.camera;
-    this.eye.set(p.pos.x, p.pos.y + 1.62, p.pos.z);
+    // camera en personage volgen het vloeiende terrein (de botsingen blijven op blokken)
+    let off = 0;
+    if (p.onGround && !p.fly && !this.drive && !this.ride) { const g = this.smoothGround(p.pos.x, p.pos.z, p.pos.y); if (g != null) off = Math.max(-0.6, Math.min(0.6, g - p.pos.y)); }
+    this.visOff = (this.visOff || 0) + (off - (this.visOff || 0)) * 0.35;
+    this.eye.set(p.pos.x, p.pos.y + 1.62 + this.visOff, p.pos.z);
     const mode = this.drive ? this.drive.camMode() : (this.ride ? 'first' : this.settings.cam || 'first');
     if (this.drive && this.drive.placeCamera(cam, mode)) return;
     if (mode === 'first') { cam.position.copy(this.eye); cam.rotation.set(p.pitch, p.yaw, 0); return; }

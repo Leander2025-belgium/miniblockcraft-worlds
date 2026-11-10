@@ -57,7 +57,7 @@ export class Avatar {
       this.light = light;
       for (const [k, m] of Object.entries(this.mats)) m.color.set(this.base[k] || '#ffffff').multiplyScalar(light);
     }
-    this.group.position.set(p.pos.x, p.pos.y, p.pos.z);
+    this.group.position.set(p.pos.x, p.pos.y + (s.visOff || 0), p.pos.z);
     this.group.rotation.y = p.yaw + Math.PI;
     const run = s.speed > 5, mv = Math.min(1, s.speed / 4.4);
     this.phase += dt * (s.fly ? 2 : (run ? 11 : 8)) * Math.max(0.2, mv);

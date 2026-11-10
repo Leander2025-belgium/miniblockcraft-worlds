@@ -101,6 +101,7 @@ export class FarView {
     this.canvas.getContext('2d').putImageData(img, tx * m, tz * m);
   }
   build(tx, tz, lod) {
+    if (this.spec.smoothLod) return this.buildSmooth(tx, tz, lod);
     const n = lod.n, s = this.T / n, G = this.G;
     const pos = [], col = [], side = [], idx = [];
     // buiten de tegel: geen hoge muur tot zeeniveau, alleen een korte rand (de buurtegel tekent zijn eigen kant)
@@ -146,6 +147,37 @@ export class FarView {
     const free = function () { this.array = null; };
     for (const a of Object.values(g.attributes)) a.onUpload(free);
     g.index.onUpload(free);
+    return g;
+  }
+  // natuurlandschap: een glad oppervlak door de middens van de vakken (met een rokje tegen naden)
+  buildSmooth(tx, tz, lod) {
+    const n = lod.n, s = this.T / n, pos = [], col = [], side = [], idx = [];
+    const H = (x, z) => lod.h[Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))] + 1;
+    const C = (x, z, k) => lod.c[(Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))) * 3 + k] / 255;
+    const X0 = tx * this.T, Z0 = tz * this.T;
+    // hoekpunten op de vakgrenzen: gemiddelde van de 4 vakken eromheen
+    for (let z = 0; z <= n; z++) for (let x = 0; x <= n; x++) {
+      const h = (H(x - 1, z - 1) + H(x, z - 1) + H(x - 1, z) + H(x, z)) / 4;
+      const sh = 0.85 + Math.max(-0.2, Math.min(0.2, (H(x - 1, z) - H(x, z) + H(x, z - 1) - H(x, z)) * 0.02));
+      pos.push(X0 + x * s, h, Z0 + z * s);
+      for (let k = 0; k < 3; k++) col.push((C(x - 1, z - 1, k) + C(x, z, k) + C(x - 1, z, k) + C(x, z - 1, k)) / 4 * sh);
+      side.push(0);
+    }
+    const V = (x, z) => z * (n + 1) + x;
+    for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) idx.push(V(x, z), V(x, z + 1), V(x + 1, z + 1), V(x, z), V(x + 1, z + 1), V(x + 1, z));
+    // rokje langs de rand (6 m naar beneden)
+    const ring = [];
+    for (let x = 0; x <= n; x++) ring.push(V(x, 0)); for (let z = 1; z <= n; z++) ring.push(V(n, z));
+    for (let x = n - 1; x >= 0; x--) ring.push(V(x, n)); for (let z = n - 1; z >= 1; z--) ring.push(V(0, z));
+    ring.push(ring[0]);
+    const base = pos.length / 3;
+    for (const v of ring) { pos.push(pos[v * 3], pos[v * 3 + 1] - 6, pos[v * 3 + 2]); col.push(col[v * 3] * 0.8, col[v * 3 + 1] * 0.8, col[v * 3 + 2] * 0.8); side.push(0); }
+    for (let i = 0; i < ring.length - 1; i++) { const a = ring[i], b = ring[i + 1], a2 = base + i, b2 = base + i + 1; idx.push(a, a2, b2, a, b2, b, a, b2, a2, a, b, b2); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    g.setIndex(idx); g.computeBoundingSphere();
     return g;
   }
   // verberg verre blokken waar de echte tegel geladen is

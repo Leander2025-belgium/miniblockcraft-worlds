@@ -11,7 +11,7 @@ export const MW = 14000, ML = 14000, G = 12, T = 128;
 export const META = {
   id: 'reuzenberg', name: 'Reuzenberg', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000,
+  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000, smoothLod: true,
 };
 const PEAK = [7000, 6300];
 
