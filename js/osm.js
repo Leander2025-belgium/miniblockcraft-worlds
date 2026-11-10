@@ -1274,6 +1274,11 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
     flush();
   }
+  for (const [la, lo, kind] of (osm.pois || [])) {
+    if (kind !== 'signal') continue;
+    const q = proj([la, lo]); if (q[0] < 0 || q[1] < 0 || q[0] >= size || q[1] >= size) continue;
+    pathsOut.push({ type: 'signal', pts: new Float32Array([q[0], q[1], gyAt(Math.floor(q[0]), Math.floor(q[1]))]) });
+  }
   for (const [a, b] of runwayLines) pathsOut.push({ type: 'runway', pts: new Float32Array([a[0], a[1], gyAt(Math.floor(a[0]), Math.floor(a[1])), b[0], b[1], gyAt(Math.floor(b[0]), Math.floor(b[1]))]) });
   for (const [la, lo, kind] of (osm.pois || [])) {
     if (kind !== 'gate') continue;

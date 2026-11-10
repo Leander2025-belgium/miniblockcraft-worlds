@@ -211,6 +211,15 @@ export class Airports {
       }
     }
   }
+  // piloten en grondpersoneel bij de gates (getekend door het verkeer)
+  npcs() {
+    const out = [];
+    for (const g of this.gates) {
+      out.push({ x: g.x + 6, y: g.y, z: g.z + 2, yaw: g.yaw, uniform: [0xf28c00, 0x2b2f38] }, { x: g.x - 7, y: g.y, z: g.z - 3, yaw: g.yaw + 1, uniform: [0xf2e600, 0x2b2f38] });
+      if (g.plane) out.push({ x: g.x + 3, y: g.y, z: g.z + 8, yaw: g.yaw + 3, uniform: [0xf4f4f4, 0x111827] });
+    }
+    return out;
+  }
   nearestRunway(x, z) {
     let best = null, bd = 1e9;
     for (const r of this.runways) { const d = Math.hypot((r.a[0] + r.b[0]) / 2 - x, (r.a[2] + r.b[2]) / 2 - z); if (d < bd) { bd = d; best = r; } }
@@ -235,7 +244,7 @@ export class Airports {
   }
   update(dt, day) {
     const game = this.game; this.t += dt;
-    if (game.tiled && (this.scanT = (this.scanT || 0) + dt) > 3) { this.scanT = 0; this.scan(game.world.tiles); }
+    if (game.tiled && (this.scanT = (this.scanT || 0) + dt) > 3) { this.scanT = 0; this.scan(game.world.tiles); if (game.traffic && this.gates.length) game.traffic.extraNpcs = this.npcs(); }
     const P = game.player.pos;
     // aankomst na een reis: in een naderend vliegtuig op de dichtstbijzijnde baan
     if (game.pendingArrival) {

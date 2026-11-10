@@ -59,10 +59,11 @@ function at(e, d, out) {
 class Network {
   constructor() { this.edges = new Map(); this.sig = ''; this.stops = []; this.len = { road: 0, walk: 0, tram: 0, rail: 0, major: 0 }; }
   build(tiles, T) {
-    const edges = new Map(), stops = [];
+    const edges = new Map(), stops = [], signals = [];
     for (const t of tiles.values()) {
       if (!t.paths) continue;
       t.paths.forEach((p, pi) => {
+        if (p.type === 'signal') { if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) signals.push({ x: t.ox + p.pts[0], y: p.pts[2] + 1, z: t.oz + p.pts[1] }); return; }
         if (p.type === 'railstop' || p.type === 'busstop' || p.type === 'metrostop') {
           if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) stops.push({ kind: p.type, x: t.ox + p.pts[0], y: p.pts[2], z: t.oz + p.pts[1], name: p.name || '' });
           return;
@@ -136,6 +137,45 @@ class Network {
         if (bd < r && bdd > 6 && bdd < e.len - 6) { e.stops.push(bdd); (e.stopNames || (e.stopNames = [])).push(s.name || (s.kind === 'railstop' ? 'Station' : 'Halte')); }
       }
     }
+    // verkeerslichten: stopstreep op elke rijstrook die er vlak langs loopt
+    for (const sg of signals) {
+      sg.off = ((sg.x * 7 + sg.z * 13) % 40 + 40) % 40;
+      for (const e of edges.values()) {
+        if (e.net !== 'road' || e.conn) continue;
+        if (Math.abs(e.pts[0] - sg.x) > e.len + 20 || Math.abs(e.pts[2] - sg.z) > e.len + 20) continue;
+        let bd = 1e9, bdd = 0;
+        for (let d = 0; d <= e.len; d += 2) { at(e, d, tmp); const q = Math.hypot(tmp.x - sg.x, tmp.z - sg.z); if (q < bd) { bd = q; bdd = d; } }
+        if (bd < 14) { at(e, bdd, tmp); (e.sig || (e.sig = [])).push({ d: Math.max(0, bdd - 9), axis: Math.abs(tmp.tx) > Math.abs(tmp.tz) ? 0 : 1, sg }); }
+      }
+    }
+    // kruisende rijstroken zonder licht: voorrang (grote weg eerst, anders van rechts)
+    const segGrid = new Map(), segs = [];
+    for (const e of edges.values()) {
+      if (e.net !== 'road' || e.conn || e.sig) continue;
+      for (let i = 0; i + 5 < e.pts.length; i += 3) {
+        const sgm = { e, i, ax: e.pts[i], az: e.pts[i + 2], bx: e.pts[i + 3], bz: e.pts[i + 5], d0: e.cum[i / 3] };
+        segs.push(sgm);
+        const k = Math.floor((sgm.ax + sgm.bx) / 64) + ',' + Math.floor((sgm.az + sgm.bz) / 64); let l = segGrid.get(k); if (!l) segGrid.set(k, l = []); l.push(sgm);
+      }
+    }
+    for (const [k, l] of segGrid) {
+      const [gx, gz] = k.split(',').map(Number), near = [];
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const m = segGrid.get((gx + dx) + ',' + (gz + dz)); if (m) near.push(...m); }
+      for (const a of l) for (const b of near) {
+        if (a.e === b.e) continue;
+        const rx = a.bx - a.ax, rz = a.bz - a.az, sx = b.bx - b.ax, sz = b.bz - b.az, den = rx * sz - rz * sx;
+        if (Math.abs(den) < 1e-6) continue;
+        const qx = b.ax - a.ax, qz = b.az - a.az, t = (qx * sz - qz * sx) / den, u = (qx * rz - qz * rx) / den;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        const la = Math.hypot(rx, rz), lb = Math.hypot(sx, sz);
+        const dot = (rx * sx + rz * sz) / (la * lb); if (Math.abs(dot) > 0.8) continue; // bijna evenwijdig
+        // moet a voorrang geven aan b?
+        const rightX = -rz / la, rightZ = rx / la, fromRight = (sx / lb) * rightX + (sz / lb) * rightZ < -0.4;
+        const yieldA = (b.e.major && !a.e.major) || (b.e.major === a.e.major && fromRight);
+        if (yieldA) (a.e.yields || (a.e.yields = [])).push({ d: a.d0 + t * la, o: b.e, od: b.d0 + u * lb });
+      }
+    }
+    this.signals = signals;
     this.edges = edges; this.stops = stops;
     const L = { road: 0, walk: 0, tram: 0, rail: 0, major: 0, water: 0, sea: 0, metro: 0 };
     for (const e of edges.values()) { if (!e.conn) L[e.net] += e.len; if (e.major) L.major += e.len; }
@@ -177,10 +217,13 @@ function consist(kind, r) {
   }
   if (kind === 'bus') return { secs: [{ m: 'bus', len: 12, off: 6 }], L: 12 };
   const cars = ['sedan', 'sedan', 'hatch', 'hatch', 'suv', 'van', 'taxi', 'sedan', 'suv', 'hatch'];
-  const m = cars[Math.floor(r * cars.length)], len = { sedan: 4.6, hatch: 4.0, suv: 4.7, van: 5.1, taxi: 4.7 }[m];
+  // af en toe hulpdiensten met zwaailichten
+  const em = r < 0.015 ? 'police' : r < 0.025 ? 'ambulance' : r < 0.032 ? 'fire' : null;
+  const m = em || cars[Math.floor(r * cars.length)], len = { sedan: 4.6, hatch: 4.0, suv: 4.7, van: 5.1, taxi: 4.7, police: 4.8, ambulance: 5.8, fire: 9 }[m];
+  if (em) return { secs: [{ m, len, off: len / 2, beacon: em === 'police' ? 'Car' : em === 'ambulance' ? 'Van' : 'Truck' }], L: len, emergency: em };
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
-const MAX = { metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
+const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
@@ -327,6 +370,7 @@ export class Traffic {
     for (const e of this.net.edges.values()) {
       if ((net === 'ship' ? (e.net !== 'water' && e.net !== 'sea') : e.net !== net) || e.conn || e.len < 8) continue;
       if (kind === 'bus' && this.net.len.major > 300 && !e.major) continue;
+      if (kind === 'car' && e.cls === 'boat') continue;
       const mx = e.pts[Math.floor(e.pts.length / 6) * 3], mz = e.pts[Math.floor(e.pts.length / 6) * 3 + 2];
       const dd = Math.hypot(mx - player.x, mz - player.z);
       if (dd > RANGE || (far && dd < 160)) continue;
@@ -346,7 +390,7 @@ export class Traffic {
       this.agents.push(a); return a;
     }
     const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' || Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
-      color: kind === 'car' ? (consist(kind, rr).secs[0].m === 'taxi' ? 0xf1c40f : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)])
+      color: kind === 'car' ? ({ taxi: 0xf1c40f, police: 0xf4f6fa, ambulance: 0xf4f4f0, fire: 0xc8102e }[consist(kind, rr).secs[0].m] ?? CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)])
         : kind === 'bus' ? BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)]
         : kind === 'tram' ? TRAM_COLORS[Math.floor(rr * 7) % TRAM_COLORS.length]
         : kind === 'train' ? 0xffffff : 0, phase: Math.random() * 10 };
@@ -504,7 +548,26 @@ export class Traffic {
         this.place(a); continue;
       }
       let target = a.kind === 'walk' ? SPEED.walk * (0.85 + a.r * 0.3) : a.kind === 'ship' ? a.vmax : SPEED[a.kind] * (0.85 + a.r * 0.3);
+      if (a.emergency) target *= 1.35;
       if (e.conn) target = Math.min(target, 6.5);
+      // verkeerslicht: rood of oranje = stoppen voor de streep
+      if (e.sig && !a.emergency && r.dir > 0) for (const sg of e.sig) {
+        const dist = sg.d - a.d; if (dist < -1 || dist > 45) continue;
+        const ph = ((this.clock + sg.sg.off) % 44), green = sg.axis === 0 ? ph < 19 : (ph >= 22 && ph < 41);
+        const amber = sg.axis === 0 ? (ph >= 19 && ph < 22) : ph >= 41;
+        if (!green && !(amber && dist < 10)) target = Math.min(target, Math.max(0, Math.sqrt(Math.max(0, 2 * 3 * (dist - 1)))));
+      }
+      // voorrang: kruisend verkeer van rechts of op de grote weg eerst
+      if (e.yields && a.kind !== 'walk' && r.dir > 0) {
+        for (const y of e.yields) {
+          const dist = y.d - a.d; if (dist < 0 || dist > 22) continue;
+          const l2 = onEdge.get(y.o.id); if (!l2) continue;
+          let busy = false;
+          for (const b of l2) { const gap = y.od - b.d; if (b !== a && gap > -4 && gap < 28 && (b.v > 1 || gap > -4 && gap < 6)) { busy = true; break; } }
+          a.yieldT = busy ? (a.yieldT || 0) + dt : 0;
+          if (busy && a.yieldT < 8) target = Math.min(target, Math.max(0, (dist - 4) * 0.8));
+        }
+      }
       if (a.kind !== 'walk') {
         // voorligger
         const ahead = (b) => (b.d - a.d) * r.dir;
@@ -595,12 +658,50 @@ export class Traffic {
     for (const c of this.parked) { const d = Math.hypot(c.x - p.x, c.z - p.z); if (d < bd) { bd = d; best = c; } }
     return best;
   }
+  // vaste figuren bij haltes en (via extraNpcs) aan de gates
+  npcList() {
+    if (this.npcCache && this.npcStops === this.net.stops && this.npcExtra === this.extraNpcs) return this.npcCache;
+    const out = [], rnd = (k) => { const v = Math.sin(k * 12.9898) * 43758.5453; return v - Math.floor(v); };
+    const person = (x, y, z, yaw, k, uniform) => out.push({ x, y, z, yaw, size: 0.92 + rnd(k + 5) * 0.16,
+      shirt: uniform ? uniform[0] : SHIRTS[Math.floor(rnd(k) * SHIRTS.length)], pants: uniform ? uniform[1] : PANTS[Math.floor(rnd(k + 1) * PANTS.length)],
+      skin: SKIN[Math.floor(rnd(k + 2) * SKIN.length)], hair: HAIR[Math.floor(rnd(k + 3) * HAIR.length)], wave: uniform && rnd(k + 9) < 0.15 });
+    let k = 1;
+    for (const st of this.net.stops || []) {
+      const base = st.x * 0.37 + st.z * 0.71;
+      const y = st.kind === 'metrostop' ? st.y + 1 : st.y + 1;
+      if (st.kind !== 'busstop') person(st.x + 1.5, y, st.z + 0.5, 0.3, base + k++, [0x1c2c5a, 0x1a1d24]); // personeel
+      const n = st.kind === 'busstop' ? 2 : 4;
+      for (let i = 0; i < n; i++) person(st.x + (rnd(base + i) - 0.5) * 6, y, st.z + (rnd(base + i + 9) - 0.5) * 3, rnd(base + i + 3) * 6.28, base + 10 + i);
+    }
+    for (const e of this.extraNpcs || []) person(e.x, e.y, e.z, e.yaw || 0, e.x + e.z, e.uniform);
+    this.npcCache = out; this.npcStops = this.net.stops; this.npcExtra = this.extraNpcs;
+    return out;
+  }
   // matrices klaarzetten (alleen wat dichtbij is)
   place(a) { a.vis = true; }
   flush(player) {
     for (const m of Object.values(this.meshes)) m.n = 0;
     let pn = 0;
     const P = this.people, A = this.tmpA, Bp = this.tmpB;
+    // NPC's die op een vaste plek staan: personeel, wachtende reizigers, piloten, grondpersoneel
+    const npcs = this.npcList();
+    for (const n of npcs) {
+      if (pn >= this.PMAX - 40) break;
+      if (Math.hypot(n.x - player.x, n.z - player.z) > 160) continue;
+      const sc = n.size, hip = n.y + 0.92 * sc, yaw = n.yaw, br = Math.sin(this.clock * 1.3 + n.x) * 0.04;
+      const put = (m, i, ox, oy, rot, color) => {
+        this.e.set(rot, yaw, 0); this.q.setFromEuler(this.e);
+        this.v.set(n.x + Math.cos(yaw) * ox, oy, n.z - Math.sin(yaw) * ox); this.s.setScalar(sc);
+        m.setMatrixAt(i, this.m4.compose(this.v, this.q, this.s));
+        if (color != null && m.instanceColor) m.setColorAt(i, this.c.setHex(color));
+      };
+      put(P.leg, pn * 2, 0.11 * sc, hip, 0, n.pants); put(P.leg, pn * 2 + 1, -0.11 * sc, hip, 0, n.pants);
+      put(P.shoe, pn * 2, 0.11 * sc, hip, 0); put(P.shoe, pn * 2 + 1, -0.11 * sc, hip, 0);
+      put(P.torso, pn, 0, hip, 0, n.shirt);
+      put(P.arm, pn * 2, 0.29 * sc, hip + 0.58 * sc, br + (n.wave ? -2.6 : 0), n.shirt); put(P.arm, pn * 2 + 1, -0.29 * sc, hip + 0.58 * sc, -br, n.shirt);
+      put(P.head, pn, 0, hip + 0.63 * sc, 0, n.skin); put(P.hair, pn, 0, hip + 0.63 * sc, 0, n.hair);
+      pn++;
+    }
     for (const a of this.agents) {
       if (a.kind === 'walk') {
         if (pn >= this.PMAX) continue;
@@ -630,6 +731,7 @@ export class Traffic {
       const h = this.behind(a, 0, A);
       if (Math.hypot(h.x - player.x, h.z - player.z) > RANGE + a.L) continue;
       const lift = a.kind === 'train' || a.kind === 'metro' ? 0.2 : a.kind === 'tram' ? 0.05 : 0;
+      if (a.emergency === undefined) a.emergency = a.secs && a.secs[0] && ['police', 'ambulance', 'fire'].includes(a.secs[0].m) ? a.secs[0].m : null;
       // deuren open bij een halte (AI) of als de bestuurder ze opent
       const doorsOpen = a.kind === 'metro' && (a.player ? a.player.doors : (a.wait > 1.5 && a.wait < 18));
       a.doorsOpen = doorsOpen;
@@ -651,8 +753,28 @@ export class Traffic {
           m.setMatrixAt(i, this.m4);
           if (kind === 'paint') m.setColorAt(i, this.c.setHex(a.color));
         }
+        if (s.beacon) { const side = Math.floor(this.clock * 5) % 2 ? 'L' : 'R', Bm = this.meshes['beacon' + s.beacon + side]; if (Bm && Bm.n < Bm.max) { const j = Bm.n++; for (const m of Object.values(Bm.set)) m.setMatrixAt(j, this.m4); } }
         if (s.doors && !doorsOpen) { const D = this.meshes[s.doors]; if (D.n < D.max) { const j = D.n++; for (const m of Object.values(D.set)) m.setMatrixAt(j, this.m4); } }
       }
+    }
+    // verkeerslichten: per richting een lamp (groen, oranje, rood)
+    if (this.net.signals && this.net.signals.length) {
+      if (!this.sigMesh) {
+        this.sigMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.35, 0.35, 0.35), new THREE.MeshBasicMaterial({ color: 0xffffff }), 400);
+        this.sigMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(400 * 3), 3); this.sigMesh.frustumCulled = false; this.group.add(this.sigMesh);
+      }
+      let n = 0;
+      for (const sg of this.net.signals) {
+        if (n >= 398 || Math.hypot(sg.x - player.x, sg.z - player.z) > 250) continue;
+        const off = ((sg.x * 7 + sg.z * 13) % 40 + 40) % 40, ph = (this.clock + off) % 44;
+        for (const axis of [0, 1]) {
+          const green = axis === 0 ? ph < 19 : (ph >= 22 && ph < 41), amber = axis === 0 ? (ph >= 19 && ph < 22) : ph >= 41;
+          this.v.set(sg.x + (axis ? 0 : 0.4), sg.y + 3.1, sg.z + (axis ? 0.4 : 0)); this.q.identity(); this.s.set(1, 1, 1);
+          this.sigMesh.setMatrixAt(n, this.m4.compose(this.v, this.q, this.s));
+          this.sigMesh.setColorAt(n++, this.c.setHex(green ? 0x22e04a : amber ? 0xffb000 : 0xff2a2a));
+        }
+      }
+      this.sigMesh.count = n; this.sigMesh.instanceMatrix.needsUpdate = true; this.sigMesh.instanceColor.needsUpdate = true;
     }
     // vrij bestuurde en geparkeerde voertuigen
     this.parked = this.parked.filter(c => c.driving || Math.hypot(c.x - player.x, c.z - player.z) < RANGE + 200);

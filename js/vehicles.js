@@ -114,6 +114,28 @@ const CAR_MODELS = {
     for (const sz of [1.6, -1.65]) for (const sx of [W / 2 - 0.13, -W / 2 + 0.13]) P.wheel(R, 0.25, sx, R, sz, TYRE);
     return P.done();
   },
+  police: () => { const P = new Parts(); carBase(P, { L: 4.8, W: 1.84, Hb: 0.64, wheelR: 0.34, cabin: 2.5, cabinH: 0.52, cabinBack: -0.25, cabinFront: 0.55, roofLen: 1.5, wheelBase: 2.85 });
+    P.box('trim', 1.86, 0.18, 3.6, 0, 0.8, 0, 0x1d3f9e); P.box('trim', 1.1, 0.1, 0.3, 0, 1.53, -0.25, 0x2b2d30); return P.done(); },
+  ambulance: () => {
+    const P = new Parts(), L = 5.8, W = 2.05, R = 0.36;
+    P.box('paint', W, 1.9, L - 1.0, 0, 1.35, -0.5); P.box('paint', W, 0.8, 1.0, 0, 0.85, L / 2 - 0.5);
+    P.box('trim', W * 0.94, 0.85, 0.9, 0, 1.75, L / 2 - 1.1, GLASS, { sx: 0.97, front: 0.45 });
+    P.box('trim', W + 0.02, 0.25, L - 1.2, 0, 1.1, -0.5, 0x2a9d3a); P.box('trim', W + 0.02, 0.2, L - 1.2, 0, 1.4, -0.5, 0xf2c200);
+    P.box('trim', W + 0.03, 0.12, L * 0.9, 0, 0.42, 0, DARK);
+    P.box('light', 0.3, 0.16, 0.05, W / 2 - 0.25, 0.95, L / 2 + 0.01, HEAD).box('light', 0.3, 0.16, 0.05, -W / 2 + 0.25, 0.95, L / 2 + 0.01, HEAD);
+    for (const sz of [1.8, -1.9]) for (const sx of [W / 2 - 0.13, -W / 2 + 0.13]) P.wheel(R, 0.25, sx, R, sz, TYRE);
+    return P.done();
+  },
+  fire: () => {
+    const P = new Parts(), L = 9, W = 2.5, R = 0.5;
+    P.box('paint', W, 2.2, 2.2, 0, 1.6, L / 2 - 1.1); P.box('trim', W * 0.95, 0.9, 0.1, 0, 2.1, L / 2 + 0.01, GLASS);
+    P.box('paint', W, 2.0, L - 2.4, 0, 1.6, -1.2); P.box('trim', W + 0.02, 0.15, L - 2.4, 0, 1.2, -1.2, 0xf2f2f2);
+    P.box('trim', 0.6, 0.25, L - 1.5, 0.5, 2.8, -0.8, 0xc0c4c9); P.box('trim', 0.6, 0.25, L - 1.5, -0.5, 2.8, -0.8, 0xc0c4c9); // ladder
+    for (let z = -L / 2 + 1; z < L / 2 - 1; z += 0.6) P.box('trim', 1.1, 0.08, 0.06, 0, 2.95, z, 0xc0c4c9);
+    P.box('light', 0.3, 0.18, 0.05, W / 2 - 0.3, 0.9, L / 2 + 0.01, HEAD).box('light', 0.3, 0.18, 0.05, -W / 2 + 0.3, 0.9, L / 2 + 0.01, HEAD);
+    for (const sz of [L / 2 - 1.4, -L / 2 + 1.6, -L / 2 + 3]) for (const sx of [W / 2 - 0.2, -W / 2 + 0.2]) P.wheel(R, 0.35, sx, R, sz, TYRE);
+    return P.done();
+  },
   taxi: () => { const P = new Parts(); carBase(P, { L: 4.7, W: 1.82, Hb: 0.62, wheelR: 0.33, cabin: 2.5, cabinH: 0.52, cabinBack: -0.25, cabinFront: 0.55, roofLen: 1.45, wheelBase: 2.8 });
     P.box('light', 0.6, 0.16, 0.22, 0, 1.6, -0.3, 0xfff1a8); return P.done(); },
 };
@@ -264,6 +286,11 @@ export function buildModels() {
   const M = {};
   for (const [k, f] of Object.entries(CAR_MODELS)) M[k] = f();
   M.bus = busModel();
+  // zwaailichten (links en rechts apart, om te knipperen)
+  for (const [k, y, z] of [['Car', 1.6, -0.25], ['Van', 2.4, 1.6], ['Truck', 2.85, 3.3]]) for (const sx of [1, -1]) {
+    const P = new Parts(); P.box('light', 0.42, 0.16, 0.22, sx * 0.3, y, z, 0x2d6bff); M['beacon' + k + (sx > 0 ? 'L' : 'R')] = P.done();
+  }
+  { const P = new Parts(); P.box('light', 0.28, 0.28, 0.12, 0, 0, 0, 0xffffff); M.signalHead = P.done(); }
   M.tramCab = tramSection(true); M.tramMid = tramSection(false);
   M.iceHead = trainCar({ L: 20.5, cab: true, stripe: 0xd4121c, H: 3.85 });
   M.iceCoach = trainCar({ L: 26.4, stripe: 0xd4121c, H: 3.85 });
