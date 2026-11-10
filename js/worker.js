@@ -91,7 +91,7 @@ self.onmessage = (e) => {
   } else if (m.type === 'cityTile') {
     cityTile(m).then(r => {
       if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
-      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths }, [r.vox.buffer]);
+      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths, tunnels: r.tunnels || null }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'lods') {
     sendLods(m);
@@ -234,7 +234,7 @@ async function cityTileInner(m) {
   const cached = await cacheGet(key);
   if (cached && cached.rle) {
     if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
-    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [] };
+    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null };
   }
   // kant-en-klare tegel van de website (sneller dan zelf omzetten)
   if (map.baked) {
@@ -263,9 +263,9 @@ async function cityTileInner(m) {
   const elev = await superElev(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
   const rle = rleEncode(r.vox);
-  await cachePut(key, { rle, H: r.H, paths: r.paths });
+  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels: r.tunnels && r.tunnels.length ? r.tunnels : null });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths };
+  return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths, tunnels: r.tunnels };
 }
 
 // ---------- eenvoudige versie per tegel (verre gebouwen + minikaart) ----------

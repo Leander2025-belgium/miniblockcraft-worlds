@@ -2,6 +2,7 @@
 // Werkt met Overpass-JSON en met .osm-bestanden (XML) van openstreetmap.org.
 
 import { B, BLOCKS } from './blocks.js';
+import { CarveIndex } from './carve.js';
 import { hash, placeTree } from './city.js';
 
 export const REAL_GROUND = 12;
@@ -628,6 +629,30 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
   const rails = [];
+  // tunnels (metro, premetro, S-Bahn): worden uitgegraven op diepte, met inritten waar ze bovenkomen
+  const tunnelSegs = [], tunnelPts = [];
+  const surfRailNodes = new Set();
+  for (const w of osm.ways) if (w.tags.railway && !(w.tags.tunnel && w.tags.tunnel !== 'no')) for (const n of w.nds) surfRailNodes.add(n);
+  for (const w of osm.ways) {
+    const rw = w.tags.railway;
+    if (!rw || !['rail', 'light_rail', 'tram', 'subway'].includes(rw) || !(w.tags.tunnel && w.tags.tunnel !== 'no')) continue;
+    const l = line(w.nds);
+    if (!l || !bboxOk(l, 200 * scale)) continue;
+    const layer = Math.min(3, Math.abs(parseInt(w.tags.layer, 10) || 1));
+    const full = (rw === 'subway' ? 9 : 8) + 6 * (layer - 1);
+    const cum = [0]; for (let i = 1; i < l.length; i++) cum.push(cum[i - 1] + Math.hypot(l[i][0] - l[i - 1][0], l[i][1] - l[i - 1][1]));
+    const Lt = cum[cum.length - 1], p0 = surfRailNodes.has(w.nds[0]), p1 = surfRailNodes.has(w.nds[w.nds.length - 1]);
+    const ys = l.map((q, i) => {
+      const dist = Math.min(p0 ? cum[i] : 1e9, p1 ? Lt - cum[i] : 1e9);
+      return gyAt(Math.floor(q[0]), Math.floor(q[1])) - Math.round(full * Math.min(1, dist / (140 * scale)));
+    });
+    for (let i = 0; i + 1 < l.length; i++) {
+      tunnelSegs.push({ type: 'tube', ax: l[i][0] + OX, az: l[i][1] + OZ, ay: ys[i], bx: l[i + 1][0] + OX, bz: l[i + 1][1] + OZ, by: ys[i + 1] });
+      tunnelPts.push([l[i][0], l[i][1], ys[i]]);
+    }
+    tunnelPts.push([l[l.length - 1][0], l[l.length - 1][1], ys[ys.length - 1]]);
+    if (inTileLine(l)) paths.push({ type: rw === 'subway' ? 'metro' : rw === 'tram' ? 'tram' : 'train', pts: l.flat(), ys, line: w.tags.ref || w.tags.name || '' });
+  }
   for (const w of osm.ways) {
     const rw = w.tags.railway;
     if (!rw || !['rail', 'light_rail', 'narrow_gauge', 'tram', 'subway'].includes(rw)) continue;
@@ -636,7 +661,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     if (!l || !bboxOk(l, 5 * scale)) continue;
     rails.push(l);
     const tram = rw === 'tram';
-    if (inTileLine(l) && rw !== 'subway') paths.push({ type: tram ? 'tram' : 'train', pts: l.flat() });
+    if (inTileLine(l)) paths.push({ type: rw === 'subway' ? 'metro' : tram ? 'tram' : 'train', pts: l.flat(), line: w.tags.ref || '' });
     const rb = w.tags.bridge && w.tags.bridge !== 'no';
     const rdeck = rb ? Math.max(...l.map(q => gyAt(Math.floor(q[0]), Math.floor(q[1])))) : 0;
     // spoorbed: ballast (de rails, dwarsliggers en bovenleiding worden in 3D getekend)
@@ -656,7 +681,31 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   for (const w of osm.ways) {
     if (w.tags.railway !== 'platform' && !(w.tags.public_transport === 'platform' && (w.tags.train === 'yes' || w.tags.railway))) continue;
     const l = line(w.nds);
-    if (!l || !bboxOk(l, 10)) continue;
+    if (!l || !bboxOk(l, 60)) continue;
+    // ondergronds perron (naast een tunnel): perronhal, trappen met roltrap en liften naar de straat
+    {
+      let cx = 0, cz = 0; for (const q of l) { cx += q[0]; cz += q[1]; } cx /= l.length; cz /= l.length;
+      let best = null, bd = 30 * scale;
+      for (const q of tunnelPts) { const d = Math.hypot(q[0] - cx, q[1] - cz); if (d < bd && q[2] < gyAt(Math.floor(q[0]), Math.floor(q[1])) - 4) { bd = d; best = q; } }
+      if (best) {
+        const ty = best[2], hw = Math.max(1.6, Math.min(5, (parseLen(w.tags.width) || 6) * scale / 2));
+        const open = w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length - 1];
+        // een gesloten omtrek: langste as als perronlijn
+        let pl = l;
+        if (open) { let a = l[0], b = l[1], m = 0; for (const p1 of l) for (const p2 of l) { const d = Math.hypot(p1[0] - p2[0], p1[1] - p2[1]); if (d > m) { m = d; a = p1; b = p2; } } pl = [a, b]; }
+        for (let i = 0; i + 1 < pl.length; i++) tunnelSegs.push({ type: 'hall', hw, ax: pl[i][0] + OX, az: pl[i][1] + OZ, ay: ty, bx: pl[i + 1][0] + OX, bz: pl[i + 1][1] + OZ, by: ty });
+        for (const [end, prev] of [[pl[pl.length - 1], pl[pl.length - 2]], [pl[0], pl[1]]]) {
+          const dx = end[0] - prev[0], dz = end[1] - prev[1], dl = Math.hypot(dx, dz) || 1, ux = dx / dl, uz = dz / dl;
+          const sx = end[0] + ux * 1, sz = end[1] + uz * 1, top = gyAt(Math.floor(sx + ux * 30), Math.floor(sz + uz * 30));
+          const run = Math.max(8, (top - (ty + 1)) * 1.8);
+          tunnelSegs.push({ type: 'stair', hw: Math.min(1.6, hw), ax: sx + OX, az: sz + OZ, ay: ty + 1, bx: sx + ux * run + OX, bz: sz + uz * run + OZ, by: top + 1 });
+          tunnelSegs.push({ type: 'lift', ax: end[0] - ux * 3 + OX, az: end[1] - uz * 3 + OZ, ay: ty + 1, by: gyAt(Math.floor(end[0] - ux * 3), Math.floor(end[1] - uz * 3)), bx: end[0] - ux * 3 + OX, bz: end[1] - uz * 3 + OZ });
+        }
+        if (cx >= 0 && cz >= 0 && cx < size && cz < size) railStops.push([cx, cz, w.tags.name || w.tags['ref:name'] || 'Metrostation', ty + 1, true]);
+        continue;
+      }
+    }
+    if (!bboxOk(l, 10)) continue;
     const mark = (x, z) => { const i = z * size + x; platform[i] = w.tags.covered === 'no' ? 1 : 2; surf[i] = B.CONCRETE; marks[i] = 1; treeD[i] = 0; };
     if (w.nds.length > 3 && w.nds[0] === w.nds[w.nds.length - 1]) fillRings([l], size, mark);
     else strokeLine(l, (parseLen(w.tags.width) || 5) * scale, size, (x, z) => mark(x, z));
@@ -1130,6 +1179,21 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     }
   }
 
+  // 4c. tunnels, perronhallen, trappen en liften uitgraven (het deel boven de tegelbodem)
+  if (tunnelSegs.length) {
+    const idx = new CarveIndex();
+    for (const sg of tunnelSegs) idx.add(sg);
+    for (const sg of tunnelSegs) {
+      const pad = sg.type === 'hall' ? sg.hw + 6 : 4;
+      const x0 = Math.max(0, Math.floor(Math.min(sg.ax, sg.bx) - OX - pad)), x1 = Math.min(size - 1, Math.ceil(Math.max(sg.ax, sg.bx) - OX + pad));
+      const z0 = Math.max(0, Math.floor(Math.min(sg.az, sg.bz) - OZ - pad)), z1 = Math.min(size - 1, Math.ceil(Math.max(sg.az, sg.bz) - OZ + pad));
+      const y0 = Math.max(0, Math.min(sg.ay, sg.by) - 2), y1 = Math.min(H - 1, Math.max(sg.ay, sg.by) + 8);
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const b = idx.at(x + OX, y, z + OZ);
+        if (b >= 0) vox[(z * size + x) * H + y] = b;
+      }
+    }
+  }
   // 5. bomen
   const tset = (x, y, z, b, force) => {
     if (x < 0 || z < 0 || x >= size || z >= size || y < 0 || y >= H) return;
@@ -1175,7 +1239,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   };
   for (const q of paths) {
     const src = q.pts; let run = [];
-    const flush = () => { if (run.length >= 6) pathsOut.push({ type: q.type, pts: new Float32Array(run) }); run = []; };
+    const flush = () => { if (run.length >= 6) pathsOut.push({ type: q.type, pts: new Float32Array(run), ...(q.line ? { line: q.line } : {}) }); run = []; };
+    const Y = (i, k, steps, x, z) => q.ys ? q.ys[i / 2] + ((q.ys[i / 2 + 1] ?? q.ys[i / 2]) - q.ys[i / 2]) * k / steps : surfY(x, z) - (q.type === 'boat' || q.type === 'boatL' ? 1 : 0);
     for (let i = 0; i + 1 < src.length; i += 2) {
       const ax = src[i], az = src[i + 1];
       if (i + 3 < src.length) {
@@ -1183,15 +1248,15 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 12));
         for (let k = 0; k < steps; k++) {
           const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
-          if (inBox(x, z)) run.push(x, z, surfY(x, z) - (q.type === 'boat' || q.type === 'boatL' ? 1 : 0)); else flush();
+          if (inBox(x, z)) run.push(x, z, Y(i, k, steps, x, z)); else flush();
         }
-      } else if (inBox(ax, az)) run.push(ax, az, surfY(ax, az) - (q.type === 'boat' || q.type === 'boatL' ? 1 : 0));
+      } else if (inBox(ax, az)) run.push(ax, az, Y(i, 0, 1, ax, az));
     }
     flush();
   }
-  for (const [x, z, name] of railStops) pathsOut.push({ type: 'railstop', name, pts: new Float32Array([x, z, surfY(x, z) + 1]) });
+  for (const [x, z, name, uy, under] of railStops) pathsOut.push({ type: under ? 'metrostop' : 'railstop', name, pts: new Float32Array([x, z, under ? uy : surfY(x, z) + 1]) });
   for (const [x, z] of busStops) pathsOut.push({ type: 'busstop', pts: new Float32Array([x, z, surfY(x, z)]) });
-  return { vox, H, ground: G, buildings: count, paths: pathsOut };
+  return { vox, H, ground: G, buildings: count, paths: pathsOut, tunnels: tunnelSegs };
 }
 
 // Bovenaanzicht (RGBA) van een voxelvolume

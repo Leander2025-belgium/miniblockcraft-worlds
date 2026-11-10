@@ -285,7 +285,7 @@ async function playMap(id, at) {
       const mine = ed && ed.rle ? { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null } : null;
       // ook voor zelf bebouwde stukken de paden voor het verkeer ophalen
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
-        if (m.type === 'cityTile') resolve(mine ? { ...mine, paths: m.paths || [] } : m);
+        if (m.type === 'cityTile') resolve(mine ? { ...mine, paths: m.paths || [], tunnels: m.tunnels || null } : m);
         else if (m.type === 'error' && mine) resolve(mine);
         else if (m.type === 'error') reject(new Error(m.message));
       }, workerFor(map, tx, tz));
@@ -639,6 +639,10 @@ const PLACES = [
   ['Brussel – Grote Markt', 50.8467, 4.3525], ['Brugge – Markt', 51.2088, 3.2242],
   ['Antwerpen – Centraal', 51.2172, 4.4211], ['Parijs – Eiffeltoren', 48.8583, 2.2945],
   ['New York – Times Square', 40.7580, -73.9855], ['Londen – The Shard', 51.5045, -0.0865],
+  // steden met een echte metro (OpenStreetMap: railway=subway)
+  ['Metro Brussel – De Brouckère', 50.8510, 4.3524], ['U-Bahn Frankfurt – Hauptwache', 50.1139, 8.6787],
+  ['Métro Parijs – Châtelet', 48.8586, 2.3470], ['Underground Londen – Bank', 51.5133, -0.0890], ['U-Bahn Berlijn – Alexanderplatz', 52.5219, 13.4132],
+  ['Luchthaven Frankfurt', 50.0379, 8.5622], ['Luchthaven Brussel', 50.9010, 4.4844], ['Haven Rotterdam – Maasvlakte', 51.9530, 4.0480],
 ];
 function setPlace(name, lat, lon, fly = true) {
   $('#lat').value = (+lat).toFixed(5); $('#lon').value = (+lon).toFixed(5); $('#real-name').value = name;
@@ -835,7 +839,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-12b';
+const APP_VERSION = '2026-11-12c';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

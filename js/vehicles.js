@@ -212,6 +212,40 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
   return P.done();
 }
 
+// ---------- metro (met interieur: je kan erin meerijden) ----------
+function metroCar(cab, doorsOnly) {
+  const P = new Parts(), L = 18, W = 2.8, H = 3.5, zb = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L;
+  const doorZ = [-Lb / 2 + 3, 0, Lb / 2 - 3];
+  if (doorsOnly) {
+    for (const dz of doorZ) for (const sx of [1, -1]) P.box('trim', 0.06, 2.0, 1.3, sx * (W / 2 + 0.01), 1.55, zb + dz, 0x9aa3ad);
+    return P.done().trim;
+  }
+  // buitenkant
+  P.box('paint', W, 0.9, Lb, 0, 0.95, zb);                                  // onderkant (lijnkleur)
+  P.box('trim', W + 0.02, 1.15, Lb - 0.4, 0, 1.95, zb, GLASS);               // ramen
+  P.box('paint', W, 0.55, Lb, 0, 2.8, zb);                                  // boven de ramen
+  P.box('trim', W * 0.9, 0.25, Lb, 0, 3.2, zb, 0xc0c4c9);                    // dak
+  P.box('trim', W - 0.4, 0.5, Lb - 2, 0, 0.3, zb, 0x26282b);                 // onderstel
+  for (const bz of [Lb / 2 - 3, -Lb / 2 + 3]) for (const wz of [0.9, -0.9]) for (const wx of [0.75, -0.75]) P.wheel(0.4, 0.12, wx, 0.4, zb + bz + wz, 0x3a3c40, 10);
+  // interieur: vloer, banken langs de wanden, palen, plafondverlichting
+  P.box('trim', W - 0.2, 0.06, Lb - 0.4, 0, 1.42, zb, 0x4a4e55);
+  for (let z = -Lb / 2 + 1.6; z < Lb / 2 - 1; z += 1.1) {
+    if (doorZ.some(dz => Math.abs(z - dz) < 1)) continue;
+    for (const sx of [1, -1]) { P.box('trim', 0.5, 0.08, 0.5, sx * 1.05, 1.9, zb + z, 0x2e5c9e); P.box('trim', 0.08, 0.55, 0.5, sx * 1.3, 2.2, zb + z, 0x2e5c9e); }
+  }
+  for (const dz of doorZ) for (const sx of [0.6, -0.6]) P.box('trim', 0.05, 1.8, 0.05, sx, 2.35, zb + dz, 0xcfd3d8);
+  P.box('light', 0.3, 0.04, Lb - 1.4, 0.5, 3.08, zb, 0xf4f6ff); P.box('light', 0.3, 0.04, Lb - 1.4, -0.5, 3.08, zb, 0xf4f6ff);
+  if (cab) {
+    P.box('paint', W, 1.4, 0.7, 0, 1.15, L / 2 - 0.35, 0xffffff, { sx: 0.92, front: 0.15 });
+    P.box('trim', W - 0.2, 1.3, 0.6, 0, 2.3, L / 2 - 0.4, GLASS, { sx: 0.9, front: 0.25 });
+    P.box('light', 1.6, 0.26, 0.05, 0, 3.0, L / 2 - 0.05, AMBER);           // bestemmingsscherm met lijnnummer
+    P.box('light', 0.3, 0.16, 0.05, 0.95, 0.9, L / 2 + 0.01, HEAD).box('light', 0.3, 0.16, 0.05, -0.95, 0.9, L / 2 + 0.01, HEAD);
+    P.box('trim', 0.9, 0.9, 0.5, 0.5, 1.9, L / 2 - 1.2, 0x30333a);           // bestuurderspult
+  }
+  P.box('trim', W - 0.3, 2.6, 0.25, 0, 1.9, zb - Lb / 2 - 0.12, 0x222428);   // overgang
+  return P.done();
+}
+
 // ---------- mensen ----------
 function personParts() {
   const mk = (w, h, d, ty, color) => { const P = new Parts(); P.box('paint', w, h, d, 0, ty, 0, color); return P.done().paint; };
@@ -235,6 +269,8 @@ export function buildModels() {
   M.iceCoach = trainCar({ L: 26.4, stripe: 0xd4121c, H: 3.85 });
   M.regioCab = trainCar({ L: 26.8, cab: true, doubleDeck: true, H: 4.6 });
   M.regioCoach = trainCar({ L: 26.8, doubleDeck: true, H: 4.6 });
+  M.metroCab = metroCar(true); M.metroMid = metroCar(false);
+  M.metroDoorsCab = { trim: metroCar(true, true) }; M.metroDoorsMid = { trim: metroCar(false, true) };
   M.person = personParts();
   return M;
 }
@@ -243,6 +279,7 @@ export function buildModels() {
 export const CAR_COLORS = [0xe8e8e8, 0xf4f4f2, 0x1c1c1e, 0x2a2c30, 0x9aa0a6, 0x7b8086, 0xb8bcc0, 0x5a5f66, 0x8f1d1d, 0x1e3f7a,
   0x2f5d3a, 0x6b4a2e, 0xc9b28f, 0x30425a, 0xb03a2e, 0x6e7f8f];
 export const BUS_COLORS = [0xf2efe6, 0xe6c329, 0xc8102e, 0x2c6db5];
+export const METRO_COLORS = [0xe2001a, 0x0065ae, 0xf6c400, 0x009a49, 0x8d248a, 0xf28c00, 0x6cb4e4, 0x9b6b3f];
 export const TRAM_COLORS = [0xc8102e, 0xf0f0ee, 0x1d6fb8, 0xe0a91b];
 export const SHIRTS = [0x2e4a7a, 0xb03a2e, 0xe8e8e8, 0x2f5d3a, 0x1c1c1e, 0xd9a441, 0x7a3b6e, 0x5c7f9c, 0xc96a3d, 0x8a8f96, 0x3a6b5e, 0xe08aa0];
 export const PANTS = [0x1f2a44, 0x2b2b2e, 0x4a4f57, 0x3d5a80, 0x6b5a45, 0x1a1a1a, 0x8c7a5b];

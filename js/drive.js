@@ -100,7 +100,7 @@ export class Drive {
     const p = this.g.player;
     let pose, up, back;
     if (this.car) { const c = this.car; pose = { x: c.x, y: c.y, z: c.z, yaw: c.yaw }; up = this.spec === ROAD.bus ? 2.4 : 1.25; back = -this.spec.L * (this.spec === ROAD.bus ? 0.42 : 0.05); }
-    else if (this.mode === 'passenger') { pose = this.railPose(this.seat); up = this.a.kind === 'car' ? 1.2 : this.a.kind === 'train' ? 2.3 : 1.9; back = 0; }
+    else if (this.mode === 'passenger') { pose = this.railPose(this.seat); up = this.a.kind === 'car' ? 1.2 : this.a.kind === 'train' ? 2.3 : this.a.kind === 'metro' ? 2.1 : 1.9; back = 0; }
     else if (this.a.kind === 'ship' && this.vessel) {
       const v = this.vessel, br = v.g.bridge, w = v.toWorld(new THREE.Vector3(br[0] + 0.5, br[1] + 1.65, br[2] + 1.5), new THREE.Vector3());
       pose = { x: w.x, y: w.y - 1.62, z: w.z, yaw: v.yaw }; up = 1.62; back = 0;
@@ -167,7 +167,11 @@ export class Drive {
       if (a.dead) { this.exit(); return; }
       speed = a.v || 0;
       const ns = a.kind !== 'car' ? g.traffic.nextStop(a) : null;
-      info = `<div class="dh-row"><b>🪑 Passagier</b> in ${{ car: 'een auto', bus: 'de bus', tram: 'de tram', train: 'de trein' }[a.kind]}${ns ? ` · volgende halte: <b>${ns.name}</b>` : ''}</div><div class="dh-row">H = uitstappen · V = camera</div>`;
+      // omroepen in trein, tram en metro
+      if (a.wait > 0 && a.atStop && this.lastAnn !== a.lastStop) { this.lastAnn = a.lastStop; chime(); setTimeout(() => speak(a.atStop), 700); this.saidNext = false; }
+      if (a.wait > 0 && a.wait < 4 && !this.saidNext && ns) { this.saidNext = true; speak(`Volgende halte: ${ns.name}`); }
+      if (!this.dest || this.t - (this.destT || 0) > 5) { this.destT = this.t; this.dest = g.traffic.terminus(a); }
+      info = `<div class="dh-row"><b>🪑 Passagier</b> in ${{ car: 'een auto', bus: 'de bus', tram: 'de tram', train: 'de trein', metro: 'de metro', ship: 'het schip' }[a.kind]}${a.line ? ` · lijn <b>${a.line}</b>` : ''}${this.dest ? ` → <b>${this.dest}</b>` : ''}${a.doorsOpen ? ' · deuren open' : ''}${ns ? ` · volgende halte: <b>${ns.name}</b>` : ''}</div><div class="dh-row">H = uitstappen · V = camera</div>`;
     }
     if (this.gain) { const s = Math.abs(speed); this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * (this.rail ? 4 : 7); }
     if (this.hud && this.t - (this.hudT || 0) > 0.15) {

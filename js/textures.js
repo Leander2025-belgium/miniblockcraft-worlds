@@ -334,6 +334,7 @@ painters.elevator = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; 
 painters.elevator_top = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 6, arrow = Math.abs(x - 7.5) < 4 - Math.abs(y - 8) * 0.5 && y > 3 && y < 13; px(x, y, arrow ? 240 : 150 + n, arrow ? 200 : 156 + n, arrow ? 40 : 164 + n); } };
 painters.basalt = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 14, col = x % 5 === 0 ? 0.75 : 1; px(x, y, (54 + n) * col, (54 + n) * col, (60 + n) * col); } };
 painters.clay = solid([150, 140, 128], 14);
+painters.escalator = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 6, groove = x % 2 === 0, edge = y < 2; px(x, y, edge ? 230 : (groove ? 70 : 104) + n, edge ? 190 : (groove ? 72 : 106) + n, edge ? 40 : (groove ? 78 : 112) + n); } };
 painters.water = (px, r) => {
   for (let i = 0; i < TILE * TILE; i++) {
     const n = (r() - 0.5) * 20;

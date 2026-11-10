@@ -518,12 +518,13 @@ export class Game {
     for (const [, tx, tz, k] of want) {
       if (td.inFlight >= 3) break;
       td.inFlight++; td.pending.add(k);
-      td.provider(tx, tz).then(({ vox, H, paths, y0, edge }) => {
+      td.provider(tx, tz).then(({ vox, H, paths, y0, edge, tunnels }) => {
         if (this.world !== W) return;
         // vlakke tegels: de bodemlaag (grondgesteente) wordt gewone steen, daaronder begint de diepe ondergrond
         if (!y0) for (let i = 0, n = T * T; i < n; i++) if (vox[i * H] === B.BEDROCK) vox[i * H] = B.STONE;
         const w = new World({ size: T, H, y0, edge }, vox);
         w.ox = tx * T; w.oz = tz * T; w.under = this.under;
+        if (tunnels && this.under) this.under.addCarves(tunnels);
         const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
         this.trafficDirty = true;
         w.src = src;
@@ -1077,6 +1078,12 @@ export class Game {
     p.inWater = feet === B.WATER;
     const body = this.world.get(Math.floor(p.pos.x), Math.floor(p.pos.y + 1.2), Math.floor(p.pos.z));
     p.onLadder = !p.fly && (feet === B.LADDER || body === B.LADDER);
+    // roltrap: voert je mee naar de volgende trede omhoog
+    p.escalator = null;
+    if (!p.fly) {
+      const X = Math.floor(p.pos.x), Y = Math.floor(p.pos.y - 0.5), Z = Math.floor(p.pos.z);
+      if (this.world.get(X, Y, Z) === B.ESCALATOR) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.world.get(X + dx, Y + 1, Z + dz) === B.ESCALATOR) { p.escalator = [dx, dz]; break; }
+    }
     let speed = p.fly ? FLY_SPEEDS[this.flyLevel || 0] * (this.boost || this.touchSprint ? 2.5 : 1) : (sprint ? 6.6 : 4.4);
     if (p.inWater && !p.fly) speed *= 0.55;
     const sin = Math.sin(p.yaw), cos = Math.cos(p.yaw);
@@ -1084,8 +1091,8 @@ export class Game {
     const fzH = p.fly ? fz * Math.cos(p.pitch) : fz;
     const wx = (fx * cos + fzH * sin) * speed, wz = (-fx * sin + fzH * cos) * speed;
     const acc = p.onGround || p.fly ? 14 : 4;
-    p.vel.x += (wx - p.vel.x) * Math.min(1, acc * dt);
-    p.vel.z += (wz - p.vel.z) * Math.min(1, acc * dt);
+    p.vel.x += (wx + (p.escalator ? p.escalator[0] * 1.6 : 0) - p.vel.x) * Math.min(1, acc * dt);
+    p.vel.z += (wz + (p.escalator ? p.escalator[1] * 1.6 : 0) - p.vel.z) * Math.min(1, acc * dt);
 
     const up = k.has('Space') || this.touchUp;
     const down = (k.has('ShiftLeft') || k.has('KeyC')) && p.fly || this.touchDown;
@@ -1118,7 +1125,7 @@ export class Game {
       }
     }
     // automatisch opspringen (aanraakschermen)
-    if (blockedH && p.onGround && !p.onLadder && len > 0.3) {
+    if (blockedH && p.onGround && !p.onLadder && (len > 0.3 || p.escalator)) {
       // automatisch één blok opstappen (trappen van blokken lopen vanzelf)
       const ahead = this.world.solidAt(Math.floor(p.pos.x + Math.sin(p.yaw) * -0.6), Math.floor(p.pos.y + 1.5), Math.floor(p.pos.z + Math.cos(p.yaw) * -0.6));
       if (!ahead) p.vel.y = 7.2;

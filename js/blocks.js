@@ -13,7 +13,7 @@ export const B = {
   RED_GRANITE: 49, RED_SANDSTONE: 50, HALF_TIMBER: 51, SNOW: 52, SPRUCE: 53, BALLAST: 54,
   BIRCH_LOG: 55, BIRCH_LEAVES: 56, MOSSY_STONE: 57, DARK_PLANKS: 58, MARBLE: 59, GRANITE: 60, ICE: 61, PAINT_YELLOW: 62,
   WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
-  DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79,
+  DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79, ESCALATOR: 80,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -98,6 +98,7 @@ export const BLOCKS = [
   { id: 77, name: 'Lift (spring = omhoog, Shift = omlaag)', color: [170, 176, 184], tex: ['elevator_top', 'elevator', 'metal'] },
   { id: 78, name: 'Basalt', color: [52, 52, 58], tex: ['basalt'] },
   { id: 79, name: 'Klei', color: [150, 140, 128], tex: ['clay'] },
+  { id: 80, name: 'Roltrap (voert je mee omhoog)', color: [96, 98, 104], tex: ['escalator', 'metal', 'metal'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;

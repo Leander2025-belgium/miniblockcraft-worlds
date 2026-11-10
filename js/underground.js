@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { B, IS_OPAQUE, IS_TRANSPARENT } from './blocks.js';
 import { FACE_TILE, ATLAS_COLS } from './textures.js';
 import { cacheGetPrefix, cachePut } from './storage.js';
+import { CarveIndex } from './carve.js';
 
 export const DEPTH = 300;
 const S = 16, S3 = S * S * S;
@@ -36,6 +37,7 @@ export class Underground {
     this.meshes = new Map();    // sleutel -> { o, t }
     this.dirty = new Set();
     this.ready = false;
+    this.carves = new CarveIndex(); // metrotunnels, perronhallen, trappen, liften
     cacheGetPrefix(spec.id + '-ug-').then((list) => {
       for (const { key, value } of list || []) if (value && value.d) this.edits.set(key.slice(spec.id.length + 4), new Uint8Array(value.d));
       this.ready = true; this.cache.clear();
@@ -43,6 +45,11 @@ export class Underground {
     }).catch(() => { this.ready = true; });
   }
   key(sx, sy, sz) { return sx + '_' + sy + '_' + sz; }
+  addCarves(list) {
+    let added = false;
+    for (const sg of list) if (this.carves.add(sg)) added = true;
+    if (added) { this.cache.clear(); for (const k of this.meshes.keys()) this.dirty.add(k); }
+  }
   floorAt(x, z) { return Math.floor(this.spec.ref(x, z)) - DEPTH; }
   // ---------- het gesteente op een plek ----------
   natural(x, y, z, ref = this.spec.ref(x, z)) {
@@ -50,6 +57,8 @@ export class Underground {
     if (y <= floor) return B.BEDROCK;
     if (y === floor + 1 && h3(x, y, z, 7) < 0.6) return B.BEDROCK;
     if (y === floor + 2 && h3(x, y, z, 8) < 0.25) return B.BEDROCK;
+    const cv = this.carves.at(x, y, z);
+    if (cv >= 0) return cv;
     const d = ref - y;
     // grotten (niet te dicht bij het maaiveld)
     if (d > 28 && y > floor + 4) {
@@ -145,7 +154,7 @@ export class Underground {
   // ---------- meshes rond de speler ----------
   update(p, worldGet, budgetMs = 6) {
     const top = this.spec.top(Math.floor(p.x), Math.floor(p.z));
-    this.active = p.y < top + 6 || this.hasEditsNear(p.x, p.y, p.z, 40);
+    this.active = p.y < top + 6 || this.hasEditsNear(p.x, p.y, p.z, 40) || (this.carves.list.length > 0 && p.y < top + 14 && this.carves.at(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z)) >= 0);
     const want = new Set();
     if (this.active) {
       const px = Math.floor(p.x / S), py = Math.floor(p.y / S), pz = Math.floor(p.z / S), R = 3;
@@ -181,6 +190,11 @@ export class Underground {
     const get = (x, y, z) => (x >= 0 && y >= 0 && z >= 0 && x < S && y < S && z < S) ? c[(y * S + z) * S + x] : worldGet(X0 + x, Y0 + y, Z0 + z);
     // lampen in de buurt (alleen in veranderde stukken kunnen lampen staan)
     const lamps = [];
+    // lampen in de gegraven tunnels en hallen (in dit stuk en de buren)
+    for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const cc = dx || dy || dz ? this.cache.get(this.key(sx + dx, sy + dy, sz + dz)) : c; if (!cc) continue;
+      for (let i = 0; i < S3; i++) if (cc[i] === B.LAMP) lamps.push([(sx + dx) * S + (i % S), (sy + dy) * S + Math.floor(i / (S * S)), (sz + dz) * S + Math.floor(i / S) % S]);
+    }
     for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const e = this.edits.get(this.key(sx + dx, sy + dy, sz + dz)); if (!e) continue;
       for (let i = 0; i < S3; i++) if (e[i] === B.LAMP + 1) lamps.push([(sx + dx) * S + (i % S), (sy + dy) * S + Math.floor(i / (S * S)), (sz + dz) * S + Math.floor(i / S) % S]);
