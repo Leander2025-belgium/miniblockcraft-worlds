@@ -835,7 +835,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-12a';
+const APP_VERSION = '2026-11-12b';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

@@ -13,6 +13,7 @@ import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
+import { Ships } from './vessel.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -350,6 +351,7 @@ export class Game {
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
     this.dropMountain(); this.leaveVehicle();
     this.under?.dispose(); this.under = null;
+    this.ships?.dispose(); this.ships = null; this.aboard = null;
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -389,6 +391,7 @@ export class Game {
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
+    this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
     this.dropMountain(); this.leaveVehicle();
     this.under?.dispose();
     const W = this.world;
@@ -736,6 +739,11 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
     }
+    if (this.ships) {
+      this.ships.update(dt);
+      // aan boord: meebewegen met het schip (na het verplaatsen van het schip)
+      if (this.aboard && this.player.loc) { this.aboard.toWorld(this.player.loc, this.player.pos); this.player.yaw = (this.player.yawLoc ?? 0) + this.aboard.yaw; this.placeCamera(); }
+    }
     {
       const pl = this.player, mode = this.ride || this.drive ? 'first' : this.settings.cam || 'first';
       this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y, visOff: this.visOff || 0 },
@@ -823,8 +831,20 @@ export class Game {
   // in een voertuig stappen: zelf besturen of meerijden
   enterVehicle(mode) {
     if (this.drive || !this.traffic) return;
-    const v = this.traffic.nearestVehicle(this.player.pos, 8);
-    if (!v) { this.toast('Geen voertuig in de buurt (ga tot naast een auto, bus, tram of trein)'); return; }
+    let v = this.traffic.nearestVehicle(this.player.pos, 8);
+    // schip: in de stuurhut = sturen, anders aan boord gaan
+    if (!v && this.ships) {
+      if (this.aboard) {
+        const a = [...this.ships.list].find(([, vv]) => vv === this.aboard)?.[0];
+        const br = this.aboard.g.bridge, l = this.player.loc;
+        if (a && mode === 'drive' && Math.hypot(l.x - br[0], l.z - br[2]) < 8 && Math.abs(l.y - br[1]) < 4) { const ves = this.aboard; this.leaveVessel(); this.drive = new Drive(this, a, 'drive'); this.drive.vessel = ves; return; }
+        if (mode === 'drive') { this.toast('Ga naar de stuurhut (brug) om te sturen'); return; }
+      } else {
+        const n = this.ships.nearest(this.player.pos, 30);
+        if (n) { this.boardVessel(n.v, true); return; }
+      }
+    }
+    if (!v) { this.toast('Geen voertuig in de buurt (ga tot naast een auto, bus, tram, trein of schip)'); return; }
     if (mode === 'passenger' && v.free) mode = 'drive';
     if (v.player || v.passenger) return;
     this.drive = new Drive(this, v, mode);
@@ -986,11 +1006,50 @@ export class Game {
     return true;
   }
 
+  makeWorld(meta, vox) { return new World(meta, vox); }
+  // ---------- aan boord van een schip ----------
+  boardVessel(v, toDeck) {
+    const p = this.player;
+    this.aboard = v;
+    if (toDeck) {
+      // naar het hoogste vrije plekje midden op het schip
+      const x = Math.floor(v.g.W / 2), z = Math.floor(v.g.L * 0.5);
+      let y = v.g.H - 1; while (y > 0 && !v.world.solidAt(x, y - 1, z)) y--;
+      p.loc = new THREE.Vector3(x + 0.5, y + 0.05, z + 0.5);
+      p.fly = false; p.vel.set(0, 0, 0);
+    } else p.loc = v.toLocal(p.pos, new THREE.Vector3());
+    p.yawLoc = p.yaw - v.yaw;
+    this.toast(`⚓ Aan boord: ${v.T.name}. Rondlopen kan gewoon; H in de stuurhut = sturen.`);
+  }
+  leaveVessel() {
+    const v = this.aboard; if (!v) return;
+    const p = this.player;
+    if (p.loc) v.toWorld(p.loc, p.pos);
+    p.yaw = (p.yawLoc ?? 0) + v.yaw;
+    this.aboard = null;
+  }
   update(dt) {
+    const v = this.aboard;
+    if (!v || this.drive) { this.updateMain(dt); return; }
+    // natuurkunde in het assenstelsel van het schip
+    const p = this.player, W = this.world, T = this.tiled;
+    p.yawLoc = p.yaw - v.yaw;
+    p.pos.copy(p.loc); p.yaw = p.yawLoc;
+    this.world = v.world; this.tiled = null; this.aboardStep = true;
+    try { this.updateMain(dt); } finally { this.world = W; this.tiled = T; this.aboardStep = false; }
+    p.loc.copy(p.pos); p.yawLoc = p.yaw;
+    p.yaw = p.yawLoc + v.yaw;
+    v.toWorld(p.loc, p.pos);
+    this.updateHud();
+    if (this.ui.place && performance.now() - (this.shipHudT || 0) > 1000) { this.shipHudT = performance.now(); this.ui.place.textContent = `⚓ Aan boord: ${v.T.name} · ${this.ui.place.textContent}`; }
+    // van het schip gestapt of gevallen
+    if (!v.inside(p.loc, 1.2) || p.loc.y < -1.2) { this.aboard = null; this.toast('Van boord'); }
+  }
+  updateMain(dt) {
     const p = this.player, k = this.keys;
     if (this.drive) { this.drive.update(dt); this.updateHud(); return; }
     // voertuig in de buurt? (instappen)
-    if (this.traffic && (this.nearT = (this.nearT || 0) + dt) > 0.4) {
+    if (this.traffic && !this.aboardStep && (this.nearT = (this.nearT || 0) + dt) > 0.4) {
       this.nearT = 0;
       const v = this.traffic.nearestVehicle(p.pos, 7);
       if (!!v !== !!this.nearVehicle) {
@@ -1131,6 +1190,7 @@ export class Game {
     return null;
   }
   updateTarget() {
+    if (this.aboardStep || this.aboard) { this.target = null; this.highlight.visible = false; return; }
     this.target = this.raycast();
     if (this.target) {
       this.highlight.visible = true;
@@ -1183,6 +1243,7 @@ export class Game {
 
   // ---------- HUD ----------
   updateHud(force) {
+    if (this.aboardStep) return; // aan boord: na de stap (in wereldcoördinaten)
     const now = performance.now();
     if (!force && now - (this.hudT || 0) < 200) return;
     this.hudT = now;

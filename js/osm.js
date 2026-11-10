@@ -534,6 +534,8 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   onProgress?.(0.2);
 
   // 2. waterlopen als lijnen
+  const boatLines = [];
+  const inTileLineEarly = (l) => { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const q of l) { a = Math.min(a, q[0]); b = Math.max(b, q[0]); c = Math.min(c, q[1]); d = Math.max(d, q[1]); } return b > -20 && a < size + 20 && d > -20 && c < size + 20; };
   for (const w of osm.ways) {
     const ww = w.tags.waterway;
     if (!ww || ww === 'riverbank' || w.tags.tunnel === 'culvert') continue;
@@ -541,6 +543,11 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     const l = line(w.nds);
     if (!l || !bboxOk(l, width)) continue;
     strokeLine(l, width, size, (x, z) => { const i = z * size + x; if (prio[i] < 6) { surf[i] = B.WATER; prio[i] = 6; marks[i] = 1; treeD[i] = 0; } });
+    // vaarwegen voor boten en schepen (grote schepen alleen op bevaarbare rivieren en kanalen)
+    if ((ww === 'river' || ww === 'canal') && w.tags.tunnel !== 'yes') {
+      const big = w.tags.CEMT || w.tags.ship === 'yes' || w.tags.motorboat === 'yes' || (parseLen(w.tags.width) || 0) >= 50;
+      boatLines.push([l, big ? 'boatL' : 'boat']);
+    }
   }
 
   // 3. wegen en spoor
@@ -555,6 +562,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   roads.sort((a, b) => ROAD_ORDER.indexOf(a.hw) - ROAD_ORDER.indexOf(b.hw));
   const bridge = new Uint8Array(N);
   const paths = [];          // voor verkeer: { type, pts: [x,z,...] } in tegelcoördinaten
+  for (const [l, t] of boatLines) if (inTileLineEarly(l)) paths.push({ type: t, pts: l.flat() });
   const lampSpots = [];      // automatische straatlantaarns
   const hasOsmLamps = (osm.pois || []).some(q => q[2] === 'lamp');
   const MAJOR = new Set(['trunk', 'primary', 'secondary', 'tertiary', 'trunk_link', 'primary_link', 'secondary_link']);
@@ -1175,9 +1183,9 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
         const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 12));
         for (let k = 0; k < steps; k++) {
           const x = ax + (bx - ax) * k / steps, z = az + (bz - az) * k / steps;
-          if (inBox(x, z)) run.push(x, z, surfY(x, z)); else flush();
+          if (inBox(x, z)) run.push(x, z, surfY(x, z) - (q.type === 'boat' || q.type === 'boatL' ? 1 : 0)); else flush();
         }
-      } else if (inBox(ax, az)) run.push(ax, az, surfY(ax, az));
+      } else if (inBox(ax, az)) run.push(ax, az, surfY(ax, az) - (q.type === 'boat' || q.type === 'boatL' ? 1 : 0));
     }
     flush();
   }

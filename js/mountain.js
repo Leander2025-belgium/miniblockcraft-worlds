@@ -11,7 +11,7 @@ export const MW = 14000, ML = 14000, G = 12, T = 128;
 export const META = {
   id: 'reuzenberg', name: 'Reuzenberg', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000, smoothLod: true,
+  ground: G, version: 6, superTiles: 4, miniStep: 2, groundColor: [0.33, 0.45, 0.26], maxH: 2048, longView: 16000, smoothLod: true,
 };
 const PEAK = [7000, 6300];
 
@@ -547,6 +547,16 @@ export function generateTile(tx, tz) {
   }
   flush();
   paths.push(...EXTRAS.paths(X0, Z0, T)); // wegen, spoor, haltes
+  // bootjes op het bergmeer (rondje)
+  {
+    let lrun = [];
+    for (let k = 0; k <= 400; k++) {
+      const t = k / 400 * Math.PI * 2, lx = LAKE.x + Math.cos(t) * LAKE.r * 0.55 - X0, lz = LAKE.z + Math.sin(t) * LAKE.r * 0.55 / 1.35 - Z0;
+      if (lx >= -6 && lz >= -6 && lx <= T + 6 && lz <= T + 6) lrun.push(lx, lz, G - 1);
+      else if (lrun.length) { if (lrun.length >= 6) paths.push({ type: 'boat', pts: new Float32Array(lrun) }); lrun = []; }
+    }
+    if (lrun.length >= 6) paths.push({ type: 'boat', pts: new Float32Array(lrun) });
+  }
   return { vox, H, y0: Y0, edge, ground: G, paths };
 }
 const spare = new Uint8Array(2200);

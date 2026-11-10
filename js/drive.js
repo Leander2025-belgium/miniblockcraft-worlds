@@ -42,7 +42,7 @@ export class Drive {
     if (mode === 'passenger') {
       this.a = vehicle; vehicle.passenger = true;
       this.seat = vehicle.L ? Math.min(vehicle.L - 2, Math.max(2, vehicle.L * (vehicle.kind === 'car' ? 0.55 : 0.4))) : 2;
-    } else if (vehicle.kind === 'train' || vehicle.kind === 'tram') {
+    } else if (vehicle.kind === 'train' || vehicle.kind === 'tram' || vehicle.kind === 'ship' || vehicle.kind === 'metro') {
       this.a = vehicle; this.rail = true;
       vehicle.player = { throttle: 0, brake: 0, emergency: false, doors: false };
       vehicle.v = vehicle.v || 0; vehicle.wait = 0; vehicle.reverseAfter = false;
@@ -101,13 +101,16 @@ export class Drive {
     let pose, up, back;
     if (this.car) { const c = this.car; pose = { x: c.x, y: c.y, z: c.z, yaw: c.yaw }; up = this.spec === ROAD.bus ? 2.4 : 1.25; back = -this.spec.L * (this.spec === ROAD.bus ? 0.42 : 0.05); }
     else if (this.mode === 'passenger') { pose = this.railPose(this.seat); up = this.a.kind === 'car' ? 1.2 : this.a.kind === 'train' ? 2.3 : 1.9; back = 0; }
-    else { pose = this.railPose(1.6); up = this.a.kind === 'train' ? 2.55 : 2.25; back = 0; }
+    else if (this.a.kind === 'ship' && this.vessel) {
+      const v = this.vessel, br = v.g.bridge, w = v.toWorld(new THREE.Vector3(br[0] + 0.5, br[1] + 1.65, br[2] + 1.5), new THREE.Vector3());
+      pose = { x: w.x, y: w.y - 1.62, z: w.z, yaw: v.yaw }; up = 1.62; back = 0;
+    } else { pose = this.railPose(1.6); up = this.a.kind === 'train' ? 2.55 : 2.25; back = 0; }
     const fx = Math.sin(pose.yaw), fz = Math.cos(pose.yaw);
     let x = pose.x + fx * back, y = pose.y + up, z = pose.z + fz * back;
     if (this.car && this.cam === 'cab') { x += fz * 0.38; z -= fx * 0.38; } // links zitten
     let yaw = pose.yaw + Math.PI + p.yaw, pitch = p.pitch;
     if (this.cam === 'chase') {
-      const L = this.car ? this.spec.L : this.a.L;
+      const L = this.car ? this.spec.L : this.a.L * (this.a.kind === 'ship' ? 0.6 : 1);
       const q = this.car ? { x: pose.x - fx * (L * 0.5 + 7), y: pose.y, z: pose.z - fz * (L * 0.5 + 7) } : this.railPose(Math.min(L + 10, 70));
       x = q.x; y = q.y + (this.car ? 3.2 : 7); z = q.z; yaw = pose.yaw + Math.PI + p.yaw; pitch = -0.2 + p.pitch;
     } else if (this.cam === 'side') {
@@ -141,7 +144,7 @@ export class Drive {
       if (ns && Math.abs(ns.dist - a.L / 2) < 25 && a.v < 0.3 && this.arrived !== ns.key) { this.arrived = ns.key; this.atStop = ns; chime(); setTimeout(() => speak(`${ns.name}. Uitstappen aan de rechterkant.`), 900); }
       if (this.atStop && a.v > 2) this.atStop = null;
       const bar = (v) => '▮'.repeat(Math.round(v * 8)).padEnd(8, '▯');
-      info = `<div class="dh-row"><b>${a.kind === 'train' ? '🚆 Trein' : '🚋 Tram'}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>
+      info = `<div class="dh-row"><b>${{ train: '🚆 Trein', tram: '🚋 Tram', ship: '🚢 Schip', metro: '🚇 Metro' }[a.kind]}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>
         <div class="dh-row">Wissel: <b>${{ left: '⬅ links', straight: '⬆ rechtdoor', right: 'rechts ➡' }[this.sw]}</b> · deuren: <b>${c.doors ? 'open' : 'dicht'}</b>${a.endOfLine ? ' · <b class="warn">einde spoor — R om te keren</b>' : ''}</div>
         <div class="dh-row">${ns ? `Volgende halte: <b>${ns.name}</b> · ${Math.max(0, Math.round(ns.dist - a.L / 2))} m` : 'Geen halte in zicht'}${this.atStop ? ' · <b class="ok">aan het perron — Q deuren</b>' : ''}</div>`;
     } else if (this.car) {
@@ -222,6 +225,15 @@ export class Drive {
   }
   exit() {
     const g = this.g, p = g.player;
+    if (this.vessel) { // terug naar de stuurhut, aan boord blijven
+      if (this.a) this.a.player = null;
+      try { this.osc?.stop(); } catch { /* al gestopt */ }
+      this.show(false); g.drive = null;
+      g.boardVessel(this.vessel);
+      const br = this.vessel.g.bridge; p.loc.set(br[0] + 0.5, br[1] + 1.05, br[2] - 0.5);
+      g.toast('Stuur losgelaten — je bent nog aan boord');
+      return;
+    }
     let x = p.pos.x, z = p.pos.z, y = p.pos.y, yaw = 0;
     if (this.car) { const c = this.car; c.driving = false; c.speed = 0; yaw = c.yaw; x = c.x + Math.cos(c.yaw) * 2.6; z = c.z - Math.sin(c.yaw) * 2.6; y = c.y; }
     else {

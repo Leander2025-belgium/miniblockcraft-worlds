@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { buildModels, CAR_COLORS, BUS_COLORS, TRAM_COLORS, SHIRTS, PANTS, SKIN, HAIR } from './vehicles.js';
 
-const NET_OF = { car: 'road', carM: 'road', walk: 'walk', tram: 'tram', train: 'rail' };
+const NET_OF = { car: 'road', carM: 'road', walk: 'walk', tram: 'tram', train: 'rail', boat: 'water', boatL: 'water', sea: 'sea' };
+import { SHIP_TYPES, shipTypeFor } from './vessel.js';
 const RANGE = 430;          // verkeer rond de speler
 const GAUGE = 1.435 / 2;    // halve spoorbreedte
 
@@ -71,7 +72,7 @@ class Network {
           const pts = new Float32Array(r.length);
           for (let i = 0; i < r.length; i += 3) { pts[i] = t.ox + r[i]; pts[i + 1] = r[i + 2] + 1; pts[i + 2] = t.oz + r[i + 1]; }
           const id = t.key + '|' + pi + '|' + ri;
-          edges.set(id, makeEdge(id, net, pts, p.type === 'carM'));
+          const e = makeEdge(id, net, pts, p.type === 'carM'); e.cls = p.type; edges.set(id, e);
         });
       });
     }
@@ -135,7 +136,7 @@ class Network {
       }
     }
     this.edges = edges; this.stops = stops;
-    const L = { road: 0, walk: 0, tram: 0, rail: 0, major: 0 };
+    const L = { road: 0, walk: 0, tram: 0, rail: 0, major: 0, water: 0, sea: 0 };
     for (const e of edges.values()) { if (!e.conn) L[e.net] += e.len; if (e.major) L.major += e.len; }
     this.len = L;
   }
@@ -172,7 +173,7 @@ function consist(kind, r) {
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
 const MAX = { sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
-const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35 };
+const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6 };
 
 export class Traffic {
   constructor(scene, ground) {
@@ -312,11 +313,11 @@ export class Traffic {
 
   // ---------- agenten ----------
   spawn(kind, player, far) {
-    const net = kind === 'walk' ? 'walk' : kind === 'tram' ? 'tram' : kind === 'train' ? 'rail' : 'road';
+    const net = kind === 'walk' ? 'walk' : kind === 'tram' ? 'tram' : kind === 'train' ? 'rail' : kind === 'ship' ? 'ship' : 'road';
     const cand = [];
     let total = 0;
     for (const e of this.net.edges.values()) {
-      if (e.net !== net || e.conn || e.len < 8) continue;
+      if ((net === 'ship' ? (e.net !== 'water' && e.net !== 'sea') : e.net !== net) || e.conn || e.len < 8) continue;
       if (kind === 'bus' && this.net.len.major > 300 && !e.major) continue;
       const mx = e.pts[Math.floor(e.pts.length / 6) * 3], mz = e.pts[Math.floor(e.pts.length / 6) * 3 + 2];
       const dd = Math.hypot(mx - player.x, mz - player.z);
@@ -327,6 +328,15 @@ export class Traffic {
     let r = Math.random() * total, e = cand[0];
     for (const c of cand) { r -= c.len; if (r <= 0) { e = c; break; } }
     const rr = Math.random();
+    if (kind === 'ship') {
+      const type = shipTypeFor(e.cls, rr), T = SHIP_TYPES[type];
+      if (T.L > e.len + 200 && !T.small) return null;
+      const a = { kind, shipType: type, L: T.L, secs: [], route: [{ e, dir: Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr, color: 0, phase: 0, vmax: T.speed };
+      a.d = a.route[0].dir > 0 ? Math.min(e.len, T.L) : Math.max(0, e.len - T.L);
+      if (a.L > e.len) this.extendBack(a);
+      for (const b of this.agents) if (b.kind === 'ship' && b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
+      this.agents.push(a); return a;
+    }
     const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' || Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
       color: kind === 'car' ? (consist(kind, rr).secs[0].m === 'taxi' ? 0xf1c40f : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)])
         : kind === 'bus' ? BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)]
@@ -457,8 +467,9 @@ export class Traffic {
       tram: L.tram > 250 ? Math.min(10, Math.max(1, Math.floor(L.tram / 650))) : 0,
       train: L.rail > 500 ? Math.min(6, Math.max(1, Math.floor(L.rail / 1800))) : 0,
       walk: Math.min(this.PMAX, Math.floor(L.walk / (L.road > 0 ? 20 : 70))), // op een bergpad minder druk
+      ship: Math.min(9, Math.floor(L.water / 450) + Math.floor(L.sea / 1400) + (L.water + L.sea > 200 ? 1 : 0)),
     };
-    const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0 };
+    const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA);
       if (Math.hypot(h.x - player.x, h.z - player.z) > RANGE + 120 && !a.player && !a.passenger) a.dead = true;
@@ -482,7 +493,7 @@ export class Traffic {
         if (a.wait <= 0 && a.reverseAfter) { a.reverseAfter = false; this.reverse(a); }
         this.place(a); continue;
       }
-      let target = a.kind === 'walk' ? SPEED.walk * (0.85 + a.r * 0.3) : SPEED[a.kind] * (0.85 + a.r * 0.3);
+      let target = a.kind === 'walk' ? SPEED.walk * (0.85 + a.r * 0.3) : a.kind === 'ship' ? a.vmax : SPEED[a.kind] * (0.85 + a.r * 0.3);
       if (e.conn) target = Math.min(target, 6.5);
       if (a.kind !== 'walk') {
         // voorligger
@@ -513,7 +524,7 @@ export class Traffic {
       }
       if (a.player) {
         // bestuurd door de speler: tractie en rem (en noodstop vlak achter een ander voertuig)
-        const c = a.player, vmax = a.kind === 'train' ? 44 : 19;
+        const c = a.player, vmax = a.kind === 'train' ? 44 : a.kind === 'ship' ? a.vmax * 1.6 : a.kind === 'metro' ? 25 : 19;
         const acc = (a.kind === 'train' ? 1.0 : 1.3) * c.throttle - (a.kind === 'train' ? 1.2 : 1.6) * c.brake - 0.004 * a.v - (c.emergency ? 2.5 : 0);
         a.v = Math.max(0, Math.min(vmax, a.v + acc * dt));
         if (c.doors || a.endOfLine && c.throttle === 0) a.v = 0;
@@ -550,7 +561,7 @@ export class Traffic {
   nearestVehicle(p, maxD = 7) {
     let best = null, bd = maxD;
     for (const a of this.agents) {
-      if (a.kind === 'walk' || a.dead) continue;
+      if (a.kind === 'walk' || a.kind === 'ship' || a.dead) continue;
       for (let s = 0; s <= a.L; s += 4) {
         const q = this.behind(a, s, this.tmpA), d = Math.hypot(q.x - p.x, q.z - p.z);
         if (d < bd && Math.abs(q.y - p.y) < 5) { bd = d; best = a; }

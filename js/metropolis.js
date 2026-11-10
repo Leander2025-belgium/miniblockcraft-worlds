@@ -9,7 +9,7 @@ export const MW = 25000, ML = 30000, G = 12, T = 128;
 export const META = {
   id: 'metropool', name: 'Nova Metropool', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
+  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
 };
 const CBD = [12500, 13500];
 export const PLACES = [
@@ -562,5 +562,15 @@ function makePaths(X0, Z0) {
     }
     for (const off of [-2, w + 2]) { const z = cz * 100 + off - Z0; if (z > -4 && z < T + 4) add('walk', [0, z, G, T, z, G]); }
   }
+  // vaarwegen: twee banen op de rivier en twee scheepvaartroutes op zee
+  const inT = (x, z) => x >= X0 - 6 && x <= X0 + T + 6 && z >= Z0 - 6 && z <= Z0 + T + 6;
+  const lane = (fn, from, to, type) => {
+    let run = [];
+    const flush = () => { if (run.length >= 6) add(type, run); run = []; };
+    for (let t = from; t <= to; t += 8) { const [x, z] = fn(t); if (inT(x, z)) run.push(x - X0, z - Z0, G - 1); else flush(); }
+    flush();
+  };
+  for (const off of [-26, 26]) lane((z) => [riverX(z) + off, z], Math.max(0, Z0 - 20), Math.min(ML, Z0 + T + 20), 'boatL');
+  for (const off of [700, 1400]) lane((x) => [x, coastZ(x) + off], Math.max(0, X0 - 20), Math.min(MW, X0 + T + 20), 'sea');
   return paths;
 }
