@@ -9,6 +9,7 @@ import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
+import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -299,6 +300,8 @@ export class Game {
     this.buildHotbar();
     this.buildInventory();
     this.applySettings();
+    this.avatar = new Avatar(this.scene, this.settings.look);
+    this.eye = new THREE.Vector3();
     this.missions = new Missions((m) => this.toast(`🏆 Opdracht voltooid: ${m.name}`));
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
@@ -659,8 +662,7 @@ export class Game {
 
   render() {
     const p = this.player;
-    this.camera.position.set(p.pos.x, p.pos.y + 1.62, p.pos.z);
-    this.camera.rotation.set(p.pitch, p.yaw, 0);
+    this.placeCamera();
     const far = this.settings.view;
     // dag en nacht
     const now = performance.now();
@@ -687,6 +689,11 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
     }
+    {
+      const pl = this.player, mode = this.ride || this.drive ? 'first' : this.settings.cam || 'first';
+      this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y },
+        0.2 + 0.8 * env.day, (mode !== 'first' || this.photo === true && this.settings.cam !== 'first') && !this.drive && !this.ride);
+    }
     if (this.far) {
       this.far.gondolas.update(dt, env.day);
       const lu = this.lod && this.lod.mat.uniforms;
@@ -711,6 +718,35 @@ export class Game {
     this.renderer.autoClear = true;
     this.autoTune(dt);
     this.drawMinimap();
+  }
+
+  // ---------- camera: eerste persoon, derde persoon of van voren ----------
+  placeCamera() {
+    const p = this.player, cam = this.camera;
+    this.eye.set(p.pos.x, p.pos.y + 1.62, p.pos.z);
+    const mode = this.drive ? this.drive.camMode() : (this.ride ? 'first' : this.settings.cam || 'first');
+    if (this.drive && this.drive.placeCamera(cam, mode)) return;
+    if (mode === 'first') { cam.position.copy(this.eye); cam.rotation.set(p.pitch, p.yaw, 0); return; }
+    const front = mode === 'front';
+    const yaw = p.yaw + (front ? Math.PI : 0), pitch = front ? -p.pitch * 0.5 - 0.12 : p.pitch;
+    const fx = -Math.sin(yaw) * Math.cos(pitch), fy = Math.sin(pitch), fz = -Math.cos(yaw) * Math.cos(pitch);
+    const D = front ? 3.2 : 4.6, ox = this.eye.x, oy = this.eye.y + 0.35, oz = this.eye.z;
+    // niet door muren: terug langs de lijn tot het eerste blok
+    let d = 0.3;
+    for (; d < D; d += 0.2) {
+      const x = ox - fx * d, y = oy - fy * d, z = oz - fz * d;
+      if (this.world.solidAt(Math.floor(x), Math.floor(y), Math.floor(z))) { d = Math.max(0.3, d - 0.35); break; }
+    }
+    cam.position.set(ox - fx * d, oy - fy * d, oz - fz * d);
+    cam.rotation.set(pitch, yaw, 0);
+  }
+  cycleCamera() {
+    const order = ['first', 'third', 'front'];
+    if (this.drive) { this.drive.cycleCam(); return; }
+    this.settings.cam = order[(order.indexOf(this.settings.cam || 'first') + 1) % 3];
+    saveSettings(this.settings);
+    const sel = document.getElementById('set-cam'); if (sel) sel.value = this.settings.cam;
+    this.toast({ first: '👁 Eerste persoon', third: '🎥 Derde persoon', front: '🙂 Van voren' }[this.settings.cam]);
   }
 
   // ---------- schaduwen van de zon (rond de speler) ----------
@@ -946,7 +982,7 @@ export class Game {
 
   // ---------- blokken aanwijzen ----------
   raycast(maxD = 7) {
-    const o = this.camera.position, d = new THREE.Vector3();
+    const o = this.eye.lengthSq() ? this.eye : this.camera.position, d = new THREE.Vector3();
     this.camera.getWorldDirection(d);
     let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
     const sx = Math.sign(d.x), sy = Math.sign(d.y), sz = Math.sign(d.z);
@@ -1129,6 +1165,20 @@ export class Game {
       ql.value = this.settings.quality || 'normal';
       if (!ql.dataset.bound) { ql.dataset.bound = '1'; ql.addEventListener('change', () => { this.settings.quality = ql.value; saveSettings(this.settings); this.applyQuality(); }); }
     }
+    const camSel = document.getElementById('set-cam');
+    if (camSel) { camSel.value = this.settings.cam || 'first'; if (!camSel.dataset.bound) { camSel.dataset.bound = '1'; camSel.addEventListener('change', () => { this.settings.cam = camSel.value; saveSettings(this.settings); }); } }
+    const look = { ...DEFAULT_LOOK, ...(this.settings.look || {}) };
+    for (const k of ['shirt', 'pants', 'skin', 'hair', 'shoes', 'hat', 'backpack']) {
+      const el = document.getElementById('look-' + k); if (!el) continue;
+      if (el.type === 'checkbox') el.checked = !!look[k]; else el.value = look[k];
+      if (!el.dataset.bound) {
+        el.dataset.bound = '1';
+        el.addEventListener(el.type === 'color' ? 'input' : 'change', () => {
+          this.settings.look = { ...DEFAULT_LOOK, ...(this.settings.look || {}), [k]: el.type === 'checkbox' ? el.checked : el.value };
+          this.avatar.setLook(this.settings.look); saveSettings(this.settings);
+        });
+      }
+    }
     for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
       const el = document.getElementById(id); if (!el) continue;
       el.checked = this.settings[key] !== false;
@@ -1186,6 +1236,7 @@ export class Game {
       if (e.code === 'KeyM' && !e.repeat) { e.preventDefault(); this.openMap(); }
       if (e.code === 'KeyP' && !e.repeat) this.togglePhoto();
       if (e.code === 'KeyG' && !e.repeat) this.toggleRide();
+      if (e.code === 'KeyV' && !e.repeat && !this.buildKeys?.(e)) this.cycleCamera();
       if ((e.code === 'Enter' || e.code === 'NumpadEnter') && this.photo) this.savePhoto();
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -1270,6 +1321,7 @@ export class Game {
     document.getElementById('btn-photo')?.addEventListener('click', () => { this.togglePhoto(true); this.resume(); });
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
+    document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));
     ui.minimap?.addEventListener('click', () => this.openMap());
     ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });

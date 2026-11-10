@@ -160,6 +160,10 @@
   .mission .mi { font-size: 16px; color: var(--muted); }
   .mission.ok .mi { color: var(--accent); }
   .mp { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .look { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 10px; }
+  .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
+  .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
+  #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
   #t-ride { display: none; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
   .is-touch #t-ride.show { display: grid; }
   .photo #t-ride { display: none !important; }
@@ -376,6 +380,7 @@
       <kbd>F of 2× Spatie</kbd><span>vliegen aan/uit</span>
       <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
       <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
+      <kbd>V</kbd><span>camera: eerste persoon, derde persoon, van voren</span>
       <kbd>2× W</kbd><span>boost (W ingedrukt houden)</span>
       <kbd>Linkerklik</kbd><span>blok breken</span>
       <kbd>Rechterklik</kbd><span>blok plaatsen</span>
@@ -415,6 +420,7 @@
   <button class="touch tbtn" id="t-speed" aria-label="Vliegsnelheid">⏩</button>
   <button class="touch tbtn" id="t-inv" aria-label="Blokken">▦</button>
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
+  <button class="touch tbtn" id="t-cam" aria-label="Camera">👁</button>
   <button class="tbtn" id="t-ride" aria-label="Kabelbaan">🚡</button>
   <button class="tbtn" id="t-shot" aria-label="Foto opslaan">📷</button>
   <button class="tbtn" id="t-photo-exit" aria-label="Fotomodus sluiten">✕</button>
@@ -449,6 +455,17 @@
       <div id="tp-wrap" hidden>
         <label>Snel naar</label>
         <div id="tp-list" class="tp-list"></div>
+      </div>
+      <label>Personage &amp; camera</label>
+      <div class="look">
+        <label class="mini">Camera <select id="set-cam"><option value="first">Eerste persoon</option><option value="third">Derde persoon (achter)</option><option value="front">Van voren</option></select></label>
+        <label class="mini">Shirt <input type="color" id="look-shirt"></label>
+        <label class="mini">Broek <input type="color" id="look-pants"></label>
+        <label class="mini">Huid <input type="color" id="look-skin"></label>
+        <label class="mini">Haar <input type="color" id="look-hair"></label>
+        <label class="mini">Schoenen <input type="color" id="look-shoes"></label>
+        <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option></select></label>
+        <label class="check mini"><input type="checkbox" id="look-backpack"> Rugzak</label>
       </div>
       <label>Kijkafstand: <span id="set-view-label"></span>
         <input type="range" id="set-view" min="48" max="320" step="16"></label>
