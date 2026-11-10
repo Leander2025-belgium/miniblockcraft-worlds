@@ -164,6 +164,12 @@
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
   #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
+  #t-build { top: calc(10px + var(--st)); right: calc(262px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
+  .build-bar { position: absolute; z-index: 9; left: 50%; top: calc(58px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; background: rgba(12,16,24,.78); padding: 6px; border-radius: 12px; max-width: calc(100vw - 24px); }
+  .build-bar .btn { padding: 6px 9px; font-size: 13px; }
+  .bp-list { position: absolute; z-index: 13; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; background: #151b26; border: 1px solid #2a3344; border-radius: 12px; padding: 12px; color: #fff; }
+  .bp-list .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; } .bp-list .sp { flex: 1; }
+  .bp-row { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid #2a3344; } .bp-row span { flex: 1; font-size: 14px; }
   #t-drive { display: none; left: calc(50% + 44px); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
   .is-touch #t-drive.show { display: grid; }
   .driving #t-drive, .driving #t-ride { display: none !important; }
@@ -400,6 +406,8 @@
       <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
       <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
       <kbd>V</kbd><span>camera: eerste persoon, derde persoon, van voren</span>
+      <kbd>B</kbd><span>bouwmodus: klik links/rechts = hoeken, Enter vullen, K muren, Del leeg, C/V kopiëren/plakken, R draaien, O/L blauwdrukken</span>
+      <kbd>Z / Y</kbd><span>ongedaan maken / opnieuw</span>
       <kbd>H / J</kbd><span>voertuig zelf besturen / meerijden (auto, bus, tram, trein)</span>
       <kbd>W S A D</kbd><span>in een voertuig: gas/tractie, rem, sturen of wissel kiezen</span>
       <kbd>Q N R</kbd><span>trein/tram: deuren, omroep, rijrichting omkeren</span>
@@ -443,6 +451,26 @@
   <button class="touch tbtn" id="t-inv" aria-label="Blokken">▦</button>
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
   <button class="touch tbtn" id="t-cam" aria-label="Camera">👁</button>
+  <button class="touch tbtn" id="t-build" aria-label="Bouwmodus">🏗</button>
+  <div id="build-bar" class="build-bar" hidden>
+    <button class="btn" id="bb-c1" title="Hoek 1 = blok waar je naar kijkt (linkerklik)">① hoek</button>
+    <button class="btn" id="bb-c2" title="Hoek 2 (rechterklik)">② hoek</button>
+    <button class="btn" id="bb-fill" title="Vullen met het gekozen blok (Enter)">🪣 vullen</button>
+    <button class="btn" id="bb-walls" title="Alleen de muren (K)">🧱 muren</button>
+    <button class="btn" id="bb-clear" title="Leegmaken (Delete)">🧹 leeg</button>
+    <button class="btn" id="bb-copy" title="Kopiëren (C)">📋</button>
+    <button class="btn" id="bb-paste" title="Plakken waar je kijkt (V)">📌</button>
+    <button class="btn" id="bb-rot" title="Draaien (R)">↻</button>
+    <button class="btn" id="bb-save" title="Bewaren als blauwdruk (O)">💾</button>
+    <button class="btn" id="bb-list" title="Blauwdrukken (L)">📐</button>
+    <button class="btn" id="bb-undo" title="Ongedaan maken (Z)">↶</button>
+    <button class="btn" id="bb-redo" title="Opnieuw (Y)">↷</button>
+    <button class="btn" id="bb-exit" title="Bouwmodus uit (B)">✕</button>
+  </div>
+  <div id="bp-list" class="bp-list" hidden>
+    <div class="row"><b>Blauwdrukken</b><span class="sp"></span><button class="btn" id="bp-close">✕</button></div>
+    <div id="bp-items"></div>
+  </div>
   <button class="tbtn" id="t-ride" aria-label="Kabelbaan">🚡</button>
   <button class="tbtn" id="t-drive" aria-label="Voertuig">🚗</button>
   <div id="drive-choice" class="drive-choice" hidden>

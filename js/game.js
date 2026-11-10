@@ -11,6 +11,7 @@ import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
+import { Builder } from './build.js';
 import { zoneName } from './metropolis.js';
 import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
@@ -302,6 +303,7 @@ export class Game {
     this.buildInventory();
     this.applySettings();
     this.avatar = new Avatar(this.scene, this.settings.look);
+    this.builder = new Builder(this);
     this.eye = new THREE.Vector3();
     this.missions = new Missions((m) => this.toast(`🏆 Opdracht voltooid: ${m.name}`));
     window.addEventListener('resize', () => this.resize());
@@ -983,6 +985,7 @@ export class Game {
     if (this.holding && this.actionTimer <= 0) { this.act(this.holding); this.actionTimer = 0.22; }
 
     this.updateTarget();
+    this.builder.update();
     this.updateHud();
     // opdrachten: hoogte, afstand, nacht
     {
@@ -1033,9 +1036,13 @@ export class Game {
   act(kind) {
     const t = this.target || this.raycast();
     if (!t) return;
+    this.builder.begin();
+    try { this.act2(kind, t); } finally { this.builder.commit(); }
+  }
+  act2(kind, t) {
     if (kind === 'break') {
       if (t.b === B.BEDROCK) return;
-      this.world.set(t.x, t.y, t.z, 0);
+      this.builder.set(t.x, t.y, t.z, 0);
       this.remeshAround(t.x, t.z);
       this.missions.add('broken');
     } else if (kind === 'place') {
@@ -1044,10 +1051,10 @@ export class Game {
       const cur = this.world.get(x, y, z);
       if (cur && cur !== B.WATER) return;
       const b = this.hotbar[this.slot];
-      if (!this.world.set(x, y, z, b)) return;
+      if (!this.builder.set(x, y, z, b)) return;
       if (IS_SOLID[b]) {
         const p = this.player.pos;
-        if (this.collides(p.x, p.y, p.z)) { this.world.set(x, y, z, cur); return; }
+        if (this.collides(p.x, p.y, p.z)) { this.builder.set(x, y, z, cur); return; }
       }
       this.remeshAround(x, z);
       // opdrachten bijhouden
@@ -1246,6 +1253,7 @@ export class Game {
       if (!this.active()) return;
       this.keys.add(e.code);
       if (this.drive && !e.repeat && this.drive.key(e.code)) { e.preventDefault(); return; }
+      if (!this.drive && !e.repeat && this.builder.key(e)) { e.preventDefault(); return; }
       if (this.drive) { if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault(); return; }
       if (e.code === 'KeyH' && !e.repeat) { this.enterVehicle('drive'); return; }
       if (e.code === 'KeyJ' && !e.repeat) { this.enterVehicle('passenger'); return; }
@@ -1278,6 +1286,8 @@ export class Game {
     });
     ui.canvas.addEventListener('mousedown', (e) => {
       if (!document.pointerLockElement) return;
+      if (this.drive) return;
+      if (this.builder.click(e.button)) return;
       const kind = e.button === 0 ? 'break' : e.button === 2 ? 'place' : 'pick';
       this.act(kind);
       if (kind !== 'pick') { this.holding = kind; this.actionTimer = 0.3; }
@@ -1349,6 +1359,7 @@ export class Game {
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
     document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());
+    document.getElementById('t-build')?.addEventListener('click', () => this.builder.toggle());
     // voertuigen op de telefoon
     const choice = document.getElementById('drive-choice');
     document.getElementById('t-drive')?.addEventListener('click', () => { if (choice) choice.hidden = !choice.hidden; });
