@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 import { LINES, LINE, STATIONS_ALL, TRACK, OX, OZ } from './alpen-net.js';
-import { trackOffset, HBF, TOWNS, LIFTS, PATCHES, HEMEL, overviewColor, MW, ML, SUMMIT_XZ, STATIONS as CABLE_ST } from './alpen.js';
+import { trackOffset, LIFTS, PATCHES, HEMEL, MW, ML, SUMMIT_XZ, STATIONS as CABLE_ST } from './alpen.js';
 
 const KMH = 3.6, P = 14400; // de dienstregeling herhaalt zich elke 4 uur
 const GAP = 0.6; // tussen twee rijtuigen
@@ -439,7 +439,7 @@ export class AlpRail {
       if (Math.abs(sg.x - p.x) > 1200 || Math.abs(sg.z - p.z) > 1200 || n >= this.sigMax) continue;
       let occ = 0;
       for (const a of act) {
-        if (a.run.pr.L !== sg.L || a.run.dir !== 1) continue;
+        if ((this.player && a.id === this.player.id) || a.run.pr.L !== sg.L || a.run.dir !== 1) continue;
         const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x), ds = s - sg.s;
         if (ds > -a.run.pr.len && ds < 1200) occ = Math.max(occ, 2); else if (ds >= 1200 && ds < 2400) occ = Math.max(occ, 1);
       }
@@ -490,8 +490,9 @@ export class AlpRail {
     // snelheid van de trein (voor het vooruit laden van tegels)
     const sp = this.player && this.player.tr === tr ? this.player.v : tr.v || 0;
     g.extVel = new THREE.Vector3(Math.sin(v.yaw) * sp, 0, Math.cos(v.yaw) * sp);
-    // naar het volgende of vorige rijtuig lopen
-    const l = g.player.loc;
+    // opstaan zodra je gaat lopen
+    const l = g.player.loc, k = g.keys;
+    if (g.player.seated && l && (k.has('KeyW') || k.has('KeyS') || k.has('KeyA') || k.has('KeyD') || k.has('ArrowUp') || k.has('ArrowDown') || Math.hypot(g.joy?.x || 0, g.joy?.y || 0) > 0.3)) { g.player.seated = false; l.x = 2.5; l.y = 2.05; }
     if (l) {
       const i = v.i, c = tr.cars[i], fwd = c.flip ? l.z < 0.4 : l.z > v.g.L - 0.4, back = c.flip ? l.z > v.g.L - 0.4 : l.z < 0.4;
       if (fwd && i > 0 && tr.cars[i - 1].d.walk) { const n = tr.cars[i - 1]; this.moveCar(tr, i, i - 1, n.flip ? n.d.L - 0.5 : 0.5); }
@@ -513,7 +514,7 @@ export class AlpRail {
     const g = this.g, A = tr.cars[from].body, Bb = tr.cars[to].body, l = g.player.loc;
     const w = A.toWorld(l, this.tmpW);
     const nl = Bb.toLocal(w, this.tmpV.clone());
-    nl.z = z; nl.x = Math.max(1.3, Math.min(2.7, nl.x)); nl.y = Math.max(nl.y, 2.02);
+    nl.z = z; nl.x = Math.max(2.32, Math.min(2.68, nl.x)); nl.y = Math.max(nl.y, 2.02);
     g.aboard = Bb; g.player.loc = nl; g.player.yawLoc = (g.player.yawLoc ?? 0) + (A.yaw - Bb.yaw);
     void flip;
   }
@@ -531,7 +532,7 @@ export class AlpRail {
     }
     if (!best) return false;
     const { tr, c, dz } = best;
-    g.aboard = c.body; g.player.loc = new THREE.Vector3(2.0, 2.02, dz + 0.5); g.player.yawLoc = Math.PI; g.player.fly = false; g.player.vel.set(0, 0, 0);
+    g.aboard = c.body; g.player.loc = new THREE.Vector3(2.5, 2.02, dz + 0.5); g.player.yawLoc = Math.PI; g.player.fly = false; g.player.vel.set(0, 0, 0);
     g.toast(`🚆 Ingestapt: ${tr.name}. Kies een plaats (J), loop door de trein, in de cabine H = zelf rijden.`);
     this.say(`Welkom aan boord van de ${tr.sv.name} naar ${tr.a ? tr.a.run.pr.last.name : ''}.`);
     return true;
@@ -550,7 +551,7 @@ export class AlpRail {
       let y = Math.floor(w.y) + 3; while (y > w.y - 6 && !g.world.solidAt(Math.floor(w.x), y - 1, Math.floor(w.z))) y--;
       if (g.world.solidAt(Math.floor(w.x), y - 1, Math.floor(w.z)) && !g.world.solidAt(Math.floor(w.x), y, Math.floor(w.z))) { const sc = y - w.y; if (!out || Math.abs(sc - 0.5) < Math.abs(out.sc - 0.5)) out = { w, y, sc }; }
     }
-    g.aboard = null;
+    g.aboard = null; g.player.seated = false;
     const pos = out ? out.w : v.toWorld(new THREE.Vector3(-1.5, 2.5, dz + 0.5), new THREE.Vector3());
     g.player.pos.set(pos.x, out ? out.y + 0.02 : pos.y, pos.z); g.player.vel.set(0, 0, 0);
     g.player.yaw = (g.player.yawLoc ?? 0) + v.yaw;
@@ -564,7 +565,8 @@ export class AlpRail {
     let i = seats.findIndex(s => Math.hypot(s[0] - l.x, s[2] - l.z) < 0.6);
     i = (i + 1) % seats.length;
     const s = seats[i];
-    l.set(s[0], s[1] + 0.02, s[2]); g.player.vel.set(0, 0, 0);
+    l.set(s[0], 2.02, s[2]); g.player.vel.set(0, 0, 0); g.player.seated = true;
+    g.player.yawLoc = (v.train.cars[v.i].flip ? 0 : Math.PI) + (s[0] < 2 ? 0.0 : 0); // naar voren kijken
     g.toast(`🪑 Plaats ${i + 1} van ${seats.length} in dit rijtuig (J = volgende plaats)`);
     return true;
   }
@@ -612,6 +614,7 @@ export class AlpRail {
     if (down) { if (pt.throttle > 0) pt.throttle = Math.max(0, pt.throttle - dt * 1.5); else pt.brake = Math.min(1, pt.brake + dt * 0.9); }
     if (!up && !down) pt.brake = Math.max(0, pt.brake - dt * 0.2);
     if (g.padStop || k.has('Space')) pt.emergency = true;
+    if (pt.emergency) { pt.throttle = 0; pt.brake = 1; }
     if (pt.doors) { pt.throttle = 0; }
     // seinen en snelheidsbeperking: automatische treinbeïnvloeding remt bij rood of veel te hard
     const lim = L.limAt(pt.s), sig = this.signalAhead(pt);
@@ -639,14 +642,14 @@ export class AlpRail {
   signalAhead(pt) {
     let best = null;
     for (const a of this.active || []) {
-      if (a.run.pr.L !== pt.L || a.run.dir !== pt.dir) continue;
+      if (a.id === pt.id || a.run.pr.L !== pt.L || a.run.dir !== pt.dir) continue;
       const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x), tail = s - a.run.dir * a.run.pr.len, ds = (tail - pt.s) * pt.dir;
       if (ds > 0 && (!best || ds < best.ds)) best = { ds };
     }
     // tegenliggers op enkelspoor
     if (pt.L.single || (pt.L.oldS && Math.abs(pt.s - (pt.L.oldS[0] + pt.L.oldS[1]) / 2) < (pt.L.oldS[1] - pt.L.oldS[0]) / 2 + 400)) {
       for (const a of this.active || []) {
-        if (a.run.pr.L !== pt.L || a.run.dir === pt.dir) continue;
+        if (a.id === pt.id || a.run.pr.L !== pt.L || a.run.dir === pt.dir) continue;
         const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x), ds = (s - pt.s) * pt.dir;
         if (ds > 0 && blockKey(pt.L, s, a.run.dir) === blockKey(pt.L, pt.s + pt.dir * Math.min(ds, 300), pt.dir) && (!best || ds < best.ds)) best = { ds };
       }
@@ -661,7 +664,8 @@ export class AlpRail {
     const pr = a.run.pr, next = pr.stops.find(q => q.arr > a.t), late = 0;
     const sp = Math.round((tr.v || 0) * KMH);
     this.hud.hidden = false;
-    this.hud.innerHTML = `<div class="dh-speed">${sp}<small> km/h</small></div><div><b>${tr.name}</b><br><span class="small">${next ? `Volgende halte: ${next.st.name} · ${hhmm(railClock() + next.arr - a.t)}` : `Eindstation ${pr.last.name}`}${late ? ' · +' + late + ' min' : ''}</span><br><span class="small muted">J: zitplaats / uitstappen aan de deur · cabine vooraan: H</span></div>`;
+    const tEnd = a.t < pr.T ? ` · aankomst ${hhmm(railClock() + pr.T - a.t)}` : '';
+    this.hud.innerHTML = `<div class="dh-speed">${sp}<small> km/h</small></div><div><b>${tr.name}</b><br><span class="small">${next ? `Volgende halte: ${next.st.name} · ${hhmm(railClock() + next.arr - a.t)}` : a.t < pr.T ? `Volgende halte: ${pr.last.name} (eindstation)${tEnd}` : `Eindstation ${pr.last.name}`}${late ? ' · +' + late + ' min' : ''}</span><br><span class="small muted">J: zitplaats / uitstappen aan de deur · cabine vooraan: H</span></div>`;
   }
   hideHud() { if (this.hud && !this.g.drive && !this.hudOwned) this.hud.hidden = true; }
   say(text) { this.g.toast('📢 ' + text); try { const u = new SpeechSynthesisUtterance(text); u.lang = 'nl-BE'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch { /* geen spraak */ } }
@@ -669,20 +673,11 @@ export class AlpRail {
   // ---------- kaart met lijnen, treinen en reisplanner ----------
   openMap() {
     const g = this.g, ov = document.getElementById('ov-rail'); if (!ov) return false;
-    const c = document.getElementById('railmap'), S = 100, N = MW / S;
+    const c = document.getElementById('railmap');
     if (!this.mapImg) {
-      // het terrein één keer tekenen (in stukjes, zodat het spel niet hapert)
-      this.mapImg = document.createElement('canvas'); this.mapImg.width = N; this.mapImg.height = N;
-      const ctx = this.mapImg.getContext('2d'), img = ctx.createImageData(N, N);
-      let row = 0;
-      const step = () => {
-        const t0 = performance.now();
-        while (row < N && performance.now() - t0 < 10) { for (let x = 0; x < N; x++) { const col = overviewColor(x * S + S / 2, row * S + S / 2, S), i = (row * N + x) * 4; img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255; } row++; }
-        ctx.putImageData(img, 0, 0);
-        if (row < N) requestAnimationFrame(step);
-        if (!ov.hidden) this.drawMap();
-      };
-      step();
+      // het terrein als kant-en-klare afbeelding (tools/bake-alpen-map.mjs)
+      this.mapImg = new Image(); this.mapImg.onload = () => { this.mapReady = true; if (!ov.hidden) this.drawMap(); };
+      this.mapImg.src = './assets/alpen-map.jpg';
     }
     if (!c.dataset.bound) {
       c.dataset.bound = '1';
@@ -710,10 +705,11 @@ export class AlpRail {
   }
   nearestStation() { const p = this.g.player.pos; let best = null, bd = 1e18; for (const st of STATIONS_ALL) { const d = (st.x - p.x) ** 2 + (st.z - p.z) ** 2; if (d < bd) { bd = d; best = st; } } return best; }
   drawMap() {
-    const c = document.getElementById('railmap'); if (!c || !this.mapImg) return;
+    const c = document.getElementById('railmap'); if (!c) return;
     const W = 1000; c.width = W; c.height = W;
     const k = W / MW, ctx = c.getContext('2d');
-    ctx.imageSmoothingEnabled = true; ctx.drawImage(this.mapImg, 0, 0, W, W);
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, W, W);
+    if (this.mapReady) { ctx.imageSmoothingEnabled = true; ctx.drawImage(this.mapImg, 0, 0, W, W); }
     ctx.fillStyle = 'rgba(10,14,22,.25)'; ctx.fillRect(0, 0, W, W);
     // lijnen (tunnels gestippeld)
     for (const L of LINES) {

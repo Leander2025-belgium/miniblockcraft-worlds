@@ -4,13 +4,20 @@ import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
 import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
-import * as BERGW from './alpen.js';
-const BERG = BERGW.META;
+import { META as BERG } from './alpen-meta.js';
+// het Alpenlandschap pas laden als je die wereld opent (snelle start, ook op een telefoon)
+let BERGW = null;
+async function loadAlps() {
+  if (BERGW) return BERGW;
+  BERGW = await import('./alpen.js');
+  Object.assign(PROC[BERG.id], { PLACES: BERGW.PLACES, zoneName: BERGW.zoneName, groundAt: BERGW.groundAt,
+    spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false } });
+  return BERGW;
+}
 // zelfgegenereerde werelden
 const PROC = {
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
-  [BERG.id]: { META: BERG, PLACES: BERGW.PLACES, zoneName: BERGW.zoneName, groundAt: BERGW.groundAt,
-    spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false }, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
+  [BERG.id]: { META: BERG, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
 };
 
 const $ = (s) => document.querySelector(s);
@@ -288,6 +295,7 @@ async function playMap(id, at) {
   if (!meta && P) { meta = { id, kind: 'map', name: P.META.name, map: { ...P.META }, size: P.META.tilesX * P.META.tile, ground: P.META.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   if (id === BERG.id && !meta.alps) meta = await migrateToAlps(meta);
+  if (id === BERG.id) { $('#loading') && ($('#loading').hidden = false); await loadAlps(); }
   await ensureGame();
   const map = meta.map, T = map.tile;
   if (map.kind === 'proc') Object.assign(map, (PROC[map.id] || PROC[METRO.id]).META);
@@ -387,42 +395,21 @@ function drawBergMap() {
   const c = $('#berg-map');
   if (!c || c.dataset.done) return;
   c.dataset.done = '1';
-  const S = 125, W = Math.round(BERGW.MW / S), H = Math.round(BERGW.ML / S);
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d'), img = ctx.createImageData(W, H);
-  let row = 0;
-  const step = () => {
-    const t0 = performance.now();
-    while (row < H && performance.now() - t0 < 12) {
-      for (let x = 0; x < W; x++) { const col = BERGW.overviewColor(x * S + S / 2, row * S + S / 2, S), i = (row * W + x) * 4; img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255; }
-      row++;
-    }
-    ctx.putImageData(img, 0, 0);
-    if (row < H) { requestAnimationFrame(step); return; }
-    overlay();
+  // kant-en-klaar overzicht (tools/render-alpen.mjs): terrein, spoorlijnen, liften en stations
+  const img = new Image();
+  img.onload = () => {
+    c.width = img.width; c.height = img.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    fetch('./assets/alpen-labels.json').then(r => r.json()).then((lab) => {
+      const k = img.width / BERG.tilesX / BERG.tile;
+      ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center';
+      const label = (t, x, z, col = '#fff') => { ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(t, x * k + 1, z * k + 1); ctx.fillStyle = col; ctx.fillText(t, x * k, z * k); };
+      for (const [n, x, z] of lab.towns) label(n, x, z - 260);
+      for (const [n, x, z] of lab.peaks) label('▲ ' + n, x, z, '#ffe9a8');
+    }).catch(() => {});
   };
-  const overlay = () => {
-    const tr = BERGW.TRAIL;
-    ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1; ctx.beginPath();
-    for (let i = 0; i < tr.length; i += 6) (i ? ctx.lineTo : ctx.moveTo).call(ctx, tr[i] / S, tr[i + 1] / S);
-    ctx.stroke();
-    for (const L of BERGW.LINES) {
-      ctx.strokeStyle = L.color; ctx.lineWidth = 2.2; ctx.beginPath();
-      for (let i = 0; i < L.n; i += 8) (i ? ctx.lineTo : ctx.moveTo).call(ctx, L.x[i] / S, L.z[i] / S);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 2]);
-    for (const L of BERGW.LIFTS) { ctx.beginPath(); ctx.moveTo(L.ax / S, L.az / S); ctx.lineTo(L.bx / S, L.bz / S); ctx.stroke(); }
-    const [a, b] = BERGW.STATIONS; ctx.beginPath(); ctx.moveTo(a.x / S, a.z / S); ctx.lineTo(b.x / S, b.z / S); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = 'bold 10px system-ui, sans-serif'; ctx.textAlign = 'center';
-    const label = (t, x, z, col = '#fff') => { ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(t, x / S + 1, z / S + 1); ctx.fillStyle = col; ctx.fillText(t, x / S, z / S); };
-    for (const t of BERGW.TOWNS) if (t.kind === 'city' || t.kind === 'town') { ctx.fillStyle = '#f1e2b8'; ctx.fillRect(t.x / S - 3, t.z / S - 3, 6, 6); label(t.name, t.x, t.z - 260); }
-    for (const st of BERGW.STATIONS_ALL) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(st.x / S, st.z / S, 2.2, 0, 7); ctx.fill(); }
-    for (const [n, x, z] of [['Reuzenberg', BERGW.SUMMIT_XZ[0], BERGW.SUMMIT_XZ[1]], ['Zugspitze', BERGW.PATCHES[2].px, BERGW.PATCHES[2].pz], ['Matterhorn', BERGW.PATCHES[1].px, BERGW.PATCHES[1].pz], ['Mont Blanc', BERGW.PATCHES[0].px, BERGW.PATCHES[0].pz], ['Hemelhoorn', BERGW.HEMEL.x, BERGW.HEMEL.z]]) label('▲ ' + n, x, z, '#ffe9a8');
-  };
-  step();
-  c.addEventListener('click', (e) => { const r = c.getBoundingClientRect(); phoneFullscreen(); playMap(BERG.id, { x: (e.clientX - r.left) / r.width * BERGW.MW, z: (e.clientY - r.top) / r.height * BERGW.ML }); });
+  img.src = './assets/alpen-map.jpg?v=' + APP_VERSION;
+  c.addEventListener('click', (e) => { const r = c.getBoundingClientRect(); phoneFullscreen(); playMap(BERG.id, { x: (e.clientX - r.left) / r.width * BERG.tilesX * BERG.tile, z: (e.clientY - r.top) / r.height * BERG.tilesZ * BERG.tile }); });
 }
 function fillTeleports(list) {
   const box = $('#tp-list');
@@ -915,7 +902,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-13b';
+const APP_VERSION = '2026-11-14a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

@@ -12,12 +12,8 @@ import { LINES, LINE, STATIONS_ALL, TRACK, BED, NET } from './alpen-net.js';
 export { OX, OZ, G, LINES, LINE, STATIONS_ALL, HEMEL, PATCHES };
 export const T = 128, MW = W, ML = W;
 export const TOFF = OX / T; // 140 tegels
-export const META = {
-  id: 'reuzenberg', name: 'Reuzenberg · Alpen', kind: 'proc', tile: T,
-  tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 7, superTiles: 4, miniStep: 4, groundColor: [0.33, 0.45, 0.26], maxH: 5600, longView: 60000, smoothLod: true,
-  alps: { ox: OX, oz: OZ, tiles: TOFF },
-};
+export { META } from './alpen-meta.js';
+import { META } from './alpen-meta.js';
 const O = OLDM._internal;
 const inOld = (x, z) => x >= OX && z >= OZ && x < OX + OLD && z < OZ + OLD;
 const dOld = (x, z) => Math.hypot(Math.max(OX - x, 0, x - (OX + OLD)), Math.max(OZ - z, 0, z - (OZ + OLD)));

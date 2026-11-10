@@ -7,9 +7,12 @@ import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage
 import { elevationSampler, elevationBase } from './terrain.js';
 import { mapSize } from './bigmap.js';
 import { generateTile } from './metropolis.js';
-import { generateTile as generateAlpen, META as BERG } from './alpen.js';
-// de Reuzenberg ligt nu in het midden van de Alpenwereld (50 × 50 km); oude tegels worden met de oude code gemaakt
-const GENERATORS = { [BERG.id]: generateAlpen };
+import { META as BERG } from './alpen-meta.js';
+// de Reuzenberg ligt nu in het midden van de Alpenwereld (50 × 50 km); oude tegels worden met de oude code gemaakt.
+// Het landschap wordt pas geladen als er een tegel van die wereld gevraagd wordt.
+const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile) };
+const genCache = new Map();
+function generatorFor(id) { if (!GENERATORS[id]) return Promise.resolve(generateTile); let p = genCache.get(id); if (!p) genCache.set(id, p = GENERATORS[id]()); return p; }
 // verre blokken: hoogtes in absolute meters (tegels in de bergen beginnen hoger)
 function lodFor(vox, T, H, y0) { const l = computeLod(vox, T, H); if (y0) for (let i = 0; i < l.h.length; i++) l.h[i] += y0; return l; }
 
@@ -270,7 +273,7 @@ async function cityTileInner(m) {
   }
   // zelfgegenereerde wereld: geen download nodig
   if (map.kind === 'proc') {
-    const r = (GENERATORS[map.id] || generateTile)(tx, tz);
+    const r = (await generatorFor(map.id))(tx, tz);
     const rle = rleEncode(r.vox), y0 = r.y0 || 0, tunnels = r.tunnels && r.tunnels.length ? r.tunnels : null;
     await cachePut(key, { rle, H: r.H, y0, edge: r.edge || null, paths: r.paths, tunnels });
     await cachePut(lodKey(map, tx, tz), lodFor(r.vox, map.tile, r.H, y0));
