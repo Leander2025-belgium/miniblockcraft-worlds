@@ -103,7 +103,8 @@ export class FarView {
   build(tx, tz, lod) {
     const n = lod.n, s = this.T / n, G = this.G;
     const pos = [], col = [], side = [], idx = [];
-    const H = (x, z) => (x < 0 || z < 0 || x >= n || z >= n) ? G : lod.h[z * n + x];
+    // buiten de tegel: geen hoge muur tot zeeniveau, alleen een korte rand (de buurtegel tekent zijn eigen kant)
+    const H = (x, z) => (x < 0 || z < 0 || x >= n || z >= n) ? lod.h[Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))] - 3 : lod.h[z * n + x];
     const quad = (a, b, c, d, rgb, shade, isSide) => {
       const o = pos.length / 3;
       for (const v of [a, b, c, d]) { pos.push(v[0], v[1], v[2]); col.push(rgb[0] * shade, rgb[1] * shade, rgb[2] * shade); side.push(isSide); }

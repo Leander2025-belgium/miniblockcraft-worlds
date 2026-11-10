@@ -337,15 +337,39 @@ export const ATLAS_ROWS = Math.ceil(TILE_NAMES.length / ATLAS_COLS);
 
 // Elke tegel krijgt een rand van PAD pixels met de herhaalde inhoud, zodat verkleinde versies (mipmaps)
 // geen kleuren van de buurtegel lenen. Zo kan de game op afstand gladde, niet-flikkerende textures tonen.
-export const PAD = 4;
-export const CELL = TILE + PAD * 2;
+// De tekenfuncties werken op 16×16; de atlas zelf is 32×32 per blok (scherper), met fijne materiaalkorrel.
+export const RES = 32;
+export const PAD = 8;
+export const CELL = RES + PAD * 2;
+// materiaal per tegel: glans, reliëf, weerspiegeling (0..255)
+const MATERIAL = {
+  glass: [255, 0, 200], darkglass: [255, 0, 220], glass_green: [255, 0, 210], glass_blue: [255, 0, 220], mirror: [255, 0, 255], water: [255, 0, 230], ice: [220, 20, 150],
+  metal: [170, 40, 110], copper: [120, 60, 60], solar: [230, 10, 160], paint_red: [110, 0, 30], paint_blue: [110, 0, 30], paint_green: [110, 0, 30], paint_black: [140, 0, 40],
+  paint_white: [110, 0, 30], paint_orange: [110, 0, 30], paint_yellow: [110, 0, 30], panel_white: [120, 20, 40], panel_dark: [140, 20, 50], marble: [150, 30, 50], tile: [90, 40, 30],
+  checker: [120, 20, 40], snow: [90, 30, 0], asphalt: [60, 90, 45], line_white: [60, 60, 40], line_yellow: [60, 60, 40], cobble: [50, 220, 40], roof_green: [100, 70, 20], lamp: [0, 0, 0],
+  brick: [10, 230, 0], brick_dark: [10, 230, 0], yellowbrick: [10, 230, 0], terracotta: [20, 220, 0], ashlar: [10, 240, 0], limestone: [10, 220, 0], red_sandstone: [10, 220, 0],
+  stone: [10, 200, 0], granite: [30, 180, 0], mossy_stone: [5, 220, 0], gravel: [5, 230, 0], ballast: [5, 230, 0], dirt: [0, 180, 0], sand: [10, 120, 0], grass_top: [5, 170, 0],
+  planks: [20, 200, 0], dark_planks: [20, 200, 0], log: [5, 230, 0], birch: [5, 160, 0], crate: [15, 210, 0], roof_red: [25, 230, 0], roof_dark: [35, 230, 0], clay_roof: [25, 230, 0],
+  leaves: [10, 160, 0], birch_leaves: [10, 160, 0], spruce: [5, 160, 0], pine_leaves: [5, 160, 0], hedge: [5, 160, 0], concrete: [15, 110, 0], sidewalk: [20, 140, 0],
+  half_timber: [10, 160, 0], bookshelf: [10, 200, 0], wool_red: [0, 150, 0], cobble_dummy: [0, 0, 0],
+};
+// fijne korrel per materiaal (hoe sterk de 32×32-details variëren)
+const GRAIN = { grass_top: 16, dirt: 14, sand: 12, stone: 14, gravel: 10, ballast: 10, granite: 12, mossy_stone: 14, snow: 5, concrete: 7, asphalt: 9, sidewalk: 7,
+  leaves: 14, birch_leaves: 14, spruce: 12, pine_leaves: 12, hedge: 12, log: 9, birch: 6, planks: 6, dark_planks: 6, brick: 7, brick_dark: 7, ashlar: 6, cobble: 8, roof_red: 6, roof_dark: 6, clay_roof: 6 };
+export function materialTexture(THREE) {
+  const n = TILE_NAMES.length, data = new Uint8Array(n * 4);
+  TILE_NAMES.forEach((name, i) => { const m = MATERIAL[name] || [20, 100, 0]; data[i * 4] = m[0]; data[i * 4 + 1] = m[1]; data[i * 4 + 2] = m[2]; data[i * 4 + 3] = 255; });
+  const t = new THREE.DataTexture(data, n, 1, THREE.RGBAFormat);
+  t.needsUpdate = true;
+  return t;
+}
 export function drawAtlas() {
   const canvas = document.createElement('canvas');
   canvas.width = ATLAS_COLS * CELL;
   canvas.height = ATLAS_ROWS * CELL;
   const ctx = canvas.getContext('2d');
   const img = ctx.createImageData(canvas.width, canvas.height);
-  const tile = new Uint8ClampedArray(TILE * TILE * 4);
+  const tile = new Uint8ClampedArray(TILE * TILE * 4), hi = new Uint8ClampedArray(RES * RES * 4);
   TILE_NAMES.forEach((name, idx) => {
     const ox = (idx % ATLAS_COLS) * CELL, oy = Math.floor(idx / ATLAS_COLS) * CELL;
     const r = rng(idx * 9973 + 17);
@@ -357,10 +381,25 @@ export function drawAtlas() {
       tile[i] = clamp(rr); tile[i + 1] = clamp(g); tile[i + 2] = clamp(b); tile[i + 3] = clamp(a);
     };
     painters[name](px, r);
+    // naar 32×32: scherpe vormen behouden, natuurlijke materialen iets zachter, met fijne korrel
+    const grain = GRAIN[name] ?? 4, soft = grain >= 10 ? 0.35 : 0;
+    const at = (x, y, c) => tile[((((y % TILE) + TILE) % TILE) * TILE + (((x % TILE) + TILE) % TILE)) * 4 + c];
+    for (let Y = 0; Y < RES; Y++) for (let X = 0; X < RES; X++) {
+      const sx = X >> 1, sy = Y >> 1, fx = (X & 1) ? 1 : -1, fy = (Y & 1) ? 1 : -1;
+      let k = Math.sin((X + idx * 31) * 12.9898 + (Y + idx * 7) * 78.233) * 43758.5453; k -= Math.floor(k);
+      const g = (k - 0.5) * grain;
+      const di = (Y * RES + X) * 4;
+      for (let c = 0; c < 3; c++) {
+        const near = at(sx, sy, c);
+        const blur = (near * 2 + at(sx + fx, sy, c) + at(sx, sy + fy, c)) / 4;
+        hi[di + c] = clamp(near * (1 - soft) + blur * soft + g);
+      }
+      hi[di + 3] = at(sx, sy, 3);
+    }
     for (let cy = 0; cy < CELL; cy++) for (let cx = 0; cx < CELL; cx++) {
-      const sx = ((cx - PAD) % TILE + TILE) % TILE, sy = ((cy - PAD) % TILE + TILE) % TILE;
-      const si = (sy * TILE + sx) * 4, di = ((oy + cy) * canvas.width + ox + cx) * 4;
-      img.data[di] = tile[si]; img.data[di + 1] = tile[si + 1]; img.data[di + 2] = tile[si + 2]; img.data[di + 3] = tile[si + 3];
+      const sx = ((cx - PAD) % RES + RES) % RES, sy = ((cy - PAD) % RES + RES) % RES;
+      const si = (sy * RES + sx) * 4, di = ((oy + cy) * canvas.width + ox + cx) * 4;
+      img.data[di] = hi[si]; img.data[di + 1] = hi[si + 1]; img.data[di + 2] = hi[si + 2]; img.data[di + 3] = hi[si + 3];
     }
   });
   ctx.putImageData(img, 0, 0);
@@ -380,7 +419,7 @@ for (const b of BLOCKS) {
 // CSS-stijl om een blok-icoon te tonen vanuit de atlas (data-URL)
 export function iconStyle(atlasUrl, blockId, size = 32) {
   const t = FACE_TILE[blockId * 3 + 1];
-  const scale = size / TILE;
+  const scale = size / RES;
   const x = ((t % ATLAS_COLS) * CELL + PAD) * scale, y = (Math.floor(t / ATLAS_COLS) * CELL + PAD) * scale;
   return `background-image:url(${atlasUrl});background-size:${ATLAS_COLS * CELL * scale}px ${ATLAS_ROWS * CELL * scale}px;background-position:-${x}px -${y}px;image-rendering:pixelated;`;
 }

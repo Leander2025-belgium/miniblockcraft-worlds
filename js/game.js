@@ -2,9 +2,9 @@
 import * as THREE from 'three';
 import { meshChunk, CS } from './mesher.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
-import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, TILE as TS } from './textures.js';
+import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, RES as TS, materialTexture } from './textures.js';
 import { districtAt, GROUND } from './city.js';
-import { skyAt, makeClouds } from './environment.js';
+import { skyAt, makeClouds, SkyDome } from './environment.js';
 import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
@@ -41,9 +41,15 @@ void main() {
 }`;
 const FRAG = `
 uniform sampler2D map;
+uniform sampler2D matTex;   // per tegel: glans, reliëf, weerspiegeling
+uniform sampler2D shadowMap;
+uniform mat4 shadowMatrix;
+uniform float shadowOn;
 uniform vec2 atlas;      // atlasgrootte in pixels
 uniform vec3 cellInfo;   // celgrootte, rand, tegelgrootte (pixels)
 uniform vec3 fogColor;
+uniform vec3 sunColor;
+uniform vec3 skyTop;
 uniform float fogNear;
 uniform float fogFar;
 uniform float alphaTest;
@@ -51,6 +57,7 @@ uniform float day;
 uniform vec3 sunDir;
 uniform float time;
 uniform float isTrans;
+uniform float atlasCols;
 uniform vec2 lampTile;
 uniform vec2 waterTile;
 varying vec2 vUv;
@@ -61,63 +68,92 @@ varying vec3 vWorld;
 varying vec3 vNrm;
 varying vec3 vView;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+float shadowAt(vec3 wp, vec3 n) {
+  if (shadowOn < 0.5) return 1.0;
+  vec4 sc = shadowMatrix * vec4(wp + n * 0.06, 1.0);
+  vec3 p = sc.xyz / sc.w;
+  if (p.x < 0.0 || p.y < 0.0 || p.x > 1.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+  float bias = 0.0009;
+  vec2 px = vec2(1.0) / vec2(textureSize(shadowMap, 0));
+  float s = 0.0;
+  for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) s += (p.z - bias > texture(shadowMap, p.xy + vec2(float(i), float(j)) * px).r) ? 0.0 : 1.0;
+  s /= 9.0;
+  // aan de rand van het schaduwgebied zacht uitfaden
+  vec2 e = min(p.xy, 1.0 - p.xy);
+  return mix(1.0, s, smoothstep(0.0, 0.08, min(e.x, e.y)));
+}
 void main() {
   vec2 f = fract(vUv);
   float C = cellInfo.x, P = cellInfo.y, T = cellInfo.z;
   vec2 pix = vec2(vTile.x * C + P + f.x * T, vTile.y * C + P + (1.0 - f.y) * T);
   vec2 uv = vec2(pix.x / atlas.x, 1.0 - pix.y / atlas.y);
-  // juiste verkleining (mipmap) op basis van de echte schaal, max. 2 niveaus (de rand is 4 pixels)
+  // juiste verkleining (mipmap) op basis van de echte schaal (de rand is 8 pixels: tot 3 niveaus)
   vec2 gx = dFdx(vUv) * T, gy = dFdy(vUv) * T;
-  float lod = clamp(0.5 * log2(max(dot(gx, gx), dot(gy, gy))), 0.0, 2.0);
+  float lod = clamp(0.5 * log2(max(dot(gx, gx), dot(gy, gy))), 0.0, 3.0);
   vec4 c = textureLod(map, uv, lod);
   if (c.a < alphaTest) discard;
-  // BLOKSTAD 3D VISUAL V9: atmospheric, directional, and hemispheric light.
+  vec4 m = texelFetch(matTex, ivec2(int(vTile.y * atlasCols + vTile.x + 0.5), 0), 0);
+  float shine = m.r, bump = m.g, refl = m.b;
   vec3 n = normalize(vNrm);
   if (!gl_FrontFacing) n = -n;
   vec3 viewDir = normalize(vView);
-  float daylight = mix(0.14, 1.0, day);
-  float sunF = max(dot(n, normalize(sunDir)), 0.0);
+  vec3 L = normalize(sunDir);
+  // reliëf uit de textuur (voegen, stenen, schors): dichtbij duidelijk, veraf niet
+  float relief = 0.0;
+  if (bump > 0.01 && lod < 1.5) {
+    vec2 d = vec2(1.0 / atlas.x, 1.0 / atlas.y);
+    float h0 = lum(c.rgb), hx = lum(textureLod(map, uv + vec2(d.x, 0.0), lod).rgb), hy = lum(textureLod(map, uv - vec2(0.0, d.y), lod).rgb);
+    relief = ((h0 - hx) + (h0 - hy)) * bump * 2.2 * (1.0 - lod / 1.5);
+  }
+  float daylight = mix(0.13, 1.0, day);
+  float sunF = max(dot(n, L), 0.0);
+  float sh = sunF > 0.0 ? shadowAt(vWorld, n) : 1.0;
   float upF = n.y * 0.5 + 0.5;
-  float skyFill = mix(0.62, 1.06, upF);
-  float directSun = 0.40 * sunF * day;
-  // Greedy mesher already supplies ambient occlusion as vLight.
-  float ambient = clamp(vLight, 0.22, 1.0);
-  vec3 col = c.rgb * daylight * ambient * (skyFill + directSun);
-  // Very light warm sunlight on sun-facing surfaces, without changing block colors.
-  col *= mix(vec3(1.0), vec3(1.045, 1.025, 0.975), sunF * day);
+  // hemel- en grondlicht
+  vec3 ambientC = mix(vec3(0.42, 0.40, 0.36), mix(fogColor, skyTop, 0.5) * 0.95 + 0.12, upF);
+  float ao = clamp(vLight, 0.22, 1.0);
+  vec3 light = ambientC * (0.5 + 0.4 * daylight) * daylight * ao + sunColor * (0.78 * sunF * sh * day) * (0.55 + 0.45 * ao);
+  light *= 1.0 + relief;
+  vec3 col = c.rgb * light * 1.12;
   float a = c.a;
   bool isLamp = distance(vTile, lampTile) < 0.1;
   bool isWater = distance(vTile, waterTile) < 0.1;
-  if (isLamp) col = c.rgb * mix(1.0, 1.35, 1.0 - day);
+  float fr = pow(1.0 - clamp(abs(dot(n, viewDir)), 0.0, 1.0), 4.0);
+  vec3 skyRefl = mix(fogColor, skyTop, clamp(reflect(-viewDir, n).y, 0.0, 1.0)) * daylight;
+  if (isLamp) col = c.rgb * mix(1.0, 1.4, 1.0 - day);
   if (isWater) {
-    // Two overlapping wave frequencies provide reflections without extra geometry.
     float w1 = sin(vWorld.x * 0.55 + vWorld.z * 0.22 + time * 1.1);
     float w2 = sin(vWorld.z * 0.81 - vWorld.x * 0.17 - time * 1.3);
-    float ripple = w1 * w2;
-    float fr = pow(1.0 - clamp(abs(dot(n, viewDir)), 0.0, 1.0), 3.0);
-    vec3 reflectedSky = fogColor * mix(0.8, 1.25, fr);
-    col = mix(col, reflectedSky, 0.17 + 0.58 * fr);
-    col += vec3(0.028, 0.045, 0.055) * ripple * daylight;
-    a = mix(a, 0.94, fr);
+    vec3 wn = normalize(n + vec3(w1 * 0.06, 0.0, w2 * 0.06));
+    float frw = pow(1.0 - clamp(abs(dot(wn, viewDir)), 0.0, 1.0), 3.0);
+    vec3 r = reflect(-viewDir, wn);
+    vec3 sky = mix(fogColor, skyTop, clamp(r.y, 0.0, 1.0)) * daylight;
+    col = mix(col, sky, 0.22 + 0.62 * frw);
+    col += sunColor * pow(max(dot(r, L), 0.0), 120.0) * 1.6 * day * sh;
+    a = mix(a, 0.95, frw);
   } else if (isTrans > 0.5 && c.a < 0.97) {
-    // glas: weerspiegelt de lucht, 's avonds zijn sommige ramen verlicht
-    float fr = pow(1.0 - clamp(abs(dot(n, viewDir)), 0.0, 1.0), 3.0);
-    float reflection = 0.12 + 0.65 * fr;
-    // Sky reflection and the subtle blue tint are view-dependent.
-    col = mix(col, fogColor * daylight + vec3(0.025, 0.045, 0.065), reflection);
+    // glas: weerspiegelt lucht en zon, 's avonds zijn sommige ramen verlicht
+    float reflection = 0.14 + 0.66 * fr;
+    col = mix(col, skyRefl + vec3(0.02, 0.04, 0.06), reflection);
+    col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 90.0) * 1.3 * day;
     vec3 cell = floor(vWorld - n * 0.5);
     float lit = step(0.65, h3(cell)) * (1.0 - day);
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.88);
     a = mix(max(a, 0.34 + 0.48 * fr), 0.95, lit);
+  } else {
+    // glans (metaal, verf, tegels, natte straat) en weerspiegeling van de lucht
+    if (refl > 0.01) col = mix(col, skyRefl, refl * (0.08 + 0.6 * fr));
+    if (shine > 0.01) col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 8.0 + shine * 60.0) * shine * 0.55 * day * sh;
   }
-  // A faint distance haze smooths the transition to far-view scenery.
+  // atmosfeer: verre dingen nemen de luchtkleur aan, warmer in de richting van de zon
   float fog = smoothstep(fogNear, fogFar, vDist);
   float heightHaze = 1.0 - 0.12 * clamp((vWorld.y - cameraPosition.y) / 180.0, 0.0, 1.0);
   fog = clamp(fog * heightHaze, 0.0, 1.0);
-  // Soft highlight roll-off, avoiding neon-bright surfaces at midday.
+  vec3 fc = mix(fogColor, sunColor * 0.9 + fogColor * 0.3, pow(max(dot(-viewDir, L), 0.0), 6.0) * 0.35 * day);
   col = max(col, vec3(0.0));
-  col = col / (vec3(1.0) + max(col - vec3(0.92), vec3(0.0)) * 0.28);
-  gl_FragColor = vec4(mix(col, fogColor, fog), a);
+  col = col / (vec3(1.0) + max(col - vec3(0.9), vec3(0.0)) * 0.35);
+  gl_FragColor = vec4(mix(col, fc, fog), a);
 }`;
 
 class World {
@@ -215,6 +251,8 @@ export class Game {
     this.settings = loadSettings();
     this.applyQuality();
     this.renderer.setClearColor(SKY);
+    // grafische kaart even weg (bv. iPhone op de achtergrond): de pagina herladen en verder spelen
+    ui.canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.ui.onSave?.(true); this.toast?.('Grafische kaart herstarten…'); setTimeout(() => location.reload(), 600); });
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.08, 1000);
     this.camera.rotation.order = 'YXZ';
@@ -223,10 +261,18 @@ export class Game {
     const tex = new THREE.CanvasTexture(atlasCanvas);
     tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.generateMipmaps = true;
     tex.anisotropy = 4;
+    const matTex = materialTexture(THREE);
+    // zachte schaduwen van de zon rond de speler
+    this.shadow = { size: 0, rt: null, cam: new THREE.OrthographicCamera(-110, 110, 110, -110, 1, 1600), matrix: new THREE.Matrix4(), mat: new THREE.MeshBasicMaterial({ colorWrite: false }) };
+    this.shadow.cam.layers.set(1);
+    this.dummyDepth = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); this.dummyDepth.needsUpdate = true;
+    this.sky = new SkyDome();
     const uniforms = () => ({
       map: { value: tex }, atlas: { value: new THREE.Vector2(ATLAS_COLS * CELL, ATLAS_ROWS * CELL) }, cellInfo: { value: new THREE.Vector3(CELL, PAD, TS) },
       fogColor: { value: new THREE.Vector3(...SKY_RAW) }, fogNear: { value: 60 }, fogFar: { value: 150 }, alphaTest: { value: 0.5 },
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
+      matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
+      shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
     });
@@ -507,6 +553,7 @@ export class Game {
     g.index.onUpload(freeArray);
     const m = new THREE.Mesh(g, mat);
     m.position.set(src.ox, src.w.y0 || 0, src.oz);
+    if (mat === this.matOpaque) m.layers.enable(1); // werpt schaduw
     m.updateMatrix();
     m.matrixAutoUpdate = false;
     this.scene.add(m);
@@ -629,6 +676,7 @@ export class Game {
       else if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
       else { u.fogNear.value = far * 0.45; u.fogFar.value = far; }
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
+      u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
@@ -652,16 +700,60 @@ export class Game {
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
-    if (this.far) {
-      // eerst het verre berglandschap, dan de blokken eroverheen
-      this.renderer.autoClear = false;
-      this.renderer.clear();
-      this.far.render(this.renderer, this.camera, env, 48);
-      this.renderer.clearDepth();
-      this.renderer.render(this.scene, this.camera);
-      this.renderer.autoClear = true;
-    } else this.renderer.render(this.scene, this.camera);
+    this.updateShadows(env);
+    // lucht, dan (Reuzenberg) het verre berglandschap, dan de blokken eroverheen
+    this.renderer.autoClear = false;
+    this.renderer.clear();
+    this.sky.render(this.renderer, this.camera, env);
+    if (this.far) { this.renderer.clearDepth(); this.far.render(this.renderer, this.camera, env, 48); }
+    this.renderer.clearDepth();
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.autoClear = true;
+    this.autoTune(dt);
     this.drawMinimap();
+  }
+
+  // ---------- schaduwen van de zon (rond de speler) ----------
+  updateShadows(env) {
+    const S = this.shadow, q = this.settings.quality || 'normal';
+    const want = this.autoLow || this.settings.shadows === false ? 0 : q === 'sharp' ? 2048 : q === 'normal' ? (this.touch ? 1024 : 2048) : 0;
+    const set = (k, v) => { this.matOpaque.uniforms[k].value = v; this.matTrans.uniforms[k].value = v; };
+    if (!want || env.day < 0.08 || !this.world) { set('shadowOn', 0); return; }
+    if (S.size !== want) {
+      S.rt?.dispose();
+      S.rt = new THREE.WebGLRenderTarget(want, want, { depthBuffer: true });
+      S.rt.depthTexture = new THREE.DepthTexture(want, want); S.rt.depthTexture.type = THREE.UnsignedIntType;
+      S.size = want;
+    }
+    S.frame = (S.frame || 0) + 1;
+    if (this.touch && S.frame % 2 && S.ready) return; // telefoon: om de twee beelden
+    const p = this.player.pos, cam = S.cam, texel = 220 / want;
+    const cx = Math.round(p.x / texel) * texel, cy = Math.round(p.y / texel) * texel, cz = Math.round(p.z / texel) * texel;
+    cam.position.set(cx + env.sun.x * 700, cy + env.sun.y * 700, cz + env.sun.z * 700);
+    cam.lookAt(cx, cy, cz); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+    const r = this.renderer, prevOverride = this.scene.overrideMaterial;
+    this.scene.overrideMaterial = S.mat;
+    r.setRenderTarget(S.rt); r.clear(); r.render(this.scene, cam); r.setRenderTarget(null);
+    this.scene.overrideMaterial = prevOverride;
+    S.matrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
+    set('shadowMap', S.rt.depthTexture); set('shadowOn', 1);
+    S.ready = true;
+  }
+  // automatische kwaliteit: bij te weinig beelden per seconde de resolutie en schaduwen terugschroeven
+  autoTune(dt) {
+    if (this.settings.auto === false || this.photo) return;
+    const a = this.tune || (this.tune = { t: 0, n: 0, scale: 1, good: 0 });
+    a.t += dt; a.n++;
+    if (a.t < 2.5) return;
+    const fps = a.n / a.t; a.t = 0; a.n = 0;
+    this.fps = fps;
+    let changed = false;
+    if (fps < 27 && a.scale > 0.55) { a.scale = Math.max(0.55, a.scale - 0.15); a.good = 0; changed = true; }
+    else if (fps < 24 && !this.autoLow) { this.autoLow = true; changed = true; }
+    else if (fps > 52) { if (++a.good >= 3) { a.good = 0; if (this.autoLow) { this.autoLow = false; changed = true; } else if (a.scale < 1) { a.scale = Math.min(1, a.scale + 0.1); changed = true; } } }
+    else a.good = 0;
+    if (a.scale < 0.75 && !this.autoLow) { this.autoLow = true; changed = true; }
+    if (changed) this.applyQuality();
   }
 
   // ---------- minikaart ----------
@@ -1012,7 +1104,7 @@ export class Game {
     const dpr = window.devicePixelRatio || 1;
     const q = this.settings.quality || 'normal';
     const r = q === 'fast' ? 1 : q === 'sharp' ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
-    this.renderer.setPixelRatio(r);
+    this.renderer.setPixelRatio(Math.max(0.6, r * (this.tune ? this.tune.scale : 1)));
     if (this.camera) this.resize();
   }
   applySettings() {
@@ -1036,6 +1128,11 @@ export class Game {
     if (ql) {
       ql.value = this.settings.quality || 'normal';
       if (!ql.dataset.bound) { ql.dataset.bound = '1'; ql.addEventListener('change', () => { this.settings.quality = ql.value; saveSettings(this.settings); this.applyQuality(); }); }
+    }
+    for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
+      const el = document.getElementById(id); if (!el) continue;
+      el.checked = this.settings[key] !== false;
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.applyQuality(); } saveSettings(this.settings); }); }
     }
     const lodR = document.getElementById('set-lod');
     if (lodR) {
