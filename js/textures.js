@@ -249,6 +249,21 @@ painters.half_timber = (px, r) => {
     else px(x, y, 222 + n, 214 + n, 196 + n);
   }
 };
+painters.snow = solid([238, 242, 248], 10);
+painters.snow_side = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const edge = 4 + ((x * 5 + 1) % 3);
+    const n = (r() - 0.5) * 16;
+    if (y < edge) px(x, y, 238 + n, 242 + n, 248 + n);
+    else px(x, y, 125 + n * 2, 125 + n * 2, 125 + n * 2);
+  }
+};
+painters.spruce = (px, r) => {
+  for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
+    const n = r(); const v = n < 0.3 ? 0.62 : 1;
+    px(x, y, 28 * v + n * 12, 72 * v + n * 26, 44 * v + n * 12);
+  }
+};
 painters.water = (px, r) => {
   for (let i = 0; i < TILE * TILE; i++) {
     const n = (r() - 0.5) * 20;

@@ -7,6 +7,10 @@ import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage
 import { elevationSampler, elevationBase } from './terrain.js';
 import { mapSize } from './bigmap.js';
 import { generateTile } from './metropolis.js';
+import { generateTile as generateMountain, META as BERG } from './mountain.js';
+const GENERATORS = { [BERG.id]: generateMountain };
+// verre blokken: hoogtes in absolute meters (tegels in de bergen beginnen hoger)
+function lodFor(vox, T, H, y0) { const l = computeLod(vox, T, H); if (y0) for (let i = 0; i < l.h.length; i++) l.h[i] += y0; return l; }
 
 // ---------- hoogtes ----------
 const elevMem = new Map();
@@ -87,7 +91,7 @@ self.onmessage = (e) => {
   } else if (m.type === 'cityTile') {
     cityTile(m).then(r => {
       if (m.prefetch) self.postMessage({ type: 'cityTile', id: m.id, H: r.H, bytes: r.bytes });
-      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, paths: r.paths }, [r.vox.buffer]);
+      else self.postMessage({ type: 'cityTile', id: m.id, vox: r.vox, H: r.H, y0: r.y0 || 0, edge: r.edge || null, paths: r.paths }, [r.vox.buffer]);
     }).catch(err => self.postMessage({ type: 'error', id: m.id, message: err.message || String(err) }));
   } else if (m.type === 'lods') {
     sendLods(m);
@@ -230,7 +234,7 @@ async function cityTileInner(m) {
   const cached = await cacheGet(key);
   if (cached && cached.rle) {
     if (m.prefetch) return { H: cached.H, bytes: cached.rle.length };
-    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, paths: cached.paths || [] };
+    return { vox: rleDecode(cached.rle, map.tile * map.tile * cached.H), H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [] };
   }
   // kant-en-klare tegel van de website (sneller dan zelf omzetten)
   if (map.baked) {
@@ -246,11 +250,11 @@ async function cityTileInner(m) {
   }
   // zelfgegenereerde wereld: geen download nodig
   if (map.kind === 'proc') {
-    const r = generateTile(tx, tz);
-    const rle = rleEncode(r.vox);
-    await cachePut(key, { rle, H: r.H, paths: r.paths });
-    await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-    return { vox: r.vox, H: r.H, bytes: rle.length, paths: r.paths };
+    const r = (GENERATORS[map.id] || generateTile)(tx, tz);
+    const rle = rleEncode(r.vox), y0 = r.y0 || 0;
+    await cachePut(key, { rle, H: r.H, y0, edge: r.edge || null, paths: r.paths });
+    await cachePut(lodKey(map, tx, tz), lodFor(r.vox, map.tile, r.H, y0));
+    return { vox: r.vox, H: r.H, y0, edge: r.edge || null, bytes: rle.length, paths: r.paths };
   }
   const osm = await getSuper(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const c = tileCenter(map, tx, tz);
@@ -293,7 +297,7 @@ async function getLod(map, tx, tz) {
   if (map.baked) { await loadBakedLods(map); const bl = bakedLods.get(tz * 1000 + tx); if (bl) return bl; }
   const t = await cacheGet(keys.tile(map, tx, tz));
   if (!t || !t.rle) return null;
-  l = computeLod(rleDecode(t.rle, map.tile * map.tile * t.H), map.tile, t.H);
+  l = lodFor(rleDecode(t.rle, map.tile * map.tile * t.H), map.tile, t.H, t.y0 || 0);
   await cachePut(k, l);
   return l;
 }

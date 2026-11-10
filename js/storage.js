@@ -114,7 +114,7 @@ export async function cacheGetPrefix(prefix) {
 const MAGIC_B = 'BLOKBOUW1';
 export async function exportBuilds(meta) {
   const edits = await cacheGetPrefix(`${meta.map.id}-edit-`);
-  const head = { meta, entries: edits.map(e => ({ key: e.key, H: e.value.H, len: e.value.rle.length })) };
+  const head = { meta, entries: edits.map(e => ({ key: e.key, H: e.value.H, y0: e.value.y0 || 0, len: e.value.rle.length })) };
   const hb = new TextEncoder().encode(JSON.stringify(head)), mg = new TextEncoder().encode(MAGIC_B);
   const total = mg.length + 4 + hb.length + edits.reduce((n, e) => n + e.value.rle.length, 0);
   const buf = new Uint8Array(total);
@@ -137,7 +137,7 @@ export async function importBuilds(bytes) {
   const head = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC_B.length + 4, MAGIC_B.length + 4 + len)));
   let o = MAGIC_B.length + 4 + len;
   for (const e of head.entries) {
-    await cachePut(e.key, { rle: bytes.slice(o, o + e.len), H: e.H });
+    await cachePut(e.key, { rle: bytes.slice(o, o + e.len), H: e.H, y0: e.y0 || 0 });
     o += e.len;
   }
   return head;

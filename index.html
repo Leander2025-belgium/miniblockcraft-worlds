@@ -160,6 +160,9 @@
   .mission .mi { font-size: 16px; color: var(--muted); }
   .mission.ok .mi { color: var(--accent); }
   .mp { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #t-ride { display: none; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
+  .is-touch #t-ride.show { display: grid; }
+  .photo #t-ride { display: none !important; }
   #t-shot, #t-photo-exit { display: none; right: calc(22px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
   #t-photo-exit { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   .photo .hud:not(#toast), .photo #minimap, .photo .touch { display: none !important; }
@@ -346,6 +349,17 @@
       </div>
       <p class="help">Een enorm centrum met supermoderne torens, een haven met cruiseschepen, twee luchthavens, een rivier, parken en voorsteden. Alles wordt meteen gemaakt terwijl je rondvliegt: niets te downloaden.</p>
     </div>
+    <div class="city-card">
+      <div class="city-top">
+        <div>
+          <div class="city-name">Reuzenberg</div>
+          <div class="small muted">Bergwereld · 14 × 14 km · top op ± 1550 m</div>
+        </div>
+        <button class="btn primary" id="btn-berg">▶ Spelen</button>
+      </div>
+      <canvas id="berg-map" title="Tik om daar te starten" style="width:100%;aspect-ratio:1;border-radius:8px;margin-top:8px;cursor:crosshair;display:block;image-rendering:auto"></canvas>
+      <p class="help">Eén immens hoge berg met een natuurlijke vorm. Onderaan dichte loof- en naaldbossen, hoger alpenweiden, rotsen en eeuwige sneeuw. Het <b>wandelpad</b> (geel, ± 9 km) slingert naar de top: reken op een halfuur stappen. Of neem de <b>kabelbaan</b> (rood) vanaf het dalstation: druk <kbd>G</kbd> of tik op 🚡 in het station.</p>
+    </div>
 
     </div>
 
@@ -361,6 +375,7 @@
       <kbd>Shift</kbd><span>sprinten / omlaag vliegen</span>
       <kbd>F of 2× Spatie</kbd><span>vliegen aan/uit</span>
       <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
+      <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
       <kbd>2× W</kbd><span>boost (W ingedrukt houden)</span>
       <kbd>Linkerklik</kbd><span>blok breken</span>
       <kbd>Rechterklik</kbd><span>blok plaatsen</span>
@@ -369,7 +384,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-09c</p>
+    <p class="help" id="app-version">Versie 2026-11-10a</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>
@@ -400,6 +415,7 @@
   <button class="touch tbtn" id="t-speed" aria-label="Vliegsnelheid">⏩</button>
   <button class="touch tbtn" id="t-inv" aria-label="Blokken">▦</button>
   <button class="touch tbtn" id="t-menu" aria-label="Menu">☰</button>
+  <button class="tbtn" id="t-ride" aria-label="Kabelbaan">🚡</button>
   <button class="tbtn" id="t-shot" aria-label="Foto opslaan">📷</button>
   <button class="tbtn" id="t-photo-exit" aria-label="Fotomodus sluiten">✕</button>
 
@@ -455,6 +471,7 @@
         <kbd>Shift</kbd><span>sprinten / omlaag vliegen</span>
         <kbd>F of 2× Spatie</kbd><span>vliegen aan/uit</span>
         <kbd>R</kbd><span>vliegsnelheid: normaal, snel, turbo</span>
+        <kbd>G</kbd><span>kabelbaan in- en uitstappen (Reuzenberg)</span>
         <kbd>2× W</kbd><span>boost (W ingedrukt houden)</span>
         <kbd>Links / rechts</kbd><span>breken / plaatsen</span>
         <kbd>E</kbd><span>alle blokken</span>

@@ -4,6 +4,14 @@ import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
 import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
+import * as BERGW from './mountain.js';
+const BERG = BERGW.META;
+// zelfgegenereerde werelden
+const PROC = {
+  [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
+  [BERG.id]: { META: BERG, PLACES: BERGW.PLACES, zoneName: BERGW.zoneName, groundAt: (x, z) => Math.round(BERGW.G + BERGW.surfaceAt(x, z)),
+    spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false }, info: 'Bergwereld · 14 × 14 km · top op ± 1550 m' },
+};
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -208,7 +216,7 @@ function rememberLast(kind, id, name) { try { localStorage.setItem('blokstad-las
 function updateResume() {
   let last = null;
   try { last = JSON.parse(localStorage.getItem('blokstad-last') || 'null'); } catch { /* geen opslag */ }
-  const ok = last && (last.id === METRO.id || last.id === CITY.id || state.regions.some(r => r.id === last.id));
+  const ok = last && (PROC[last.id] || last.id === CITY.id || state.regions.some(r => r.id === last.id));
   $('#resume').hidden = !ok;
   if (!ok) return;
   $('#btn-resume-last').textContent = `▶ Verder spelen: ${last.name}`;
@@ -248,13 +256,15 @@ function mapMeta(map) {
     real: { lat: map.lat, lon: map.lon, scale: 1 }, created: Date.now() };
 }
 async function playMap(id, at) {
+  if (location.hash === '#debug') window.blokGame = () => game;
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
-  if (!meta && id === METRO.id) { meta = { id: METRO.id, kind: 'map', name: METRO.name, map: { ...METRO }, size: METRO.tilesX * METRO.tile, ground: METRO.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
+  const P = PROC[id];
+  if (!meta && P) { meta = { id, kind: 'map', name: P.META.name, map: { ...P.META }, size: P.META.tilesX * P.META.tile, ground: P.META.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   await ensureGame();
   const map = meta.map, T = map.tile;
-  if (map.kind === 'proc') Object.assign(map, METRO);
+  if (map.kind === 'proc') Object.assign(map, (PROC[map.id] || PROC[METRO.id]).META);
   else {
     map.superTiles = 4;
     map.version = CITY.version;
@@ -262,18 +272,18 @@ async function playMap(id, at) {
   }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
-      if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H });
+      if (ed && ed.rle) return resolve({ vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null });
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
         if (m.type === 'cityTile') resolve(m);
         else if (m.type === 'error') reject(new Error(m.message));
       }, workerFor(map, tx, tz));
     });
   });
-  const saveTile = (tx, tz, vox, H) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H });
-  const isCity = map.id === CITY.id, isMetro = map.kind === 'proc';
+  const saveTile = (tx, tz, vox, H, y0, edge) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H, y0: y0 || 0, edge: edge || null });
+  const isCity = map.id === CITY.id, isMetro = map.kind === 'proc', PR = PROC[map.id] || PROC[METRO.id];
   $('#menu').hidden = true;
   $('#tp-wrap').hidden = !isCity && !isMetro;
-  fillTeleports(isMetro ? METRO_PLACES.map(([n, x, z]) => [n, null, null, x, z]) : CITY_PLACES);
+  fillTeleports(isMetro ? PR.PLACES.map(([n, x, z]) => [n, null, null, x, z]) : CITY_PLACES);
   $('#game-title').textContent = meta.name;
   const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
   const areaProg = new Map();
@@ -287,14 +297,42 @@ async function playMap(id, at) {
     onLod(m);
   }); };
   const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
-  let spawn = isMetro ? { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true } : isCity ? SPAWN : spawnFor(map);
-  if (at) { spawn = { x: at.x, y: map.ground + 90, z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
+  let spawn = isMetro ? { ...PR.spawn } : isCity ? SPAWN : spawnFor(map);
+  if (at) { spawn = { x: at.x, y: (isMetro && PR.groundAt ? PR.groundAt(at.x, at.z) + 40 : map.ground + 90), z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
   rememberLast('map', id, meta.name);
-  game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods }, provider, saveTile);
+  game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods, zoneName: isMetro ? PR.zoneName : null, groundAt: isMetro ? PR.groundAt : null }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
+$('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
+// overzichtskaart van de Reuzenberg (met wandelpad en kabelbaan)
+function drawBergMap() {
+  const c = $('#berg-map');
+  if (!c || c.dataset.done) return;
+  c.dataset.done = '1';
+  const S = 40, W = Math.round(BERGW.MW / S), H = Math.round(BERGW.ML / S);
+  c.width = W; c.height = H;
+  const img = new ImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const col = BERGW.overviewColor(x * S + S / 2, y * S + S / 2, S), i = (y * W + x) * 4;
+    img.data[i] = col[0]; img.data[i + 1] = col[1]; img.data[i + 2] = col[2]; img.data[i + 3] = 255;
+  }
+  const ctx = c.getContext('2d');
+  ctx.putImageData(img, 0, 0);
+  const tr = BERGW.TRAIL;
+  ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i < tr.length; i += 3) (i ? ctx.lineTo : ctx.moveTo).call(ctx, tr[i] / S, tr[i + 1] / S);
+  ctx.stroke();
+  const [a, b] = BERGW.STATIONS;
+  ctx.strokeStyle = '#e33'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a.x / S, a.z / S); ctx.lineTo(b.x / S, b.z / S); ctx.stroke();
+  ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+  for (const [name, x, z] of [['Dalstation', a.x, a.z + 160], ['Top', BERGW.SUMMIT_XZ[0], BERGW.SUMMIT_XZ[1] - 90], ['Bergmeer', BERGW.LAKE.x, BERGW.LAKE.z + 700]]) {
+    ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(name, x / S + 1, z / S + 1);
+    ctx.fillStyle = '#fff'; ctx.fillText(name, x / S, z / S);
+  }
+  c.addEventListener('click', (e) => { const r = c.getBoundingClientRect(); phoneFullscreen(); playMap(BERG.id, { x: (e.clientX - r.left) / r.width * BERGW.MW, z: (e.clientY - r.top) / r.height * BERGW.ML }); });
+}
 function fillTeleports(list) {
   const box = $('#tp-list');
   box.innerHTML = '';
@@ -436,13 +474,14 @@ function procCard(r) {
   card.className = 'region';
   card.innerHTML = `
     <div class="r-title"></div>
-    <div class="muted small">Fantasiewereld · 25 × 30 km · wordt gemaakt terwijl je speelt</div>
+    <div class="muted small"></div>
     <div class="r-actions">
       <button class="btn primary" data-a="play">▶ Spelen</button>
       <button class="btn" data-a="show">Kaart</button>
       <button class="btn" data-a="share" title="Bewaar je bouwwerken als bestand om te delen">Delen</button>
     </div>`;
   card.querySelector('.r-title').textContent = r.name;
+  card.querySelector('.muted').textContent = `${(PROC[r.id] || PROC[METRO.id]).info} · wordt gemaakt terwijl je speelt`;
   card.querySelector('[data-a=play]').onclick = () => { phoneFullscreen(); playMap(r.id); };
   card.querySelector('[data-a=show]').onclick = () => setMode('fantasy');
   card.querySelector('[data-a=share]').onclick = () => shareBuilds(r);
@@ -520,7 +559,7 @@ function setMode(mode) {
   $('#fantasy-panel').hidden = mode !== 'fantasy';
   $('#real-col').hidden = mode !== 'real';
   $('#map-col').hidden = mode !== 'fantasy';
-  if (mode === 'fantasy') drawMetroMap();
+  if (mode === 'fantasy') { drawMetroMap(); drawBergMap(); }
   if (mode === 'real') initMap();
   try { localStorage.setItem('blokstad-mode', mode); } catch { /* geen opslag */ }
 }
@@ -760,7 +799,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-09c';
+const APP_VERSION = '2026-11-10a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {

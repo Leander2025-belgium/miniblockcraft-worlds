@@ -16,14 +16,27 @@ export function meshChunk(world, cx, cz) {
   const hy = Math.min(H, world.chunkTop(cx, cz) + 2);
   const dims = [sx, hy, sz];
 
+  // tegels met randinformatie: naast de tegel is er grond tot de hoogte van de buur (geen muur aan de rand)
+  const edge = world.edge, y0 = world.y0 || 0;
+  const edgeSolid = (x, y, z) => {
+    if (!edge || y >= H) return false;
+    let e;
+    if (x < 0) { if (z < 0 || z >= size) return false; e = edge[z]; }
+    else if (x >= size) { if (z < 0 || z >= size) return false; e = edge[size + z]; }
+    else if (z < 0) e = edge[2 * size + x];
+    else e = edge[3 * size + x];
+    return y + y0 <= e;
+  };
   const get = (x, y, z) => {
     if (y < 0) return B.BEDROCK;
-    if (y >= H || x < 0 || z < 0 || x >= size || z >= size) return 0;
+    if (x < 0 || z < 0 || x >= size || z >= size) return edgeSolid(x, y, z) ? B.STONE : 0;
+    if (y >= H) return 0;
     return vox[(z * size + x) * H + y];
   };
   const opaque = (x, y, z) => {
     if (y < 0) return 1;
-    if (y >= H || x < 0 || z < 0 || x >= size || z >= size) return 0;
+    if (x < 0 || z < 0 || x >= size || z >= size) return edgeSolid(x, y, z) ? 1 : 0;
+    if (y >= H) return 0;
     return IS_OPAQUE[vox[(z * size + x) * H + y]];
   };
 

@@ -10,6 +10,7 @@ import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
 import { zoneName } from './metropolis.js';
+import { MountainView, gondolaAt, stationNear, STATIONS, CABLE_D0, CABLE_D1, RIDE_SPEED } from './mountainview.js';
 
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
@@ -123,6 +124,8 @@ class World {
   constructor(meta, vox) {
     this.meta = meta;
     this.size = meta.size; this.H = meta.H; this.vox = vox;
+    this.y0 = meta.y0 || 0; // tegels in de bergen beginnen hoger: alles eronder is vaste rots
+    this.edge = meta.edge || null; // grondhoogte net naast de tegel
     this.nc = Math.ceil(this.size / CS);
     this.tops = new Int16Array(this.nc * this.nc);
     for (let cz = 0; cz < this.nc; cz++) for (let cx = 0; cx < this.nc; cx++) this.recomputeTop(cx, cz);
@@ -141,10 +144,13 @@ class World {
   chunkTop(cx, cz) { return this.tops[cz * this.nc + cx]; }
   inside(x, z) { return x >= 0 && z >= 0 && x < this.size && z < this.size; }
   get(x, y, z) {
+    y -= this.y0;
+    if (y < 0 && this.y0 && this.inside(x, z)) return B.STONE;
     if (y < 0 || y >= this.H || !this.inside(x, z)) return 0;
     return this.vox[(z * this.size + x) * this.H + y];
   }
   set(x, y, z, b) {
+    y -= this.y0;
     if (y < 0 || y >= this.H || !this.inside(x, z)) return false;
     this.vox[(z * this.size + x) * this.H + y] = b;
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
@@ -152,10 +158,11 @@ class World {
     return true;
   }
   columnTop(x, z) {
-    for (let y = this.H - 1; y >= 0; y--) if (this.get(x, y, z)) return y;
-    return 0;
+    for (let y = this.y0 + this.H - 1; y >= this.y0; y--) if (this.get(x, y, z)) return y;
+    return Math.max(0, this.y0 - 1);
   }
   solidAt(x, y, z) {
+    y -= this.y0;
     if (y < 0 || !this.inside(x, z)) return true; // onzichtbare muur aan de rand
     if (y >= this.H) return false;
     return IS_SOLID[this.vox[(z * this.size + x) * this.H + y]] === 1;
@@ -169,7 +176,7 @@ class TileWorld {
     this.T = spec.tile; this.nx = spec.tilesX || spec.tiles; this.nz = spec.tilesZ || spec.tiles;
     this.n = Math.max(this.nx, this.nz);
     this.sizeX = this.T * this.nx; this.sizeZ = this.T * this.nz; this.size = Math.max(this.sizeX, this.sizeZ);
-    this.G = spec.ground; this.H = 1024;
+    this.G = spec.ground; this.H = spec.maxH || 1024; this.groundAt = spec.groundAt;
     this.tiles = new Map();
   }
   key(tx, tz) { return tz * 1000 + tx; }
@@ -191,7 +198,7 @@ class TileWorld {
   solidAt(x, y, z) {
     if (y < 0 || !this.inside(x, z)) return true;
     const t = this.tileAt(x, z);
-    if (!t) return y <= this.G; // nog niet geladen: vaste grond
+    if (!t) return y <= (this.groundAt ? this.groundAt(x, z) : this.G); // nog niet geladen: vaste grond
     return t.w.solidAt(x - t.ox, y, z - t.oz);
   }
   columnTop(x, z) {
@@ -264,6 +271,7 @@ export class Game {
     this.tiled = null;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
+    this.dropMountain();
     this.mini = null;
     this.world = new World(meta, vox);
     this.chunks = new Map();
@@ -303,11 +311,65 @@ export class Game {
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
     this.traffic = new Traffic(this.scene, spec.ground);
+    this.dropMountain();
+    if (spec.longView) {
+      // Reuzenberg: ver landschap tot aan de horizon en de kabelbaan
+      this.far = new MountainView();
+      this.scene.add(this.far.gondolas.group);
+      if (this.lod.groundMesh) this.lod.groundMesh.visible = false;
+    }
     this.mini = { canvas: this.lod.canvas, scale: this.lod.cell * (spec.miniStep || 1), sizeX: this.world.sizeX, sizeZ: this.world.sizeZ };
     const T = spec.tile;
     spec.requestLods?.(Math.floor(this.player.pos.x / T), Math.floor(this.player.pos.z / T), Math.ceil(this.settings.lod / T) + 1);
     this.updateTiles(true);
     this.updateHud(true);
+  }
+
+  dropMountain() {
+    if (this.far) { this.far.dispose(); this.far = null; }
+    this.ride = null;
+    document.getElementById('t-ride')?.classList.remove('show');
+  }
+
+  // ---------- kabelbaan ----------
+  toggleRide() {
+    if (!this.far) return;
+    const p = this.player;
+    if (this.ride) { // onderweg uitstappen: je blijft zweven
+      this.ride = null; this.far.gondolas.cab.visible = false;
+      p.fly = true; p.vel.set(0, 0, 0);
+      this.toast('Uitgestapt. Vliegen staat aan (F om te landen).');
+      this.updateHud(true);
+      return;
+    }
+    const st = stationNear(p.pos);
+    if (st < 0) { this.toast('🚡 Ga naar het dal- of topstation om in te stappen.'); return; }
+    this.ride = { s: st === 0 ? 0 : (CABLE_D1 - CABLE_D0), dir: st === 0 ? 1 : -1, to: st === 0 ? 1 : 0, g: {} };
+    if (st === 1) this.ride.s = (CABLE_D1 - CABLE_D0); // omlaag langs het westspoor
+    this.far.gondolas.cab.visible = true;
+    p.vel.set(0, 0, 0);
+    this.toast(st === 0 ? '🚡 Op weg naar de top! (Shift/⚡ = sneller, G = uitstappen)' : '🚡 Op weg naar het dal! (Shift/⚡ = sneller, G = uitstappen)');
+  }
+  updateRide(dt) {
+    const r = this.ride, p = this.player, L = CABLE_D1 - CABLE_D0;
+    const fast = this.keys.has('ShiftLeft') || this.keys.has('ControlLeft') || this.touchSprint || this.boost;
+    r.s += RIDE_SPEED * (fast ? 4 : 1) * dt;
+    const done = r.dir > 0 ? r.s >= L : r.s >= 2 * L;
+    if (r.dir < 0 && r.s < L) r.s = L;
+    const g = gondolaAt(Math.min(r.s, r.dir > 0 ? L : 2 * L - 0.01), r.g);
+    if (done) {
+      const s = STATIONS[r.to];
+      this.ride = null; this.far.gondolas.cab.visible = false;
+      p.pos.set(s.x + 0.5, s.y + 1.05, s.z + (r.to === 1 ? -6 : 6)); p.vel.set(0, 0, 0); p.fly = false;
+      this.toast(r.to === 1 ? `⛰ Topstation (${s.y - (this.meta.ground ?? GROUND)} m). Het pad naar de top begint hier!` : '🌲 Terug in het dal.');
+      if (this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
+      return;
+    }
+    p.pos.set(g.x, g.y - 1.1, g.z);
+    p.vel.set(0, 0, 0); p.fly = false; p.onGround = true;
+    this.far.gondolas.cab.position.set(g.x, g.y, g.z);
+    const left = Math.max(0, r.dir > 0 ? L - r.s : 2 * L - r.s) / (RIDE_SPEED * (fast ? 4 : 1));
+    this.rideInfo = `🚡 Kabelbaan · nog ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} · G = uitstappen`;
   }
 
   addSource(src) {
@@ -345,7 +407,7 @@ export class Game {
     // tegels die te ver weg zijn opruimen (eerst bewaren als je er iets veranderde)
     for (const [k, t] of W.tiles) {
       if (Math.max(Math.abs(t.tx - ptx), Math.abs(t.tz - ptz)) > R + 1) {
-        if (t.dirty) td.saveTile(t.tx, t.tz, t.w.vox, t.w.H);
+        if (t.dirty) td.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge);
         this.removeSource(t);
         W.tiles.delete(k);
         this.trafficDirty = true;
@@ -366,9 +428,9 @@ export class Game {
     for (const [, tx, tz, k] of want) {
       if (td.inFlight >= 3) break;
       td.inFlight++; td.pending.add(k);
-      td.provider(tx, tz).then(({ vox, H, paths }) => {
+      td.provider(tx, tz).then(({ vox, H, paths, y0, edge }) => {
         if (this.world !== W) return;
-        const w = new World({ size: T, H }, vox);
+        const w = new World({ size: T, H, y0, edge }, vox);
         const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
         this.trafficDirty = true;
         w.src = src;
@@ -383,7 +445,7 @@ export class Game {
 
   saveDirtyTiles() {
     if (!this.tiled) return;
-    for (const t of this.world.tiles.values()) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H); t.dirty = false; }
+    for (const t of this.world.tiles.values()) if (t.dirty) { this.tiled.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
   }
 
   spawn() {
@@ -444,7 +506,7 @@ export class Game {
     for (const a of Object.values(g.attributes)) a.onUpload(freeArray);
     g.index.onUpload(freeArray);
     const m = new THREE.Mesh(g, mat);
-    m.position.set(src.ox, 0, src.oz);
+    m.position.set(src.ox, src.w.y0 || 0, src.oz);
     m.updateMatrix();
     m.matrixAutoUpdate = false;
     this.scene.add(m);
@@ -498,6 +560,7 @@ export class Game {
     this.running = false;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
+    this.dropMountain();
     cancelAnimationFrame(this.raf);
     if (document.pointerLockElement) document.exitPointerLock();
     this.ui.root.hidden = true;
@@ -551,7 +614,8 @@ export class Game {
     this.renderer.setClearColor(new THREE.Color(...env.sky));
     for (const m of [this.matOpaque, this.matTrans]) {
       const u = m.uniforms;
-      if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
+      if (this.far) { u.fogNear.value = 3000; u.fogFar.value = 26000; }
+      else if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
       else { u.fogNear.value = far * 0.45; u.fogFar.value = far; }
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
     }
@@ -564,6 +628,11 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day);
     }
+    if (this.far) {
+      this.far.gondolas.update(dt, env.day);
+      const lu = this.lod && this.lod.mat.uniforms;
+      if (lu) { lu.fogNear.value = 3000; lu.fogFar.value = 26000; }
+    }
     this.camera.far = (this.tiled ? Math.max(far, this.settings.lod * 1.6) : far) + 60; this.camera.updateProjectionMatrix();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
@@ -572,7 +641,15 @@ export class Game {
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.far) {
+      // eerst het verre berglandschap, dan de blokken eroverheen
+      this.renderer.autoClear = false;
+      this.renderer.clear();
+      this.far.render(this.renderer, this.camera, env, 48);
+      this.renderer.clearDepth();
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.autoClear = true;
+    } else this.renderer.render(this.scene, this.camera);
     this.drawMinimap();
   }
 
@@ -681,6 +758,11 @@ export class Game {
 
   update(dt) {
     const p = this.player, k = this.keys;
+    if (this.ride) { this.updateRide(dt); if (this.tiled) this.updateTiles(); this.updateHud(); return; }
+    if (this.far) {
+      const near = stationNear(p.pos) >= 0;
+      if (near !== !!this.nearStation) { this.nearStation = near; document.getElementById('t-ride')?.classList.toggle('show', near); if (near) this.toast(this.touch ? '🚡 Tik op 🚡 om met de kabelbaan te gaan' : '🚡 Druk op G om met de kabelbaan te gaan'); }
+    }
     if (this.tiled && !this.world.tileAt(p.pos.x, p.pos.z)) { this.updateTarget(); this.updateHud(); return; }
     let fx = 0, fz = 0;
     if (k.has('KeyW') || k.has('ArrowUp')) fz -= 1;
@@ -731,7 +813,7 @@ export class Game {
       }
     }
     // automatisch opspringen (aanraakschermen)
-    if (blockedH && p.onGround && this.touch && len > 0.3) p.vel.y = 9.2;
+    if (blockedH && p.onGround && (this.touch || this.far) && len > 0.3) p.vel.y = 9.2;
     if (p.pos.y < -10 && !this.tiled) this.spawn();
 
     // muis ingedrukt houden = herhalen
@@ -838,7 +920,8 @@ export class Game {
       const deg = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
       const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];
       this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m`;
-      this.ui.place.textContent = `${zoneName(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
+      const zn = this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : zoneName;
+      this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
       return;
     }
     if (m.real) {
@@ -994,6 +1077,7 @@ export class Game {
       if (e.code === 'KeyR' && !e.repeat) this.cycleFlySpeed();
       if (e.code === 'KeyM' && !e.repeat) { e.preventDefault(); this.openMap(); }
       if (e.code === 'KeyP' && !e.repeat) this.togglePhoto();
+      if (e.code === 'KeyG' && !e.repeat) this.toggleRide();
       if ((e.code === 'Enter' || e.code === 'NumpadEnter') && this.photo) this.savePhoto();
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
@@ -1077,6 +1161,7 @@ export class Game {
     ui.touch.menu.addEventListener('click', () => { if (this.photo) { this.togglePhoto(false); return; } this.setPaused(true); });
     document.getElementById('btn-photo')?.addEventListener('click', () => { this.togglePhoto(true); this.resume(); });
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
+    document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));
     ui.minimap?.addEventListener('click', () => this.openMap());
     ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });
