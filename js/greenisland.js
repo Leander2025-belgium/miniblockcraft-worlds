@@ -614,7 +614,17 @@ function tilePaths(X0, Z0, lines) {
     if (p.x >= X0 && p.x < X0 + T && p.z >= Z0 && p.z < Z0 + T) out.push({ type: 'busstop', name: p.name, pts: new Float32Array([p.x - X0 + 6, p.z - Z0 + 6, groundAt(p.x + 6, p.z + 6)]) });
   }
   // scheepvaart: veerboten en cruiseschepen langs de kust (ruim buiten de kustlijn)
-  for (const R of SEA_ROUTES) clipPush('sea', R.map(([x, z]) => [x, z, G - 1]));
+  for (const R of SEA_ROUTES) {
+    // de route ligt om de ~400 m: binnen deze tegel om de 8 m bijvullen
+    const pts = [];
+    for (let i = 0; i < R.length; i++) {
+      const [ax, az] = R[i], [bx, bz] = R[(i + 1) % R.length];
+      if (Math.max(ax, bx) < X0 - 10 || Math.min(ax, bx) > X0 + T + 10 || Math.max(az, bz) < Z0 - 10 || Math.min(az, bz) > Z0 + T + 10) { pts.push([1e9, 1e9, 0]); continue; }
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 8));
+      for (let k = 0; k < n; k++) pts.push([ax + (bx - ax) * k / n, az + (bz - az) * k / n, G - 1]);
+    }
+    clipPush('sea', pts);
+  }
   // luchthaven: banen en gates
   const A = AIRPORT;
   if (A.x1 >= X0 && A.x0 <= X0 + T && A.z1 >= Z0 && A.z0 <= Z0 + T) {

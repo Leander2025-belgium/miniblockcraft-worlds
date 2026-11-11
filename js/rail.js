@@ -249,7 +249,7 @@ function activeTrains(now) {
 export function departures(name, now, n = 8) {
   const out = [];
   for (const r of RUNS) for (const st of r.pr.stops.concat([{ st: r.pr.first, arr: 0, dep: 0 }])) {
-    if (st.st.name !== name) continue;
+    if (st.st.name !== name || st.st.name === r.pr.last.name) continue; // aankomst aan het eindstation is geen vertrek
     for (let k = 0; k < P / r.h; k++) {
       if (!inHours(r.sv, r.off + k * r.h)) continue;
       let dt = (r.off + k * r.h + st.dep) - now; dt = ((dt % P) + P) % P;
