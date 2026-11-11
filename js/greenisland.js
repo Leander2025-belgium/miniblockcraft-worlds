@@ -835,7 +835,7 @@ function interior(b, x, z, fl, inLvl, fh) {
         return 0;
       }
       if (lz >= D - 4 && lz <= D - 3 && lx > W / 2 - 8 && lx < W / 2 + 8 && inLvl === 0) return B.PANEL_DARK; // verkoopbalie
-      if (inLvl === 0 && (lx + lz) % 9 === 0 && lz < 4) return B.FLOWERS;
+      if (inLvl === 0 && (lx + lz) % 9 === 0 && lz < 4) return B.HEDGE; // plantenbak
       return 0;
     }
     default: return 0;
