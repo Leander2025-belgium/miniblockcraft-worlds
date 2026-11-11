@@ -12,6 +12,7 @@ import { ALL_PLACES, PLACE } from './greenisland-places.js';
 import { ROADS as ROAD_ROUTES, SEA as SEA_ROUTES } from './greenisland-routes.js';
 import { LINES, LINE, STATIONS_ALL, TRACK, BED, trackOffset } from './green-net.js';
 import { RLine } from './rline.js';
+import { FAMILIES, familyMix, chooseFamily, archColumn } from './greenisland-arch.js';
 import { buildLifts, liftColumn, liftUV } from './lifts.js';
 import { CITY_BUS } from './greenisland-buses.js';
 
@@ -357,28 +358,40 @@ function lotAt(x, z, u, st) {
   const r0 = hash(bx * 31 + u.p.x, bz * 17 + u.p.z, 501);
   if (area && area.kind === 'park') return { park: true };
   if (r0 < 0.06 && dens > 0.3) return { park: true };
-  const lw = dens > 0.8 ? 40 : dens > 0.5 ? 26 : dens > 0.3 ? 20 : 16, depth = (z1b - z0b) / 2;
-  const row = z - z0b < depth ? 0 : 1, nLots = Math.max(1, Math.floor((x1b - x0b) / lw)), w = (x1b - x0b) / nLots, li = Math.min(nLots - 1, Math.floor((x - x0b) / w));
-  const lx0 = x0b + li * w, lz0 = z0b + row * depth;
+  // bouwtype per straatrij (één karakter per straatwand), kavels volgens de breedte van dat type
+  const half = (z1b - z0b) / 2, row = z - z0b < half ? 0 : 1, len = x1b - x0b;
+  const akind = area ? area.kind : null, style = u.p.style, capital = u.p.kind === 'capital';
+  if (akind === 'airport' || akind === 'beach') return { garden: true };
+  const mix = familyMix(akind, dens, style, capital), rowSeed = hash(bx * 13 + row, bz * 29 + (u.p.x | 0), 505);
+  const famRow = chooseFamily(mix, rowSeed), FR = FAMILIES[famRow];
+  // kavels van links naar rechts (breedte binnen het bereik van het type; de laatste vult aan)
+  let lx0 = x0b, li = 0, w = 0;
+  for (;;) {
+    w = Math.round(FR.lot[0] + (FR.lot[1] - FR.lot[0]) * hash(bx * 7 + li, bz * 11 + row, 506));
+    if (lx0 + w * 1.5 > x0b + len || w >= len) { w = x0b + len - lx0; break; } // laatste kavel
+    if (x < lx0 + w) break;
+    lx0 += w; li++;
+  }
+  const nLast = lx0 + w >= x0b + len - 0.5;
   const id = (bx * 7919 + bz * 104729 + li * 31 + row) | 0;
   const r = hash(id, u.p.x | 0, 503), r2 = hash(id, u.p.z | 0, 504);
   // in dorpen niet elke kavel bebouwd
   if (r > 0.25 + dens * 1.2 && dens < 0.6) return { garden: true };
-  const set = dens > 0.8 ? 1.5 : dens > 0.5 ? 3 : 5;
-  const b = { x0: Math.round(lx0 + set), x1: Math.round(lx0 + w - set), z0: Math.round(lz0 + set), z1: Math.round(lz0 + depth - set), id, face: row === 0 ? 'z0' : 'z1' };
-  if (b.x1 - b.x0 < 7 || b.z1 - b.z0 < 7) return { garden: true };
-  // soort en hoogte
-  const akind = area ? area.kind : null, style = u.p.style;
-  let floors, kind;
-  if (akind === 'cbd') { kind = 'tower'; floors = 12 + Math.floor(Math.pow(r2, 1.8) * 58 * (1 - Math.hypot(x - area.x, z - area.z) / area.r * 0.6)); }
-  else if (akind === 'oldtown') { kind = 'old'; floors = 2 + Math.floor(r2 * 3); }
-  else if (akind === 'campus') { kind = 'campus'; floors = 3 + Math.floor(r2 * 5); }
-  else if (akind === 'harbour') { kind = 'warehouse'; floors = 2 + Math.floor(r2 * 2); }
-  else if (akind === 'airport' || akind === 'beach') return { garden: true };
-  else if (dens > 0.75) { kind = 'apartment'; floors = 5 + Math.floor(r2 * 9); }
-  else if (dens > 0.5) { kind = r2 < 0.3 ? 'shop' : 'apartment'; floors = 3 + Math.floor(r2 * 4); }
-  else { kind = style === 'berg' ? 'chalet' : style === 'tropisch' ? 'villa' : 'house'; floors = 1 + Math.floor(r2 * 2.2); }
-  b.kind = kind; b.floors = floors; b.style = style; b.r = r; b.r2 = r2;
+  // af en toe een ander type van dezelfde wijk (als de kavel ervoor past): geen eentonige straatwand
+  let fam = famRow;
+  if (r > 0.82) { const alt = chooseFamily(mix, hash(id, 7, 507)), FA = FAMILIES[alt]; if (FA.lot[0] <= w + 2 && !!FA.attached === !!FR.attached) fam = alt; }
+  const F = FAMILIES[fam];
+  if (w < Math.min(F.lot[0], 6) - 1) return { garden: true };
+  const side = F.attached ? 0 : Math.min(F.setback ?? 2, Math.max(1, (w - 8) / 2)), front = F.attached ? (dens > 0.6 ? 0 : 2) : (F.setback ?? 2);
+  const depth = Math.max(7, Math.min(Math.round(F.depth[0] + (F.depth[1] - F.depth[0]) * hash(id, 3, 508)), Math.floor(half - front - 3)));
+  const b = { x0: Math.round(lx0 + side), x1: Math.round(lx0 + w - side) - 1, id, face: row === 0 ? 'z0' : 'z1', fam };
+  if (row === 0) { b.z0 = Math.round(z0b + front); b.z1 = b.z0 + depth; } else { b.z1 = Math.round(z1b - front) - 1; b.z0 = b.z1 - depth; }
+  if (b.x1 - b.x0 < 4 || b.z1 - b.z0 < 6) return { garden: true };
+  // hoogte: in het zakencentrum hoger naar het midden toe
+  let floors = Math.round(F.floors[0] + (F.floors[1] - F.floors[0]) * Math.pow(r2, 1.4));
+  if (akind === 'cbd' && (fam === 'wolkenkrabber' || fam === 'woontoren' || fam === 'kantoor' || fam === 'hotel')) floors = Math.max(F.floors[0], Math.round(floors * (1.15 - Math.hypot(x - area.x, z - area.z) / area.r * 0.6)));
+  if (F.attached) { if (li === 0) b.corner = -1; else if (nLast) b.corner = 1; }
+  b.kind = F.kind; b.floors = floors; b.style = style; b.r = r; b.r2 = r2;
   return { b };
 }
 // vloerhoogte van een gebouw (eenmaal per kavel berekend, gecachet per tegel)
@@ -878,6 +891,39 @@ function streetDesign(L, q, st, u) {
   d = { type, ca, s: hit, ry, sy, deckY: Math.round(G + sy), reach: (BED + 3 + slope) * widen + 2, half };
   STREET_X.set(key, d); return d;
 }
+// ---------- Munkbay Central: reizigerstunnel onder alle sporen (10 m breed), trappen met roltrapband naar elk perron
+// en naar beide stationspleinen, winkeltjes in de tunnel ----------
+function centralPassage(x, z, col, ctx) {
+  let best = null;
+  for (const L of ctx.lines) { const q = L.near(x, z, 30); if (!q) continue; const st = L.stationAt(q.s); if (!st || !st.central) continue; if (!best || q.d < best.q.d) best = { L, q, st }; }
+  if (!best) return -1;
+  const { q, st } = best, by = Math.round(q.y), ad = q.d, mid = (st.s0 + st.s1) / 2, ds = q.s - mid, pIn = TRACK + 2.2, pOut = pIn + 4.2;
+  if (ds < -6 || ds > 14 || ad > pOut + 10) return -1;
+  const fl = by - 7; // vloer van de tunnel
+  let t = -1;
+  if (Math.abs(ds) <= 5) { // de tunnel zelf
+    col[fl - 1] = B.CONCRETE; col[fl] = (Math.floor(x) + Math.floor(z)) % 2 ? B.TILE : B.MARBLE;
+    for (let y = fl + 1; y <= fl + 4; y++) col[y] = 0;
+    col[fl + 5] = Math.floor(x) % 4 === 0 && Math.floor(z) % 4 === 0 ? B.LAMP : B.PANEL_WHITE;
+    const strip = (ad > pIn + 1.4 && ad < pOut - 0.6) || (ad > pOut + 2 && ad < pOut + 5.5); // hier komt een trap uit
+    if (Math.abs(Math.abs(ds) - 5) < 0.6 && !(ds > 0 && strip)) { // wanden met winkeltjes en reclame
+      col[fl + 1] = Math.floor(z) % 9 < 6 ? B.GLASS : B.PANEL_WHITE; col[fl + 2] = Math.floor(z) % 9 < 6 ? B.GLASS : B.PANEL_WHITE; col[fl + 3] = [B.PAINT_RED, B.PAINT_GREEN, B.PAINT_BLUE, B.PAINT_ORANGE][Math.floor(z / 9) & 3]; col[fl + 4] = B.PANEL_WHITE;
+    }
+    t = fl + 5;
+  }
+  // trap (8 m, 1 trede per m) van de tunnel naar het perron of het plein; de buitenste strook is een roltrap
+  const onPlat = ad > pIn + 1.4 && ad < pOut - 0.6, onSquare = ad > pOut + 2 && ad < pOut + 5.5;
+  if ((onPlat || onSquare) && ds > 5 && ds <= 13) {
+    const goal = onPlat ? by + 1 : by, fy = Math.min(goal, fl + Math.floor(ds - 5));
+    for (let y = fl; y < fy; y++) col[y] = B.CONCRETE;
+    col[fy] = (onPlat ? ad < pIn + 1.9 : ad < pOut + 2.5) ? B.METAL : B.TILE;
+    for (let y = fy + 1; y <= Math.max(goal + 3, fy + 4); y++) col[y] = 0;
+    t = Math.max(t, fy);
+  } else if ((onPlat || onSquare) && ds > 5 && ds <= 13.6) { /* niets */ }
+  // borstwering rond de trapopening op het perron
+  if (ds > 4.6 && ds <= 13.6 && ((ad > pIn + 0.9 && ad <= pIn + 1.4) || (ad >= pOut - 0.6 && ad < pOut - 0.1))) { col[by + 2] = B.METAL; t = Math.max(t, by + 2); }
+  return t;
+}
 // overweg in een stadsstraat? (zelfde vorm als bij een nationale weg)
 function streetLevelCrossing(x, z) {
   const u = urbanAt(x, z); if (!u || u.dens <= 0.12) return null;
@@ -941,8 +987,11 @@ function streetColumn(st, u, x, z, col, top) {
       col[y + 3] = B.GLASS_GREEN; return y + 3;
     }
     if (d >= hw - 1 && along % 24 === 12) { for (let k = y + 1; k <= y + 4; k++) col[k] = B.POST; col[y + 5] = B.LAMP; return y + 5; }
+    const f = sidewalkFurniture(st, u, x, z, d, hw, sw, y, col); if (f >= 0) return f;
     return y;
   }
+  // zebrapad vlak voor elk kruispunt (in dorpen alleen in het centrum)
+  if (u.dens > 0.3) { const bi = blockAlong(st, u, x, z); if (bi.a >= bi.cw + 1 && bi.a < bi.cw + 4) { col[y] = Math.floor(d) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT; return y; } }
   if (hw === AVENUE_W) {
     if (d < 4.2) { col[y] = Math.abs(d - 3.2) < 0.5 && Math.floor(along / 3) % 2 === 0 ? B.LINE_WHITE : B.BIKE_PATH; return y; } // fietspad
     if (d >= 7 && d < 16) { // tramzone: twee sporen, gras tussen de sporen en in de middenberm
@@ -962,6 +1011,37 @@ function streetColumn(st, u, x, z, col, top) {
 }
 const BUS_BX = new Set(CITY_BUS.map(r => r.bx));
 const TRAM_LINES = LINES.filter(L => L.tram);
+// positie langs het bouwblok: a = meter vanaf het begin van het blok, cw = breedte van de dwarsstraat aan het begin
+function blockAlong(st, u, x, z) {
+  const g = st.g;
+  if (st.alongX) { const b0 = g.ox + st.bx * g.B; return { a: x - b0, cw: streetWidth(((st.bx % 4) + 4) % 4 === 0, u) }; }
+  const b0 = g.oz + st.bz * g.B; return { a: z - b0, cw: streetWidth(((st.bz % 4) + 4) % 4 === 0, u) };
+}
+// straatmeubilair op de stoep: bomen in boomvakken, bankjes, afvalbakken, straatnaamborden, verkeerslichten,
+// reclamezuilen, bloembakken en paaltjes bij het kruispunt
+function sidewalkFurniture(st, u, x, z, d, hw, sw, y, col) {
+  const { a, cw } = blockAlong(st, u, x, z), B0 = st.g.B, dens = u.dens, outer = d < 1 || d >= hw - 1, curb = (d >= sw - 1 && d < sw) || (d >= hw - sw && d < hw - sw + 1);
+  if (a < cw || a > B0 - 1) return -1; // op het kruispunt zelf niets
+  const ai = Math.floor(a), city = u.p.kind === 'capital' || u.p.kind === 'city';
+  // verkeerslicht op de hoek van een kruispunt met lichten (lanen en de drukke stad)
+  if (ai === Math.floor(cw) && curb && city && dens >= 0.45 && (hw === AVENUE_W || cw === AVENUE_W || dens >= 0.7)) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = B.POST; col[y + 4] = B.PAINT_BLACK; col[y + 5] = B.PAINT_BLACK; return y + 5; }
+  // straatnaambord op de hoek
+  if (ai === Math.floor(cw) + 1 && outer && d < 1) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = B.PAINT_BLUE; return y + 3; }
+  // paaltjes langs de stoeprand vlak bij het kruispunt
+  if (curb && ai >= cw + 1 && ai <= cw + 4 && ai % 2 === 0 && dens > 0.45) { col[y + 1] = B.POST; return y + 1; }
+  if (dens < 0.25) return -1;
+  // bomen in boomvakken aan de stoeprand (bredere straten)
+  if (curb && hw >= 12 && ai % 10 === 5 && sw >= 2) { col[y] = B.GRASS; treeKind = 1; return y; }
+  // bankje en afvalbak
+  if (outer && ai % 30 === 20 && dens > 0.4) { col[y + 1] = B.DARK_PLANKS; return y + 1; }
+  if (outer && ai % 30 === 22 && dens > 0.4) { col[y + 1] = B.METAL; return y + 1; }
+  // reclamezuil (in de stad)
+  if (city && curb && ai % 60 === 40 && dens > 0.6) { col[y + 1] = B.PAINT_ORANGE; col[y + 2] = B.PAINT_WHITE; col[y + 3] = B.PAINT_GREEN; col[y + 4] = B.METAL; return y + 4; }
+  // bloembakken voor de gevels (oude centra en winkelstraten)
+  const area = areaAt(x, z);
+  if (outer && ai % 7 === 3 && (area && (area.kind === 'oldtown' || area.kind === 'mixed'))) { col[y + 1] = B.FLOWERS; return y + 1; }
+  return -1;
+}
 function tramZone(col, y, d, t1, t2, along) {
   col[y] = t1 === 1 || t2 === 1 ? B.METAL : t1 < 1 || t2 < 1 ? B.COBBLE : B.GRASS;
   if (d === 11 && along % 30 === 15) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = B.POST; col[y + 4] = B.METAL; return y + 4; } // bovenleidingmast
@@ -1031,6 +1111,8 @@ function fillColumnSurface(x, z, col, slope, ctx, h) {
   { const rc = railColumnAll(x, z, col, top, ctx); if (rc >= 0) {
     if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER;
     let t = Math.max(rc, water);
+    // Munkbay Central: ondergrondse doorgang met trappen naar de perrons en de pleinen
+    t = Math.max(t, centralPassage(x, z, col, ctx));
     // straat over of onder het spoor (stadsstraten)
     { const u = urbanAt(x, z); if (u && u.dens > 0.12) { const st = streetAt(x, z, u); if (st.street) { const r = streetRail(x, z, st, u);
       if (r && r.type === 'brug' && r.a < r.reach) t = Math.max(t, streetColumn(st, u, x, z, col, top));
@@ -1076,7 +1158,7 @@ function fillColumnBelow(x, z, col, slope, ctx, h, top) {
       const st = streetAt(x, z, u);
       if (st.street) return streetColumn(st, u, x, z, col, top);
       const lot = lotAt(x, z, u, st);
-      if (lot.b && x >= lot.b.x0 && x <= lot.b.x1 && z >= lot.b.z0 && z <= lot.b.z1) { const F = fitLot(lot.b, ctx.lots); if (F !== null) return buildingColumn(lot.b, F, x, z, col, top); }
+      if (lot.b && x >= lot.b.x0 - 1 && x <= lot.b.x1 + 1 && z >= lot.b.z0 - 1 && z <= lot.b.z1 + 1) { const F = fitLot(lot.b, ctx.lots); if (F !== null) { const r = lot.b.fam ? archColumn(lot.b, F, x, z, col, top, interior) : (x >= lot.b.x0 && x <= lot.b.x1 && z >= lot.b.z0 && z <= lot.b.z1 ? buildingColumn(lot.b, F, x, z, col, top) : -1); if (r >= 0) return r; } }
       // tuin of park
       for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.DIRT;
       col[top] = lot.park ? (hash(x, z, 9) < 0.06 ? B.FLOWERS : B.GRASS) : (hash(x, z, 8) < 0.03 ? B.FLOWERS : B.GRASS);
@@ -1701,3 +1783,4 @@ export function levelCrossings() {
   }
   return out;
 }
+export { planOf as _planOf } from './greenisland-arch.js';

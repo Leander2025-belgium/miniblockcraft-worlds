@@ -197,7 +197,10 @@ export class FarView {
   buildSmooth(tx, tz, lod) {
     const n = lod.n, s = this.T / n, pos = [], col = [], side = [], idx = [];
     // de grond volgen (bomen en daken hooguit 4 m erboven), anders zweeft het oppervlak op boomkruinhoogte boven het dal
-    const H = (x, z) => { const i = Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x)); return (lod.g ? Math.min(lod.h[i], lod.g[i] + 4) : lod.h[i]) + 1; };
+    // grond onder hoge gebouwen: het laagste punt in de buurt (5 × 5 vakken), anders worden torens spitse 'bergen'
+    let gmin = null;
+    if (lod.g && this.spec.cityLod) { gmin = new Float32Array(n * n); for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) { let m = 1e9; for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) { const xx = Math.max(0, Math.min(n - 1, x + dx)), zz = Math.max(0, Math.min(n - 1, z + dz)); m = Math.min(m, lod.g[zz * n + xx]); } gmin[z * n + x] = m; } }
+    const H = (x, z) => { const i = Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x)); return (gmin ? Math.min(lod.h[i], gmin[i] + 4) : lod.h[i]) + 1; };
     const C = (x, z, k) => lod.c[(Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))) * 3 + k] / 255;
     const X0 = tx * this.T, Z0 = tz * this.T;
     // hoekpunten op de vakgrenzen: gemiddelde van de 4 vakken eromheen

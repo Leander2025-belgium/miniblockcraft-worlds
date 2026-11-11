@@ -55,6 +55,41 @@ for (const pn of ['Munkbay', 'Riverside', 'Westport', 'Viridonia']) {
     }
   }
 }
+// Munkbay Central: van perron 5 (S1) de trap af, door de reizigerstunnel onder alle sporen, aan de zuidkant de trap op naar het plein
+{
+  const L = LINES.find(l => l.id === 'S1'), st = L.stations.find(q => q.central), mid = (st.s0 + st.s1) / 2, at = (ds, off) => { const p = L.at(mid + ds); return [p.x - p.tz * off, p.z + p.tx * off]; };
+  const route = []; for (let ds = 14; ds >= 0; ds -= 0.5) route.push(at(ds, 2.5 + 2.2 + 2.6));
+  const [cx0, cz0] = at(0, 0), north = LINES.find(l => l.id === 'ICEF'), nst = north.stations.find(q => q.central), nz = north.at((nst.s0 + nst.s1) / 2).z - (2.5 + 2.2 + 4.2 + 3.6);
+  for (let zz = cz0 + 7; zz >= nz; zz -= 1) route.push([cx0, zz]);
+  for (let xx = cx0; xx <= cx0 + 16; xx += 0.5) route.push([xx, nz]); // trap omhoog naar het stationsplein
+  let y = st.y + 2, ok = true, why = '';
+  for (const [x, z] of route) {
+    const { col: c } = col(x, z); let f = null;
+    for (const fy of [y - 1, y - 2, y]) if (c[fy] && c[fy] !== B.WATER && !c[fy + 1] && !c[fy + 2]) { f = fy; break; }
+    if (f === null) { ok = false; why = `vast bij (${Math.round(x)},${Math.round(z)}) y ${y}`; break; }
+    y = f + 1;
+  }
+  out.central = ok ? `ok (eindigt op het plein, y ${y - 1})` : why;
+  if (!ok) fails.push('Munkbay Central reizigerstunnel: ' + why);
+}
+// architectuur in Munkbay: aantal gebouwfamilies en hoe vaak twee buren identiek zijn (zelfde type, vorm, dak, materiaal, maten)
+{
+  const P = A.PLACE.Munkbay, g = A._gridFor(P), fams = new Set(); let pairs = 0, same = 0, run = 1, maxRun = 1;
+  for (let bz = -20; bz <= 20; bz++) for (let bx = -20; bx <= 20; bx++) for (const row of [0, 1]) {
+    let prev = null;
+    for (let x = g.ox + bx * g.B + 23; x < g.ox + (bx + 1) * g.B - 1; x += 1) {
+      const z = g.oz + bz * g.B + 23 + row * 50, u = A._urbanAt(x, z); if (!u || u.p !== P) continue;
+      const st = A._streetAt(x, z, u); if (st.street) continue;
+      const l = A._lotAt(x, z, u, st); if (!l.b || !l.b.fam || (prev && prev.id === l.b.id)) continue;
+      const p = A._planOf(l.b); fams.add(l.b.fam);
+      const sig = [l.b.fam, p.shape, p.roof, p.wall, p.floors, p.W, p.D].join('|');
+      if (prev) { pairs++; if (sig === prev.sig) { same++; run++; maxRun = Math.max(maxRun, run); } else run = 1; }
+      prev = { id: l.b.id, sig };
+    }
+  }
+  out.arch = { fams: fams.size, pairs, same, maxRun };
+  if (same / Math.max(1, pairs) > 0.15 || maxRun > 4) fails.push(`architectuur: te veel identieke buren (${same}/${pairs}, langste reeks ${maxRun})`);
+}
 // kabelbanen: stationsvloer op de juiste hoogte en vrij erboven, masten tot aan de kabel
 out.liftSt = 0; out.liftBad = 0;
 for (const L of A.LIFTS) for (const [u, y] of [[0, L.ya], [L.len, L.yb]]) for (const v of [-(L.stW - 2), 0, L.stW - 2]) {
@@ -135,7 +170,7 @@ for (const [name, [x, z]] of Object.entries(spots)) {
   }
   out.bld += bad; out.bldCols += T * T;
   if (bad) fails.push(`${name}: ${bad} kolommen met lucht onder een vloer`);
-  for (let zz = 0; zz < T; zz += 2) { const a = ground(r, T - 1, zz), c = ground(nb, 0, zz); if (a === null || c === null) continue; out.seamN++; if (Math.abs(a - c) > 2) out.seam++; }
+  for (let zz = 0; zz < T; zz += 2) { const a = ground(r, T - 1, zz), c = ground(nb, 0, zz); if (a === null || c === null) continue; out.seamN++; if (Math.abs(a - c) > 2) { out.seam++; if (fails.length < 40) fails.push(`naad ${name} bij (${(tx + 1) * T},${tz * T + zz}): ${a} ↔ ${c}`); } }
 }
 // wegen: hoogte van het wegdek langs de as (om de 2 m), geen treden > 1 blok
 for (const R of ROADS.slice(0, 120)) {
@@ -150,6 +185,8 @@ for (const R of ROADS.slice(0, 120)) {
 console.log(`metrostations (perronkanten) ${out.metroSt} · trap niet tot op straat ${out.metroBad} · zonder eigen trap ${out.metroNoStair || 0}`);
 console.log(`kruisingen weg × spoor ${out.xN} (${Object.entries(xt).map(([k, v]) => v + ' ' + k).join(', ')}) · fout ${out.xBad}`);
 console.log(`kruisingen straat × spoor ${out.sxN} (${Object.entries(sxt).map(([k, v]) => v + ' ' + k).join(', ')}) · fout ${out.sxBad}`);
+console.log(`Munkbay Central reizigerstunnel (perron → tunnel → onder alle sporen): ${out.central}`);
+console.log(`architectuur Munkbay: ${out.arch.fams} gebouwfamilies · identieke buren ${out.arch.same}/${out.arch.pairs} (${(100 * out.arch.same / Math.max(1, out.arch.pairs)).toFixed(1)} %) · langste reeks identiek ${out.arch.maxRun}`);
 console.log(`kabelbaanstations (meetpunten) ${out.liftSt} · niet begaanbaar ${out.liftBad}`);
 console.log(`buspunten ${out.busN} · niet op de weg of niet vrij ${out.bus}`);
 console.log(`trampunten ${out.tramN} · niet vrij of niet in de straat ${out.tram}`);
