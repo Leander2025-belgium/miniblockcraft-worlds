@@ -396,11 +396,19 @@ async function giData() {
   return { img: giImg, lab: giLab };
 }
 const giW = GREEN.tilesX * GREEN.tile, giH = GREEN.tilesZ * GREEN.tile;
+let giHeightImg = null, giShowHeight = false, giRoute = null;
 function giDraw(c, big) {
-  giData().then(({ img, lab }) => {
+  giData().then(async ({ img, lab }) => {
+    if (big && giShowHeight && !giHeightImg) { giHeightImg = new Image(); giHeightImg.src = './assets/greenisland-height.jpg?v=' + APP_VERSION; await new Promise(r => { giHeightImg.onload = r; giHeightImg.onerror = r; }); }
     c.width = big ? 1450 : 725; c.height = Math.round(c.width * giH / giW);
     const ctx = c.getContext('2d'), k = c.width / giW;
-    if (img.width) ctx.drawImage(img, 0, 0, c.width, c.height);
+    const base = big && giShowHeight && giHeightImg && giHeightImg.width ? giHeightImg : img;
+    if (base.width) ctx.drawImage(base, 0, 0, c.width, c.height);
+    if (big && giRoute) { // de berekende route
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (const [w, col] of [[7, 'rgba(0,0,0,.55)'], [4, giRoute.color]]) { ctx.lineWidth = w; ctx.strokeStyle = col; ctx.beginPath(); giRoute.pts.forEach(([x, z], i) => i ? ctx.lineTo(x * k, z * k) : ctx.moveTo(x * k, z * k)); ctx.stroke(); }
+      for (const [x, z, t] of [[...giRoute.pts[0], 'A'], [...giRoute.pts[giRoute.pts.length - 1], 'B']]) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x * k, z * k, 9, 0, 7); ctx.fill(); ctx.fillStyle = '#111'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.fillText(t, x * k, z * k + 4); }
+    }
     ctx.textAlign = 'center';
     for (const p of lab.places) {
       const main = p.kind === 'capital' || p.kind === 'city' || (big && p.kind === 'town') || (big && p.named);
@@ -412,6 +420,34 @@ function giDraw(c, big) {
     }
     if (big) for (const pk of lab.peaks || []) { ctx.font = 'bold 10px system-ui'; ctx.fillStyle = '#ffe9a8'; ctx.fillText('▲ ' + pk[0], pk[1] * k, pk[2] * k); }
   });
+}
+// ---------- routeplanner over het nationale wegennet (auto, fiets, te voet) ----------
+// auto: alle wegen (snelweg 110, N-weg 80, lokale weg 60 km/u); fiets en te voet: geen snelwegen, extra tijd voor klimmen
+const GI_MODES = {
+  car: { name: 'met de auto', color: '#3b82f6', speed: (e) => ({ A: 110, N: 80, L: 60 })[e.kind], climb: 0 },
+  bike: { name: 'met de fiets', color: '#22c55e', speed: () => 18, climb: 1 / 12, noA: true },  // + 1 min per 12 m klimmen
+  walk: { name: 'te voet', color: '#f59e0b', speed: () => 4.8, climb: 1 / 10, noA: true },     // regel van Naismith
+};
+function giPlanRoute(lab, fromName, toName, mode) {
+  const M = GI_MODES[mode], nodes = new Map(), placeXZ = new Map(lab.places.map(p => [p.name, p]));
+  for (const e of lab.roads) { if (M.noA && e.kind === 'A') continue; for (const n of [e.a, e.b]) if (!nodes.has(n)) nodes.set(n, []); nodes.get(e.a).push({ e, to: e.b, fwd: true }); nodes.get(e.b).push({ e, to: e.a, fwd: false }); }
+  // een plaats zonder eigen weg: naar de dichtstbijzijnde plaats op het net (te voet)
+  const snap = (name) => { if (nodes.has(name)) return { node: name, extra: 0 }; const p = placeXZ.get(name); if (!p) return null; let best = null, bd = 1e18; for (const n of nodes.keys()) { const q = placeXZ.get(n); if (!q) continue; const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < bd) { bd = d; best = n; } } return best ? { node: best, extra: bd } : null; };
+  const A = snap(fromName), Bn = snap(toName); if (!A || !Bn) return null;
+  const cost = (e, fwd) => e.len / 1000 / M.speed(e) * 60 + (fwd ? e.climb : e.desc) * M.climb; // minuten
+  const dist = new Map([[A.node, 0]]), prev = new Map(), done = new Set();
+  for (;;) {
+    let u = null, du = Infinity; for (const [n, d] of dist) if (!done.has(n) && d < du) { du = d; u = n; }
+    if (u === null || u === Bn.node) break; done.add(u);
+    for (const ed of nodes.get(u) || []) { const d = du + cost(ed.e, ed.fwd); if (d < (dist.get(ed.to) ?? Infinity)) { dist.set(ed.to, d); prev.set(ed.to, { from: u, ed }); } }
+  }
+  if (!dist.has(Bn.node)) return null;
+  const legs = []; for (let n = Bn.node; n !== A.node; n = prev.get(n).from) legs.unshift(prev.get(n).ed);
+  const pts = [], via = [A.node]; let km = 0, mins = 0, up = 0;
+  for (const { e, fwd } of legs) { const q = fwd ? e.pts : [...e.pts].reverse(); pts.push(...q); via.push(fwd ? e.b : e.a); km += e.len / 1000; mins += cost(e, fwd); up += fwd ? e.climb : e.desc; }
+  const extraKm = (A.extra + Bn.extra) / 1000; km += extraKm; mins += extraKm / GI_MODES.walk.speed() * 60;
+  if (!pts.length) { const p = placeXZ.get(fromName), q = placeXZ.get(toName); pts.push([p.x, p.z], [q.x, q.z]); }
+  return { pts, via, km, mins, up, color: M.color, mode, kinds: [...new Set(legs.map(l => l.e.kind))] };
 }
 function giFavs() { try { return JSON.parse(localStorage.getItem('gi-favs') || '[]'); } catch { return []; } }
 function giSetFavs(f) { try { localStorage.setItem('gi-favs', JSON.stringify(f)); } catch { /* geen opslag */ } }
@@ -435,6 +471,23 @@ async function giOpenModal(pick) {
     }
   };
   $('#gi-search').oninput = render; render();
+  // hoogtekaart en routeplanner
+  $('#gi-places').innerHTML = (lab.places || []).map(p => `<option value="${p.name}">`).join('');
+  const hb = $('#gi-height'); hb.classList.toggle('primary', giShowHeight);
+  hb.onclick = () => { giShowHeight = !giShowHeight; hb.classList.toggle('primary', giShowHeight); giDraw(c, true); $('#gi-hleg').textContent = giShowHeight ? 'Hoogtekaart: blauw = zee · groen = laagland · geel en bruin = heuvels en bergen · grijs en wit = boven 1800 m · hoogtelijnen om de 100 m (dikker om de 500 m)' : ''; };
+  for (const b of document.querySelectorAll('[data-rmode]')) b.onclick = () => {
+    const from = $('#gi-from').value.trim(), to = $('#gi-to').value.trim(), out = $('#gi-route-out');
+    if (!from || !to) { out.textContent = 'Kies een vertrek- en een aankomstplaats.'; return; }
+    const r = giPlanRoute(lab, from, to, b.dataset.rmode);
+    if (!r) { giRoute = null; giDraw(c, true); out.textContent = 'Geen route gevonden (onbekende plaats of geen verbinding).'; return; }
+    giRoute = r; giDraw(c, true);
+    const h = Math.floor(r.mins / 60), m = Math.round(r.mins % 60);
+    out.innerHTML = `<b>${from} → ${to} ${GI_MODES[r.mode].name}</b>: ${r.km.toFixed(1)} km · ${h ? h + ' u ' : ''}${m} min · ${Math.round(r.up)} m klimmen`
+      + `<br>Via: ${r.via.join(' → ')}`
+      + (r.mode === 'car' ? '' : `<br><span class="muted">Zonder snelwegen; langs N-wegen liggen fietspaden aan beide kanten, langs andere wegen één fietspad in twee richtingen.</span>`)
+      + `<br><span class="muted">Routes over het nationale wegennet (snelwegen, N-wegen, lokale wegen); in de stad zelf telt de afstand tot het centrum niet mee.</span>`;
+    for (const x of document.querySelectorAll('[data-rmode]')) x.classList.toggle('primary', x === b);
+  };
   c.onclick = (e) => { const r = c.getBoundingClientRect(); m.hidden = true; phoneFullscreen(); playMap(GREEN.id, { x: (e.clientX - r.left) / r.width * giW, z: (e.clientY - r.top) / r.height * giH }); };
 }
 $('#btn-gi-play')?.addEventListener('click', () => { phoneFullscreen(); playMap(GREEN.id, { spawn: true }); });

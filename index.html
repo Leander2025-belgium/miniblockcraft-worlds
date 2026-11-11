@@ -663,6 +663,16 @@
       <div class="row"><h2 style="margin:0">🗺 Greenisland</h2><span class="sp"></span><input id="gi-search" placeholder="Zoek een plaats, station of gebouw…" style="min-width:200px"><button class="btn" id="gi-close">✕</button></div>
       <canvas id="gi-bigmap" style="width:100%;aspect-ratio:145/50;border-radius:8px;cursor:crosshair;display:block;margin-top:8px;background:#1d4f86"></canvas>
       <div id="gi-legend" class="small" style="margin-top:6px"></div>
+      <div class="row gi-route" style="margin-top:6px;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="btn" id="gi-height" title="Wissel tussen de gewone kaart en de hoogtekaart">⛰ Hoogtekaart</button>
+        <b>🧭 Route:</b>
+        <input id="gi-from" list="gi-places" placeholder="Van (plaats)" style="min-width:140px">
+        <input id="gi-to" list="gi-places" placeholder="Naar (plaats)" style="min-width:140px">
+        <button class="btn" data-rmode="car">🚗 Auto</button><button class="btn" data-rmode="bike">🚲 Fiets</button><button class="btn" data-rmode="walk">🚶 Te voet</button>
+        <datalist id="gi-places"></datalist>
+      </div>
+      <div id="gi-hleg" class="small muted"></div>
+      <div id="gi-route-out" class="small" style="margin-top:4px"></div>
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
