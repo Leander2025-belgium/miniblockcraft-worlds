@@ -4,10 +4,19 @@
 import * as THREE from 'three';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
-import { LINES, LINE, STATIONS_ALL, TRACK, OX, OZ } from './alpen-net.js';
-import { trackOffset, LIFTS, PATCHES, HEMEL, MW, ML, SUMMIT_XZ, STATIONS as CABLE_ST, CROSSINGS, groundAt } from './alpen.js';
+// Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
+// useNet(net) kiest het net van de wereld die gespeeld wordt.
+let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffset = () => 2.5, LIFTS = [], CROSSINGS = [], groundAt = () => 0, MW = 1, ML = 1, SERVICES = [];
+export let RUNS = [];
+export function useNet(net) {
+  NET = net;
+  ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML, SERVICES } = net);
+  if (net.liveries) Object.assign(LIVERY, net.liveries);
+  if (!net._runs) { speedLimits(); net._runs = buildTimetable(); }
+  RUNS = net._runs;
+}
 
-const KMH = 3.6, P = 14400; // de dienstregeling herhaalt zich elke 4 uur
+const KMH = 3.6, P = 86400; // de dienstregeling herhaalt zich elke dag (diensten kunnen een begin- en einduur hebben)
 const GAP = 0.6; // tussen twee rijtuigen
 
 // ---------- rijtuigen (x = breedte 0..3, y = 0..5, z = lengte, voorkant = +z) ----------
@@ -84,23 +93,9 @@ function design(type, liv) {
   return { W, H, L, size, vox, seats, doors, cab, type, walk: true };
 }
 
-// ---------- diensten ----------
-const SERVICES = [
-  { id: 'ICE', line: 'HSL', name: 'ICE', liv: 'ICE', cars: ['iceHead', 'ice', 'ice', 'dining', 'ice', 'iceHead'], vmax: 69, h: 1200, acc: 0.8 },
-  { id: 'IC', line: 'NZ', name: 'IC Noord-Zuid', liv: 'IC', stops: ['Sneeuwbrück', 'Grenspas', 'Reuzenberg Hauptbahnhof', 'Hemelpoort'], cars: ['loco', 'coach1', 'coach2', 'dining', 'coach2', 'coach2'], vmax: 39, h: 1800 },
-  { id: 'AE', line: 'AE', name: 'IC Alpenexpress', liv: 'AE', stops: ['Wolkendorf', 'Reuzendal', 'Reuzenberg Hauptbahnhof', 'Oostpoort'], cars: ['loco', 'coach1', 'coach2', 'dining', 'coach2'], vmax: 44, h: 3600 },
-  { id: 'RB', line: 'AE', name: 'Reuzenberg Bahn', liv: 'RB', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 33, h: 3600, acc: 0.9 },
-  { id: 'S1', line: 'NZ', name: 'S1', liv: 'S1', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 30, h: 1800, acc: 0.9 },
-  { id: 'PE', line: 'PE', name: 'Panorama Express', liv: 'PE', cars: ['loco', 'panorama', 'panorama', 'dining', 'panorama'], vmax: 22, h: 3600 },
-  { id: 'ZB', line: 'ZB', name: 'Zugspitzbahn', liv: 'ZB', cars: ['rack', 'rack'], vmax: 9, h: 1800, acc: 0.5 },
-  { id: 'ME', line: 'ME', name: 'Matterhorn Express', liv: 'ME', cars: ['rackLoco', 'panorama', 'coach2'], vmax: 17, h: 3600, acc: 0.5 },
-  { id: 'EN', line: 'AE', name: 'Nachttrein Alpenster', liv: 'EN', stops: ['Wolkendorf', 'Reuzenberg Hauptbahnhof', 'Oostpoort'], cars: ['loco', 'sleeper', 'sleeper', 'dining', 'coach2'], vmax: 36, h: 14400 },
-  { id: 'GAE', line: 'AE', name: 'Goederentrein', liv: 'G', stops: [], cars: ['loco', 'box', 'tank', 'box', 'flat', 'box', 'tank', 'box'], vmax: 25, h: 7200, freight: true, acc: 0.35 },
-  { id: 'GNZ', line: 'NZ', name: 'Goederentrein', liv: 'G', stops: [], cars: ['loco', 'flat', 'box', 'box', 'tank', 'flat', 'box'], vmax: 25, h: 7200, freight: true, acc: 0.35 },
-];
 
 // ---------- snelheidsbeperkingen per lijn ----------
-for (const L of LINES) {
+function speedLimits() { for (const L of LINES) {
   const v = new Float32Array(L.n), vmax = Math.max(...SERVICES.filter(s => s.line === L.id).map(s => s.vmax));
   for (let i = 0; i < L.n; i++) {
     const a = Math.max(0, i - 10), c = Math.min(L.n - 1, i + 10);
@@ -115,7 +110,7 @@ for (const L of LINES) {
   for (let i = 0; i < L.n; i++) { let m = 1e9; for (let j = Math.max(0, i - 30); j <= Math.min(L.n - 1, i + 30); j++) m = Math.min(m, v[j]); w[i] = Math.max(6, m); }
   L.vlim = w;
   L.limAt = (s) => w[L.idx(s)];
-}
+} }
 
 // ---------- rijprofiel: tijd ↔ plaats voor een dienst in één richting ----------
 function runProfile(sv, dir) {
@@ -227,15 +222,21 @@ function buildTimetable() {
   }
   return runs;
 }
-export const RUNS = buildTimetable();
 export function railClock() { return (Date.now() / 1000 - new Date().getTimezoneOffset() * 60) % P; }
 const hhmm = (sec) => { const d = new Date(Date.now() + (sec - railClock()) * 1000); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 // alle treinen die nu rijden (of klaarstaan): { run, k, t (sinds vertrek), x, v }
+// rijdt deze dienst op dit uur? (sv.hours = [beginuur, einduur], bv. [5, 24]; over middernacht: [23, 5])
+function inHours(sv, dep) {
+  if (!sv.hours) return true;
+  const h = (((dep % P) + P) % P) / 3600, [a, b] = sv.hours;
+  return a <= b ? h >= a && h < b : h >= a || h < b;
+}
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
     const n = P / r.h;
     for (let k = 0; k < n; k++) {
+      if (!inHours(r.sv, r.off + k * r.h)) continue;
       let t = now - (r.off + k * r.h); t = ((t % P) + P) % P; if (t > P - 130) t -= P;
       if (t < -120 || t > r.pr.T + 60) continue;
       const [x, v] = posAt(r.pr, t);
@@ -250,12 +251,15 @@ export function departures(name, now, n = 8) {
   for (const r of RUNS) for (const st of r.pr.stops.concat([{ st: r.pr.first, arr: 0, dep: 0 }])) {
     if (st.st.name !== name) continue;
     for (let k = 0; k < P / r.h; k++) {
+      if (!inHours(r.sv, r.off + k * r.h)) continue;
       let dt = (r.off + k * r.h + st.dep) - now; dt = ((dt % P) + P) % P;
       out.push({ in: dt, run: r, st, dest: r.pr.last.name, at: now + dt });
     }
   }
   return out.sort((a, b) => a.in - b.in).slice(0, n);
 }
+// uniek ritnummer: dienst + richting + volgnummer van de dag (bv. IC2 1-07)
+export function ritNr(d) { const n = 86400 / d.run.h, k = ((Math.round((((d.at - d.st.dep - d.run.off) % 86400) + 86400) % 86400 / d.run.h) % n) + n) % n; return `${d.run.sv.id} ${d.run.dir > 0 ? 1 : 2}-${String(k + 1).padStart(2, '0')}`; }
 // reisplanner: vroegste aankomst (met overstappen) van station a naar b
 export function plan(a, b, now) {
   const best = new Map([[a, { t: now, legs: [] }]]), todo = [a], conn = [];
@@ -273,7 +277,9 @@ export function plan(a, b, now) {
         // eerste vertrek na aankomst (+2 min overstaptijd)
         const ready = cur.t + (cur.legs.length ? 120 : 0);
         let wait = (r.off + seq[i].dep) - ready; wait = ((wait % r.h) + r.h) % r.h;
-        const dep = ready + wait;
+        let dep = ready + wait;
+        for (let g2 = 0; g2 < P / r.h && !inHours(r.sv, dep - seq[i].dep); g2++) dep += r.h; // buiten de dienstUren: volgende rit
+        if (!inHours(r.sv, dep - seq[i].dep)) continue;
         for (let j = i + 1; j < seq.length; j++) {
           const arr = dep + (seq[j].arr - seq[i].dep), to = seq[j].st.name;
           const b0 = best.get(to);
@@ -532,8 +538,12 @@ export class AlpRail {
       if (fwd && i > 0 && tr.cars[i - 1].d.walk) { const n = tr.cars[i - 1]; this.moveCar(tr, i, i - 1, n.flip ? n.d.L - 0.5 : 0.5); }
       else if (back && i < tr.cars.length - 1 && tr.cars[i + 1].d.walk) { const n = tr.cars[i + 1]; this.moveCar(tr, i, i + 1, n.flip ? 0.5 : n.d.L - 0.5); }
     }
-    // omroepen en haltes
+    // internationale trein: aan het einde van de Noordzeetunnel verder reizen naar de echte stad
     const a = tr.a, pr = a ? a.run.pr : null;
+    if (a && a.run.sv.international && a.t > pr.T - 20 && !this.travelling && NET.international) {
+      const d = NET.international[a.run.sv.international];
+      if (d) { this.travelling = true; g.toast(`🚄 Aankomst: ${d.name}. Je reist verder…`); this.say(`Wij bereiken ${d.name}. Bedankt voor uw reis met de ${a.run.sv.name}.`); setTimeout(() => { this.travelling = false; g.aboard = null; g.ui.onTravel?.({ ...d, byTrain: true }); }, 2500); }
+    }
     if (pr && !(this.player && this.player.tr === tr)) {
       const next = pr.stops.find(q => q.arr > a.t);
       if (next && next.arr - a.t < 50 && !this.announced.has(tr.id + next.st.name)) {
@@ -734,7 +744,7 @@ export class AlpRail {
     if (!this.mapImg) {
       // het terrein als kant-en-klare afbeelding (tools/bake-alpen-map.mjs)
       this.mapImg = new Image(); this.mapImg.onload = () => { this.mapReady = true; if (!ov.hidden) this.drawMap(); };
-      this.mapImg.src = './assets/alpen-map.jpg';
+      this.mapImg.src = NET.mapImage;
     }
     if (!c.dataset.bound) {
       c.dataset.bound = '1';
@@ -763,11 +773,13 @@ export class AlpRail {
   nearestStation() { const p = this.g.player.pos; let best = null, bd = 1e18; for (const st of STATIONS_ALL) { const d = (st.x - p.x) ** 2 + (st.z - p.z) ** 2; if (d < bd) { bd = d; best = st; } } return best; }
   drawMap() {
     const c = document.getElementById('railmap'); if (!c) return;
-    const W = 1000; c.width = W; c.height = W;
-    const k = W / MW, ctx = c.getContext('2d');
-    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, W, W);
-    if (this.mapReady) { ctx.imageSmoothingEnabled = true; ctx.drawImage(this.mapImg, 0, 0, W, W); }
-    ctx.fillStyle = 'rgba(10,14,22,.25)'; ctx.fillRect(0, 0, W, W);
+    // langwerpige werelden (Greenisland): de kaart volgt de verhouding van de wereld
+    const k = 1000 / Math.max(MW, ML), W = Math.round(MW * k), Hh = Math.round(ML * k); c.width = W; c.height = Hh;
+    c.style.aspectRatio = `${W} / ${Hh}`;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, W, Hh);
+    if (this.mapReady) { ctx.imageSmoothingEnabled = true; ctx.drawImage(this.mapImg, 0, 0, W, Hh); }
+    ctx.fillStyle = 'rgba(10,14,22,.25)'; ctx.fillRect(0, 0, W, Hh);
     // lijnen (tunnels gestippeld)
     for (const L of LINES) {
       ctx.strokeStyle = L.color; ctx.lineWidth = 4; ctx.lineCap = 'round';
@@ -782,12 +794,12 @@ export class AlpRail {
     // kabelbanen en liften
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
     for (const L of LIFTS) { ctx.beginPath(); ctx.moveTo(L.ax * k, L.az * k); ctx.lineTo(L.bx * k, L.bz * k); ctx.stroke(); }
-    ctx.beginPath(); ctx.moveTo(CABLE_ST[0].x * k, CABLE_ST[0].z * k); ctx.lineTo(CABLE_ST[1].x * k, CABLE_ST[1].z * k); ctx.stroke();
+    for (const [ax, az, bx, bz] of NET.mapCables || []) { ctx.beginPath(); ctx.moveTo(ax * k, az * k); ctx.lineTo(bx * k, bz * k); ctx.stroke(); }
     ctx.setLineDash([]);
     ctx.font = 'bold 12px system-ui, sans-serif'; ctx.textAlign = 'center';
     const label = (t, x, z, col = '#fff', dy = -9) => { ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillText(t, x * k + 1, z * k + dy + 1); ctx.fillStyle = col; ctx.fillText(t, x * k, z * k + dy); };
     // toppen, meren, hotels
-    for (const [n, x, z] of [['▲ Reuzenberg 2067', SUMMIT_XZ[0], SUMMIT_XZ[1]], ...PATCHES.map(P => [`▲ ${P.name} ${P.target}`, P.px, P.pz]), ['▲ Hemelhoorn 5000', HEMEL.x, HEMEL.z]]) label(n, x, z, '#ffe9a8', 0);
+    for (const [n, x, z, col] of NET.mapLabels || []) label(n, x, z, col || '#ffe9a8', 0);
     for (const L of LIFTS) label('🚡 ' + L.top, L.bx, L.bz, '#dfe', 14);
     // stations
     for (const st of STATIONS_ALL) {
@@ -814,8 +826,8 @@ export class AlpRail {
     if (this.sel) {
       const st = STATIONS_ALL.find(q => q.name === this.sel);
       html += `<h3 style="margin:4px 0">🚉 ${esc(st.name)}</h3><div class="small muted">${st.lines.map(id => `<span style="color:${LINE[id].color}">■</span> ${esc(LINE[id].name)}`).join(' · ')}</div>`;
-      html += '<table class="small" style="width:100%;margin-top:6px"><tr><th align="left">Vertrek</th><th align="left">Trein</th><th align="left">Naar</th></tr>';
-      for (const d of departures(st.name, now, 7)) html += `<tr><td>${hhmm(d.at)}</td><td><span style="color:${d.run.pr.L.color}">■</span> ${esc(d.run.sv.name)}</td><td>${esc(d.dest)}</td></tr>`;
+      html += '<table class="small" style="width:100%;margin-top:6px"><tr><th align="left">Vertrek</th><th align="left">Trein</th><th align="left">Naar</th><th align="left">Spoor</th></tr>';
+      for (const d of departures(st.name, now, 8)) html += `<tr><td>${hhmm(d.at)}</td><td><span style="color:${d.run.pr.L.color}">■</span> ${esc(d.run.sv.name)} <span class="muted">rit ${ritNr(d)}</span></td><td>${esc(d.dest)}</td><td>${d.run.sv.platform?.[st.name] ?? ''}</td></tr>`;
       html += '</table>';
       if (here && here.name !== st.name) {
         const r = plan(here.name, st.name, now);

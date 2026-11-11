@@ -153,6 +153,8 @@
   #ov-inv .card { width: min(640px, 100%); }
   #minimap { position: absolute; z-index: 8; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: 170px; height: 170px; border-radius: 50%; border: 2px solid rgba(255,255,255,.6); box-shadow: 0 2px 8px rgba(0,0,0,.4); cursor: pointer; image-rendering: pixelated; }
   .map-card { width: min(720px, 100%); }
+  .gi-card { border-color: #2a9d4b; }
+  .gi-facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
   #railmap { width: 100%; aspect-ratio: 1; border-radius: 8px; cursor: crosshair; display: block; }
   .rail-card { max-width: min(1100px, calc(100vw - 24px)); }
   .rail-wrap { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; align-items: start; }
@@ -387,6 +389,23 @@
     </div>
 
     <div id="fantasy-panel" hidden>
+    <div class="city-card gi-card">
+      <div class="city-top">
+        <div>
+          <div class="city-name">GREENISLAND</div>
+          <div class="small muted">Een compleet fictief eilandland in de Noordzee</div>
+        </div>
+        <button class="btn primary" id="btn-gi-play">▶ Spelen</button>
+      </div>
+      <div class="gi-facts small"><span>📐 145 × 50 km</span><span>🏛 Hoofdstad: Munkbay</span><span>👥 15.034.500 inwoners</span><span>🗺 5 provincies</span><span>🏘 220 plaatsen</span></div>
+      <canvas id="gi-map" title="Tik om daar te starten" style="width:100%;aspect-ratio:145/50;border-radius:8px;margin-top:8px;cursor:crosshair;display:block;background:#1d4f86"></canvas>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">
+        <button class="btn" id="btn-gi-resume" hidden>⏯ Verder spelen</button>
+        <button class="btn" id="btn-gi-map">🗺 Wereldkaart bekijken</button>
+        <button class="btn" id="btn-gi-pick">📍 Locatie kiezen</button>
+      </div>
+      <p class="help">Vijf provincies, de hoofdstad <b>Munkbay</b> met wolkenkrabbers, oude stad, universiteit, park, haven, strand en een internationale luchthaven (GreenAir), het <b>Viridonia Gebergte</b>, regenwoud bij Rainforest City, kliffen bij Northcliff en Black Point. Een nationaal <b>spoornet</b>: IC1 Oostkustlijn, IC2 Viridonia Express, S1 Munkbay S-Bahn, AX1 Airport Express en de ICE naar Frankfurt en Amsterdam via de Noordzeetunnel. Tik op de kaart om ergens te beginnen.</p>
+    </div>
     <div class="city-card">
       <div class="city-top">
         <div>
@@ -625,6 +644,14 @@
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
+  <div class="ov" id="gi-modal" hidden style="z-index:60;position:fixed">
+    <div class="card map-card rail-card">
+      <div class="row"><h2 style="margin:0">🗺 Greenisland</h2><span class="sp"></span><input id="gi-search" placeholder="Zoek een plaats, station of gebouw…" style="min-width:200px"><button class="btn" id="gi-close">✕</button></div>
+      <canvas id="gi-bigmap" style="width:100%;aspect-ratio:145/50;border-radius:8px;cursor:crosshair;display:block;margin-top:8px;background:#1d4f86"></canvas>
+      <div id="gi-legend" class="small" style="margin-top:6px"></div>
+      <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
+    </div>
+  </div>
 <script type="module" src="./js/app.js?v=2026-11-15a"></script>
 </body>
 </html>

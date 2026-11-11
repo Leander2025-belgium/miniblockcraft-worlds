@@ -247,7 +247,7 @@ class TileWorld {
     this.G = spec.ground; this.H = spec.maxH || 1024; this.groundAt = spec.groundAt;
     this.tiles = new Map();
   }
-  key(tx, tz) { return tz * 1000 + tx; }
+  key(tx, tz) { return tz * 4096 + tx; }
   tileAt(x, z) { return this.tiles.get(this.key(Math.floor(x / this.T), Math.floor(z / this.T))); }
   inside(x, z) { return x >= 0 && z >= 0 && x < this.sizeX && z < this.sizeZ; }
   get(x, y, z) {
@@ -417,13 +417,15 @@ export class Game {
       // Reuzenberg · Alpen: ver landschap tot aan de horizon, kabelbanen en liften, het spoornet
       const token = this.mvToken = {};
       if (this.lod.groundMesh) this.lod.groundMesh.visible = false;
-      if (spec.alps) this.traffic.noTrains = true;
-      Promise.all([import('./mountainview.js'), spec.alps ? import('./rail.js') : null]).then(([mv, rail]) => {
+      if (spec.alps || spec.railNet) this.traffic.noTrains = true;
+      // verre landschap + treinnet van deze wereld (Alpen: mountainview + rail-alpen, Greenisland: greenview + rail-green)
+      const view = spec.viewModule || './mountainview.js', net = spec.railNet || (spec.alps ? './rail-alpen.js' : null);
+      Promise.all([import(view), net ? import('./rail.js') : null, net ? import(net) : null]).then(([mv, rail, netMod]) => {
         if (this.mvToken !== token) return; // intussen een andere wereld geopend
         MV = mv;
         this.far = new mv.MountainView();
         this.scene.add(this.far.gondolas.group, this.far.gondolas.cabRoot, this.far.lifts.group);
-        if (rail) this.alpRail = new rail.AlpRail(this);
+        if (rail) { rail.useNet(netMod.NET); this.alpRail = new rail.AlpRail(this); }
       }).catch((e) => console.error(e));
     }
     this.mini = { canvas: this.lod.canvas, scale: this.lod.cell * (spec.miniStep || 1), sizeX: this.world.sizeX, sizeZ: this.world.sizeZ };

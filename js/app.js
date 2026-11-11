@@ -3,6 +3,8 @@ import * as store from './storage.js';
 import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
 import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
+// eindpunt van de ICE Amsterdam uit Greenisland: Amsterdam Centraal (echte stad, OpenStreetMap)
+const AMS = makeMap({ id: 'amsterdam-centraal', name: 'Amsterdam Centraal', lat: 52.3791, lon: 4.9003, km: 2.56 }); AMS.tiles = 20; AMS.superTiles = 4;
 import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
 import { META as BERG } from './alpen-meta.js';
 // het Alpenlandschap pas laden als je die wereld opent (snelle start, ook op een telefoon)
@@ -14,8 +16,19 @@ async function loadAlps() {
     spawn: { x: BERGW.SPAWN.x, y: BERGW.SPAWN.y, z: BERGW.SPAWN.z, yaw: 0, pitch: 0.3, fly: false } });
   return BERGW;
 }
+// Greenisland: ook pas laden als je die wereld opent
+import { META as GREEN, COUNTRY as GI } from './greenisland-meta.js';
+let GREENW = null;
+async function loadGreen() {
+  if (GREENW) return GREENW;
+  GREENW = await import('./greenisland.js');
+  Object.assign(PROC[GREEN.id], { PLACES: GREENW.PLACES, zoneName: GREENW.zoneName, groundAt: GREENW.groundAt,
+    spawn: { x: GREENW.SPAWN.x, y: GREENW.SPAWN.y, z: GREENW.SPAWN.z, yaw: Math.PI, pitch: 0.05, fly: false } });
+  return GREENW;
+}
 // zelfgegenereerde werelden
 const PROC = {
+  [GREEN.id]: { META: GREEN, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: `Fictief eilandland · ${GI.lengthKm} × ${GI.widthKm} km · hoofdstad ${GI.capital}` },
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
   [BERG.id]: { META: BERG, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
 };
@@ -223,7 +236,9 @@ async function ensureGame() {
       },
       onTravel: async (d) => {
         await saveGame(true);
-        game.toast(`✈ Vlucht naar ${d.name}…`);
+        // internationale trein naar een stad die nog geen wereld is (Amsterdam): de kaart maken (OpenStreetMap)
+        if (d.city === 'Amsterdam') { d.id = AMS.id; if (!(await store.getRegionMeta(AMS.id))) await store.saveMeta(mapMeta(AMS)); }
+        game.toast(d.byTrain ? `🚄 Aankomst in ${d.name}…` : `✈ Vlucht naar ${d.name}…`);
         await playMap(d.id, d.at || null);
         game.pendingArrival = { name: d.name, t: performance.now() };
       },
@@ -280,7 +295,9 @@ function mapMeta(map) {
 }
 async function playMap(id, at) {
   try { navigator.storage?.persist?.(); } catch { /* niet ondersteund */ } // bezochte tegels blijvend bewaren
-  if (at && game && game.suspended && game.tiled && game.meta && game.meta.id === id) {
+  if (at && at.spawn && game && game.suspended && game.tiled && game.meta && game.meta.id === id && PROC[id] && PROC[id].spawn) {
+    const sp = PROC[id].spawn; game.player.pos.set(sp.x, sp.y, sp.z); Object.assign(game.player, { fly: false, yaw: sp.yaw, pitch: sp.pitch }); game.player.vel.set(0, 0, 0); game.tiled.aheadKey = null;
+  } else if (at && game && game.suspended && game.tiled && game.meta && game.meta.id === id) {
     // zelfde wereld, andere plek: niets opnieuw laden, gewoon erheen vliegen
     const P = PROC[id], gy = P && P.groundAt ? P.groundAt(at.x, at.z) + 40 : game.meta.ground + 90;
     Object.assign(game.player, { fly: true, pitch: -0.15 }); game.player.pos.set(at.x, gy, at.z); game.player.vel.set(0, 0, 0);
@@ -296,6 +313,8 @@ async function playMap(id, at) {
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   if (id === BERG.id && !meta.alps) meta = await migrateToAlps(meta);
   if (id === BERG.id) { $('#loading') && ($('#loading').hidden = false); await loadAlps(); }
+  if (id === GREEN.id) await loadGreen();
+  if (at && at.spawn) { delete meta.player; at = null; } // 'Spelen': opnieuw beginnen in Munkbay Central
   await ensureGame();
   const map = meta.map, T = map.tile;
   if (map.kind === 'proc') Object.assign(map, (PROC[map.id] || PROC[METRO.id]).META);
@@ -369,6 +388,62 @@ $('#btn-city-dl')?.addEventListener('click', async () => {
 });
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
+// ---------- Greenisland in het menu: kaart, zoeken, favorieten, locatie kiezen ----------
+let giImg = null, giLab = null;
+async function giData() {
+  if (!giImg) { giImg = new Image(); giImg.src = './assets/greenisland-map.jpg?v=' + APP_VERSION; await new Promise(r => { giImg.onload = r; giImg.onerror = r; }); }
+  if (!giLab) giLab = await fetch('./assets/greenisland-labels.json?v=' + APP_VERSION).then(r => r.json()).catch(() => ({ places: [], provinces: [] }));
+  return { img: giImg, lab: giLab };
+}
+const giW = GREEN.tilesX * GREEN.tile, giH = GREEN.tilesZ * GREEN.tile;
+function giDraw(c, big) {
+  giData().then(({ img, lab }) => {
+    c.width = big ? 1450 : 725; c.height = Math.round(c.width * giH / giW);
+    const ctx = c.getContext('2d'), k = c.width / giW;
+    if (img.width) ctx.drawImage(img, 0, 0, c.width, c.height);
+    ctx.textAlign = 'center';
+    for (const p of lab.places) {
+      const main = p.kind === 'capital' || p.kind === 'city' || (big && p.kind === 'town') || (big && p.named);
+      if (!main && !(big && p.kind !== 'hamlet')) continue;
+      ctx.font = `${p.kind === 'capital' ? 'bold 15' : main ? 'bold 11' : '9'}px system-ui, sans-serif`;
+      const t = p.kind === 'capital' ? '★ ' + p.name : p.name;
+      ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(t, p.x * k + 1, p.z * k - 5);
+      ctx.fillStyle = p.kind === 'capital' ? '#ffe28a' : '#fff'; ctx.fillText(t, p.x * k, p.z * k - 6);
+    }
+    if (big) for (const pk of lab.peaks || []) { ctx.font = 'bold 10px system-ui'; ctx.fillStyle = '#ffe9a8'; ctx.fillText('▲ ' + pk[0], pk[1] * k, pk[2] * k); }
+  });
+}
+function giFavs() { try { return JSON.parse(localStorage.getItem('gi-favs') || '[]'); } catch { return []; } }
+function giSetFavs(f) { try { localStorage.setItem('gi-favs', JSON.stringify(f)); } catch { /* geen opslag */ } }
+async function giOpenModal(pick) {
+  const m = $('#gi-modal'); m.hidden = false;
+  const c = $('#gi-bigmap'); giDraw(c, true);
+  const { lab } = await giData();
+  $('#gi-legend').innerHTML = (pick ? '<b>Tik op de kaart of kies een plaats om daar te beginnen.</b> ' : '') + (lab.provinces || []).map(p => `<span style="color:${p.color}">■</span> ${p.name}`).join(' · ') + ' · <span style="color:#d6262b">━</span> spoor · <span style="color:#f0e3c0">━</span> wegen';
+  const all = [...(lab.places || []).map(p => ({ ...p, icon: p.kind === 'capital' ? '★' : p.kind === 'hamlet' ? '·' : '🏘' })), ...(lab.stations || []).map(s => ({ ...s, icon: '🚉' })), ...(lab.sights || []).map(s => ({ ...s, icon: '📍' }))];
+  const render = () => {
+    const q = ($('#gi-search').value || '').trim().toLowerCase(), favs = giFavs();
+    const list = q ? all.filter(p => p.name.toLowerCase().includes(q)).slice(0, 40) : all.filter(p => favs.includes(p.name)).concat(all.filter(p => p.named && !favs.includes(p.name)));
+    const box = $('#gi-results'); box.innerHTML = '';
+    for (const p of list) {
+      const b = document.createElement('div'); b.className = 'row';
+      const go = document.createElement('button'); go.className = 'btn'; go.textContent = `${p.icon} ${p.name}${p.postcode ? ' · ' + p.postcode : ''}${p.prov ? ' · ' + p.prov : ''}`;
+      go.onclick = () => { m.hidden = true; phoneFullscreen(); playMap(GREEN.id, { x: p.x, z: p.z }); };
+      const st = document.createElement('button'); st.className = 'btn'; st.textContent = favs.includes(p.name) ? '★' : '☆'; st.title = 'Favoriet';
+      st.onclick = () => { const f = giFavs(); const i = f.indexOf(p.name); if (i >= 0) f.splice(i, 1); else f.push(p.name); giSetFavs(f); render(); };
+      b.append(go, st); box.appendChild(b);
+    }
+  };
+  $('#gi-search').oninput = render; render();
+  c.onclick = (e) => { const r = c.getBoundingClientRect(); m.hidden = true; phoneFullscreen(); playMap(GREEN.id, { x: (e.clientX - r.left) / r.width * giW, z: (e.clientY - r.top) / r.height * giH }); };
+}
+$('#btn-gi-play')?.addEventListener('click', () => { phoneFullscreen(); playMap(GREEN.id, { spawn: true }); });
+$('#btn-gi-resume')?.addEventListener('click', () => { phoneFullscreen(); playMap(GREEN.id); });
+$('#btn-gi-map')?.addEventListener('click', () => giOpenModal(false));
+$('#btn-gi-pick')?.addEventListener('click', () => giOpenModal(true));
+$('#gi-close')?.addEventListener('click', () => { $('#gi-modal').hidden = true; });
+$('#gi-map')?.addEventListener('click', (e) => { const c = e.currentTarget, r = c.getBoundingClientRect(); phoneFullscreen(); playMap(GREEN.id, { x: (e.clientX - r.left) / r.width * giW, z: (e.clientY - r.top) / r.height * giH }); });
+async function giMenu() { giDraw($('#gi-map'), false); const meta = await store.getRegionMeta(GREEN.id); const b = $('#btn-gi-resume'); if (b) b.hidden = !(meta && meta.player); }
 // Oude Reuzenberg-saves (14 × 14 km) naar de Alpenwereld: de berg ligt nu 17 920 m verder naar het oosten en het zuiden.
 // Bouwwerken (per tegel), de ondergrond (per stuk van 16³) en de plek van de speler schuiven precies mee,
 // zodat alles op dezelfde plek ten opzichte van de berg blijft.
@@ -663,7 +738,7 @@ function setMode(mode) {
   $('#fantasy-panel').hidden = mode !== 'fantasy';
   $('#real-col').hidden = mode !== 'real';
   $('#map-col').hidden = mode !== 'fantasy';
-  if (mode === 'fantasy') { drawMetroMap(); drawBergMap(); }
+  if (mode === 'fantasy') { drawMetroMap(); drawBergMap(); giMenu(); }
   if (mode === 'real') initMap();
   try { localStorage.setItem('blokstad-mode', mode); } catch { /* geen opslag */ }
 }

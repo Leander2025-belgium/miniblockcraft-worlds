@@ -75,7 +75,7 @@ export class FarView {
     const ctx = this.canvas.getContext('2d');
     ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
-  key(tx, tz) { return tz * 1000 + tx; }
+  key(tx, tz) { return tz * 4096 + tx; }
   add(tx, tz, lod) {
     const k = this.key(tx, tz);
     if (!lod || this.data.has(k)) return;
@@ -232,7 +232,7 @@ export class FarView {
     u.fogNear.value = far * 0.6; u.fogFar.value = far * 1.6; // grond blijft ver zichtbaar, geen lege band onder de horizon
     const lim = (far + this.T) ** 2;
     for (const [k, m] of this.meshes) {
-      const tx = k % 1000, tz = Math.floor(k / 1000);
+      const tx = k % 4096, tz = Math.floor(k / 4096);
       const dx = (tx + 0.5) * this.T - px, dz = (tz + 0.5) * this.T - pz;
       const t = tiles.get(k);
       m.visible = !(t && t.ready) && dx * dx + dz * dz < lim;

@@ -10,7 +10,8 @@ import { generateTile } from './metropolis.js';
 import { META as BERG } from './alpen-meta.js';
 // de Reuzenberg ligt nu in het midden van de Alpenwereld (50 × 50 km); oude tegels worden met de oude code gemaakt.
 // Het landschap wordt pas geladen als er een tegel van die wereld gevraagd wordt.
-const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile) };
+import { META as GREEN } from './greenisland-meta.js';
+const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile), [GREEN.id]: () => import('./greenisland.js').then(m => m.generateTile) };
 const genCache = new Map();
 function generatorFor(id) { if (!GENERATORS[id]) return Promise.resolve(generateTile); let p = genCache.get(id); if (!p) genCache.set(id, p = GENERATORS[id]()); return p; }
 // verre blokken: hoogtes in absolute meters (tegels in de bergen beginnen hoger)
