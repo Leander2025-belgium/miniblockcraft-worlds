@@ -306,7 +306,12 @@ async function playMap(id, at) {
   }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
-      let mine = ed && ed.rle ? { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null } : null;
+      let mine = null;
+      if (ed && ed.rle) {
+        // eigen bouwwerken: controleren voor gebruik; beschadigd = apart bewaren (niet weggooien) en het gewone landschap tonen
+        if (store.rleLength(ed.rle) === T * T * ed.H) mine = { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null };
+        else { store.cachePut(mapKeys.edit(map, tx, tz) + '-beschadigd', ed).then(() => store.cacheDelete(mapKeys.edit(map, tx, tz))).catch(() => {}); flash('Een bebouwd stuk was beschadigd en is apart bewaard'); }
+      }
       // ook voor zelf bebouwde stukken de paden voor het verkeer ophalen
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
         if (m.type === 'cityTile' && mine && ed.alpsPartial) { mine = mergePartial(map, tx, tz, mine, m); saveTile(tx, tz, mine.vox, mine.H, mine.y0, mine.edge); }

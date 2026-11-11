@@ -978,7 +978,8 @@ function tilePaths(X0, Z0, lines) {
   for (const r of ROADS) {
     if (Math.max(r.ax, r.bx) < X0 - 8 || Math.min(r.ax, r.bx) > X0 + T + 8 || Math.max(r.az, r.bz) < Z0 - 8 || Math.min(r.az, r.bz) > Z0 + T + 8) continue;
     const L = Math.hypot(r.bx - r.ax, r.bz - r.az), ux = (r.bx - r.ax) / L, uz = (r.bz - r.az) / L;
-    const lane = (off, rev) => { const p = []; for (let s = 0; s <= L; s += 6) p.push([r.ax + ux * s - uz * off, r.az + uz * s + ux * off, r.y]); p.push([r.bx - uz * off, r.bz + ux * off, r.y]); return rev ? p.reverse() : p; };
+    const yAt = (x, z) => Math.round(G + surfaceAt(x, z)); // de straat volgt de grond
+    const lane = (off, rev) => { const p = []; for (let s = 0; s <= L; s += 6) { const x = r.ax + ux * s - uz * off, z = r.az + uz * s + ux * off; p.push([x, z, yAt(x, z)]); } const ex = r.bx - uz * off, ez = r.bz + ux * off; p.push([ex, ez, yAt(ex, ez)]); return rev ? p.reverse() : p; };
     const t = r.major ? 'carM' : 'car';
     if (r.tram) { clipPush('tram', lane(0.0, false)); }
     if (!r.farm) { clipPush(t, lane(-1.8 - (r.tram ? 1.6 : 0), false)); clipPush(t, lane(1.8 + (r.tram ? 1.6 : 0), true)); }
@@ -991,7 +992,7 @@ function tilePaths(X0, Z0, lines) {
     if (t.kind === 'mountain' || t.kind === 'hamlet') continue;
     const r = ROADS.find(q => q.town === t.name && q.major); if (!r) continue;
     const mx = (r.ax + r.bx) / 2, mz = (r.az + r.bz) / 2;
-    if (mx >= X0 && mx < X0 + T && mz >= Z0 && mz < Z0 + T) out.push({ type: 'busstop', name: t.name, pts: new Float32Array([mx - X0, mz - Z0, t.y]) });
+    if (mx >= X0 && mx < X0 + T && mz >= Z0 && mz < Z0 + T) out.push({ type: 'busstop', name: t.name, pts: new Float32Array([mx - X0, mz - Z0, Math.round(G + surfaceAt(mx, mz))]) });
   }
   return out;
 }

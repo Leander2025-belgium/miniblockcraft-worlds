@@ -162,6 +162,18 @@ export function rleEncode(src) {
   }
   return out.slice(0, o);
 }
+// lengte na het uitpakken (zonder uit te pakken); -1 als de gegevens beschadigd zijn
+export function rleLength(src) {
+  if (!src || !src.length) return -1;
+  let n = 0, i = 0;
+  while (i < src.length) {
+    i++;
+    let len = 0, shift = 0, b;
+    do { if (i >= src.length) return -1; b = src[i++]; len += (b & 127) * 2 ** shift; shift += 7; } while (b & 128);
+    n += len;
+  }
+  return n;
+}
 export function rleDecode(src, total) {
   // eerst totale lengte bepalen
   let n = 0, i = 0;

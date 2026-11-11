@@ -42,7 +42,7 @@ export class Builder {
     this.undoStack.push(list);
     if (this.undoStack.length > 120) this.undoStack.shift();
     this.redoStack.length = 0;
-    this.g.dirty = true;
+    this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   apply(list, useTo) {
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
@@ -51,7 +51,7 @@ export class Builder {
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
     }
     this.remesh(x0, z0, x1, z1);
-    this.g.dirty = true;
+    this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   undo() { const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length} blokken)`); }
   redo() { const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length} blokken)`); }

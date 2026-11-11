@@ -3,7 +3,7 @@ import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './cit
 import { BLOCKS } from './blocks.js';
 import { aerowayQuery, parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
 import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
-import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode } from './storage.js';
+import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode, rleLength } from './storage.js';
 import { elevationSampler, elevationBase } from './terrain.js';
 import { mapSize } from './bigmap.js';
 import { generateTile } from './metropolis.js';
@@ -256,7 +256,10 @@ async function areaPrefetch(m) {
 async function cityTileInner(m) {
   const { tx, tz, map } = m;
   const key = keys.tile(map, tx, tz);
-  const cached = await cacheGet(key);
+  let cached = null;
+  try { cached = await cacheGet(key); } catch { cached = null; }
+  // beschadigde of onvolledige tegel in de cache: weggooien en opnieuw maken (nooit eindeloos blijven proberen)
+  if (cached && (!cached.rle || !cached.H || rleLength(cached.rle) !== map.tile * map.tile * cached.H)) { await cacheDelete(key).catch(() => {}); cached = null; }
   if (cached && cached.rle) {
     return { rle: cached.rle, H: cached.H, y0: cached.y0 || 0, edge: cached.edge || null, paths: cached.paths || [], tunnels: cached.tunnels || null, from: 'cache' };
   }

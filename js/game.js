@@ -13,6 +13,7 @@ import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
+import { rleEncode, rleDecode } from './storage.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
 import { zoneName } from './metropolis.js';
@@ -543,7 +544,7 @@ export class Game {
   }
   tileBytes(src) {
     if (src.bytes) return src.bytes;
-    let b = src.w.vox.length;
+    let b = src.w.vox ? src.w.vox.length : (src.rle ? src.rle.length : 0);
     for (const c of this.chunks.values()) if (c.src === src) for (const m of [c.o, c.t]) if (m) b += m.geometry.index ? m.geometry.index.count * 4 + m.geometry.attributes.position.count * 36 : 0;
     if (src.ready) src.bytes = b;
     return b;
@@ -554,6 +555,11 @@ export class Game {
     t.parked = true; t.parkedAt = performance.now();
     td.parked.set(k, t);
     this.trafficDirty = true;
+    // zuinig bewaren: wijzigingen eerst opslaan, dan de blokken samengeperst (de meshes blijven klaarstaan)
+    if (t.dirty) { td.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
+    const pend = this.queue.filter(q => q[0] === t);
+    if (pend.length) { t.pendingQ = pend.map(q => [q[1], q[2]]); this.queue = this.queue.filter(q => q[0] !== t); }
+    if (t.w.vox && t.ready) { t.rle = rleEncode(t.w.vox); t.w.vox = null; t.bytes = 0; }
     // te veel in het geheugen? de langst niet bezochte tegels opruimen (wijzigingen eerst bewaren)
     let total = 0;
     for (const p of td.parked.values()) total += this.tileBytes(p);
@@ -572,6 +578,8 @@ export class Game {
     const td = this.tiled, t = td.parked.get(k);
     if (!t) return false;
     td.parked.delete(k); t.parked = false;
+    if (!t.w.vox && t.rle) { t.w.vox = rleDecode(t.rle, t.w.size * t.w.size * t.w.H); t.rle = null; t.bytes = 0; }
+    if (t.pendingQ) { for (const [cx, cz] of t.pendingQ) this.queue.push([t, cx, cz]); t.pendingQ = null; }
     this.world.tiles.set(k, t);
     this.trafficDirty = true; td.stats.memory++;
     return true;
@@ -797,6 +805,7 @@ export class Game {
     const budget = this.tiled && this.tiled.speed > 25 && !this.touch ? 16 : 12;
     while (this.queue.length && (performance.now() - t0 < budget || n === 0)) {
       const [src, cx, cz] = this.queue.pop();
+      if (src.dead || !src.w.vox) continue;
       this.buildChunk(src, cx, cz);
       this.builtChunks++; n++;
     }
@@ -1390,6 +1399,8 @@ export class Game {
     }
     const now = performance.now();
     if (this.dirty && now - this.lastAuto > 30000) { this.lastAuto = now; this.ui.onSave?.(true); }
+    // bouwwerken op grote kaarten: enkele seconden na de laatste wijziging al bewaren (niet wachten op afsluiten)
+    if (this.tiled && this.lastEditAt && now - this.lastEditAt > 4000) { this.lastEditAt = 0; this.saveDirtyTiles(); }
     // grote kaarten: elke 20 s stil bewaren waar je bent (valt de pagina weg, dan kan je verder)
     if (this.tiled && now - (this.lastPosSave || now) > 20000) { this.lastPosSave = now; this.ui.onSave?.(true); }
     if (this.tiled && !this.lastPosSave) this.lastPosSave = now;
@@ -1463,7 +1474,7 @@ export class Game {
       if (PLACEABLE.includes(t.b)) { this.hotbar[this.slot] = t.b; this.buildHotbar(); }
       return;
     }
-    this.dirty = true;
+    this.dirty = true; this.lastEditAt = performance.now();
     this.updateTarget();
   }
 
