@@ -16,7 +16,7 @@ const fs = require('fs');
   await p.waitForFunction(() => !!window.blokGame().wallet, null, { timeout: 30000 });
   const start = await p.evaluate(() => window.blokGame().wallet.balance);
   // naar de showroom (binnen)
-  await p.evaluate(async () => { const g = window.blokGame(), A = await import('./js/greenisland.js'); g.player.fly = true; g.player.pos.set(130500 - 5100, A.heightAt(130500 - 5100, 27500 + 2720) + 2, 27500 + 2720); g.tiled.aheadKey = null; g.updateTiles(true); });
+  await p.evaluate(async () => { const g = window.blokGame(), A = await import('./js/greenisland.js'); g.player.fly = true; const b = A.BLD.find(q => q.name === 'Zenvo Showroom'), cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2; g.player.pos.set(cx, A.heightAt(cx, cz) + 2, cz); g.tiled.aheadKey = null; g.updateTiles(true); });
   await p.waitForTimeout(15000);
   await p.evaluate(() => window.blokGame().showWallet()); await p.waitForTimeout(800);
   const knoppen = await p.evaluate(() => document.querySelectorAll('#vc-body [data-buy]').length);

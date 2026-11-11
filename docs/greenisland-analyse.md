@@ -46,3 +46,21 @@ Gemeten met `node tools/analyse-green-infra.mjs` op versie 2026-11-16b.
   balkons, winkelplinten en ornamenten, gekozen per wijk.
 - Straatmeubilair en verkeerslichten; verkeer wacht aan overwegen en lichten.
 - Automatische controles voor dit alles in `tools/check-green.mjs`.
+
+## Resultaat na City Rebuild 2.0 (gemeten met `node tools/check-green.mjs` en `node tools/analyse-green-infra.mjs`)
+
+| Meting | Vóór | Na |
+|---|---|---|
+| Kruisingen nationale weg × spoor zonder ontwerp | 108 / 127 | 0 / 72 (52 overwegen, 20 bruggen) |
+| Kruisingen stadsstraat × spoor zonder ontwerp | 977 / 1240 | 0 / 806 (312 overwegen, 25 straatbruggen, 17 onderdoorgangen, 452 doodlopend met paaltjes) |
+| Wegeinden zonder aansluiting | niet gemeten | 0 (3 ontworpen einden: dorpsplein of keerlus) |
+| Gebouwfamilies in Munkbay | 4 | 16 (26 in totaal) |
+| Identieke buren in een straatwand | – | 0,1 % (langste reeks 2) |
+| Landmarks over een straat | ja | nee (in een bouwblok, met voorplein) |
+| Tegelgeneratie (gemiddeld, 5 stadstegels) | 226 ms | 249 ms |
+
+Nog niet opgelost (eerlijk):
+- Een bus rijdt op 35 van de 25 781 meetpunten 1 blok naast het wegdek (afronding bij knooppunten en tunnelmonden).
+- Overwegen zijn er nog veel (312 in de vier gemeten steden): in de drukke stad niet aan elke zijstraat, maar wel
+  aan lanen en elke derde straat. Echte straatbruggen worden alleen gebouwd waar het spoor in een sleuf ligt.
+- Gebouwen zijn nog altijd blokken (1 m); afgeronde vormen zijn trapsgewijs benaderd.

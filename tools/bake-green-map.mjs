@@ -33,6 +33,12 @@ for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
 }
 const put = (x, z, rgb, r = 0) => { for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) { const i = Math.floor(x / S) + dx, j = Math.floor(z / S) + dz; if (i >= 0 && j >= 0 && i < NX && j < NZ) png.data.set(rgb, (j * NX + i) * 4); } };
 const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16), 255];
+// wijken van Munkbay, parken, havens, testterrein, grote gebouwen en buslijnen
+for (const a of A.AREAS) if (a.kind === 'park') for (let dz = -a.r; dz <= a.r; dz += S) for (let dx = -a.r; dx <= a.r; dx += S) if (dx * dx + dz * dz < a.r * a.r * 0.7) put(a.x + dx, a.z + dz, [96, 168, 80, 255]);
+for (const H of A.HARBOURS) for (let a = -450; a <= 450; a += S / 2) for (let n = -60; n <= 180; n += S / 2) put(H.x - H.nz * a + H.nx * n, H.z + H.nx * a + H.nz * n, [150, 158, 168, 255]);
+{ const T2 = A.TRACK_Z; for (let dx = -T2.hx; dx <= T2.hx; dx += S / 2) for (let dz = -T2.hz; dz <= T2.hz; dz += S / 2) put(T2.x + dx, T2.z + dz, [120, 150, 110, 255]); }
+for (const b of A.BLD) for (let x = b.x0; x <= b.x1; x += S / 2) for (let z = b.z0; z <= b.z1; z += S / 2) put(x, z, [120, 60, 60, 255]);
+for (const L of A.BUS_LINES) for (let i = 0; i < L.n; i += 6) put(L.x[i], L.z[i], [190, 120, 230, 255]);
 for (const R of A.ROADS) for (let k = 0; k < R.n; k += 3) put(R.x[k], R.z[k], R.kind === 'A' ? [250, 210, 120, 255] : [240, 230, 205, 255], R.kind === 'A' ? 1 : 0);
 for (const L of A.LINES) { const c = hex(L.color), d = c.map((v, k) => k < 3 ? v * 0.5 : 255); for (let i = 0; i < L.n; i += 4) put(L.x[i], L.z[i], L.kind[i] === 1 ? d : c, L.kind[i] === 1 ? 0 : 1); }
 for (const st of A.STATIONS_ALL) put(st.x, st.z, [255, 255, 255, 255], 2);
@@ -48,6 +54,7 @@ const lab = {
   peaks: D.PEAKS.map(p => [p.name, p.x, p.z]),
   // wegennet voor de routeplanner: knopen = plaatsen, takken = wegen (lengte, soort, vorm om de ~250 m)
   roads: A.ROADS.map(R => { const pts = []; for (let k = 0; k < R.n; k += 31) pts.push([Math.round(R.x[k]), Math.round(R.z[k])]); pts.push([Math.round(R.x[R.n - 1]), Math.round(R.z[R.n - 1])]); let up = 0, down = 0; for (let k = 1; k < R.n; k++) { const d = R.y[k] - R.y[k - 1]; if (d > 0) up += d; else down -= d; } return { a: R.a, b: R.b, kind: R.kind, name: R.name || null, len: Math.round(R.s[R.n - 1]), climb: Math.round(up), desc: Math.round(down), pts }; }),
+  districts: A.AREAS.map(a => ({ name: a.name, x: Math.round(a.x), z: Math.round(a.z), kind: a.kind })),
   heights: { min: Math.round(HT.reduce((a, b) => Math.min(a, b), 1e9)), max: Math.round(HT.reduce((a, b) => Math.max(a, b), -1e9)) },
 };
 writeFileSync(new URL('../assets/greenisland-labels.json', import.meta.url), JSON.stringify(lab));

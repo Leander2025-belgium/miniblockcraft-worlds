@@ -58,6 +58,7 @@ Na een wijziging van ligging of lijnen: `node tools/plan-green.mjs` (tracés), d
 - **Bussen**: X10/X20 (snelbus), R31–R44 (streekbus), B60 (bergbus Viridonia–Silverpine), B1–B8 (stadsbus met busbanen), N3/N6 (nachtbus); routes, haltes en frequenties.
 - **Kabelbanen in Silverpine**: Silverpine Horn-Kabelbaan, Zilvergrat-Gondelbaan, Silverpine-Stoeltjeslift.
 - **Havens**: in Munkbay-Haven, Westport en Greenport (containerterminal, ferry- en cruiseterminal, scheepswerf, jachthaven). Canon: Westport is een havenstad.
+- **City Rebuild 2.0**: wijkindeling van Munkbay in bouwtypes (zakencentrum met wolkenkrabbers, oude stad met herenhuizen en gevelhuizen, woonwijken, haven, campus), de 26 gebouwfamilies, straatmeubilair, het ontwerp van elke kruising weg/straat × spoor, de reizigerstunnel van Munkbay Central. Zie `docs/greenisland-analyse.md`.
 - **GreenAir-kleuren**: witte romp, groene staart. **GNMI-weermodel** en de drempels van de waarschuwingen. **ViridCoin-economie**: prijzen, startkapitaal, beloningen. **Zenvo**: showroom, testterrein bij Riverside en de modellen City, Volt, Tourer, GT.
 
 ## Stand van de bouw

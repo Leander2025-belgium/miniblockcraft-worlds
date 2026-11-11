@@ -418,6 +418,7 @@ function giDraw(c, big) {
       ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillText(t, p.x * k + 1, p.z * k - 5);
       ctx.fillStyle = p.kind === 'capital' ? '#ffe28a' : '#fff'; ctx.fillText(t, p.x * k, p.z * k - 6);
     }
+    if (big) for (const d of lab.districts || []) { if (d.kind === 'airport' || d.kind === 'beach') continue; ctx.font = 'italic 9px system-ui'; ctx.fillStyle = 'rgba(255,240,200,.9)'; ctx.fillText(d.name.replace('Munkbay ', '').replace('Munkbay-', ''), d.x * k, d.z * k + 10); }
     if (big) for (const pk of lab.peaks || []) { ctx.font = 'bold 10px system-ui'; ctx.fillStyle = '#ffe9a8'; ctx.fillText('▲ ' + pk[0], pk[1] * k, pk[2] * k); }
   });
 }
@@ -455,7 +456,7 @@ async function giOpenModal(pick) {
   const m = $('#gi-modal'); m.hidden = false;
   const c = $('#gi-bigmap'); giDraw(c, true);
   const { lab } = await giData();
-  $('#gi-legend').innerHTML = (pick ? '<b>Tik op de kaart of kies een plaats om daar te beginnen.</b> ' : '') + (lab.provinces || []).map(p => `<span style="color:${p.color}">■</span> ${p.name}`).join(' · ') + ' · <span style="color:#d6262b">━</span> spoor · <span style="color:#f0e3c0">━</span> wegen';
+  $('#gi-legend').innerHTML = (pick ? '<b>Tik op de kaart of kies een plaats om daar te beginnen.</b> ' : '') + (lab.provinces || []).map(p => `<span style="color:${p.color}">■</span> ${p.name}`).join(' · ') + ' · <span style="color:#9b4ad6">━</span> buslijnen · <span style="color:#a05050">■</span> grote gebouwen · <span style="color:#60a850">■</span> parken · <span style="color:#d6262b">━</span> spoor · <span style="color:#f0e3c0">━</span> wegen';
   const all = [...(lab.places || []).map(p => ({ ...p, icon: p.kind === 'capital' ? '★' : p.kind === 'hamlet' ? '·' : '🏘' })), ...(lab.stations || []).map(s => ({ ...s, icon: '🚉' })), ...(lab.sights || []).map(s => ({ ...s, icon: '📍' }))];
   const render = () => {
     const q = ($('#gi-search').value || '').trim().toLowerCase(), favs = giFavs();
@@ -1035,7 +1036,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16b';
+const APP_VERSION = '2026-11-16c';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
   if (version && version !== APP_VERSION) {
