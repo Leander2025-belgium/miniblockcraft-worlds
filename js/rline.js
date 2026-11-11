@@ -155,26 +155,32 @@ export class RLine {
       i = j;
     }
   }
+  // zoekraster: elk stuk staat alleen in de rastervakken (64 m) die het echt raakt, compact als Int32Array;
+  // bij het zoeken worden de vakken binnen het zoekbereik bekeken (zuinig met geheugen, ook in de workers)
   buildGrid() {
-    this.grid = new Map(); const C = 64, R = 70;
+    const C = 64, tmp = new Map();
     for (let i = 0; i < this.n - 1; i++) {
-      const x0 = Math.min(this.x[i], this.x[i + 1]) - R, x1 = Math.max(this.x[i], this.x[i + 1]) + R, z0 = Math.min(this.z[i], this.z[i + 1]) - R, z1 = Math.max(this.z[i], this.z[i + 1]) + R;
+      const x0 = Math.min(this.x[i], this.x[i + 1]), x1 = Math.max(this.x[i], this.x[i + 1]), z0 = Math.min(this.z[i], this.z[i + 1]), z1 = Math.max(this.z[i], this.z[i + 1]);
       for (let cz = Math.floor(z0 / C); cz <= Math.floor(z1 / C); cz++) for (let cx = Math.floor(x0 / C); cx <= Math.floor(x1 / C); cx++) {
-        const key = cz * 4096 + cx; let l = this.grid.get(key); if (!l) this.grid.set(key, l = []); if (l[l.length - 1] !== i) l.push(i);
+        const key = cz * 4096 + cx; let l = tmp.get(key); if (!l) tmp.set(key, l = []); if (l[l.length - 1] !== i) l.push(i);
       }
     }
+    this.grid = new Map(); for (const [k, l] of tmp) this.grid.set(k, Int32Array.from(l));
   }
   // dichtste punt: { d, sd (+ = rechts van de rijrichting), s, y, i }
   near(x, z, reach = 70) {
-    const l = this.grid.get(Math.floor(z / 64) * 4096 + Math.floor(x / 64));
-    if (!l) return null;
-    let bd = 1e9, bi = 0, bt = 0, sg = 1;
-    for (const i of l) {
-      const ax = this.x[i], az = this.z[i], vx = this.x[i + 1] - ax, vz = this.z[i + 1] - az, L2 = vx * vx + vz * vz || 1;
-      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
-      const dx = x - ax - vx * t, dz = z - az - vz * t, d = dx * dx + dz * dz;
-      if (d < bd) { bd = d; bi = i; bt = t; sg = vx * dz - vz * dx > 0 ? 1 : -1; }
+    const C = 64, x0 = Math.floor((x - reach) / C), x1 = Math.floor((x + reach) / C), z0 = Math.floor((z - reach) / C), z1 = Math.floor((z + reach) / C);
+    let bd = 1e18, bi = -1, bt = 0, sg = 1;
+    for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+      const l = this.grid.get(cz * 4096 + cx); if (!l) continue;
+      for (let k = 0; k < l.length; k++) {
+        const i = l[k], ax = this.x[i], az = this.z[i], vx = this.x[i + 1] - ax, vz = this.z[i + 1] - az, L2 = vx * vx + vz * vz || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
+        const ex = x - ax - vx * t, ez = z - az - vz * t, d = ex * ex + ez * ez;
+        if (d < bd) { bd = d; bi = i; bt = t; sg = vx * ez - vz * ex > 0 ? 1 : -1; }
+      }
     }
+    if (bi < 0) return null;
     bd = Math.sqrt(bd);
     if (bd > reach) return null;
     const i = bi, t = bt;

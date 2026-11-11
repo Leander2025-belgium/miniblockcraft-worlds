@@ -37,7 +37,10 @@ const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
 
 // Meerdere achtergrondwerkers: elk zet zijn eigen blokken van 500 m om (sneller op toestellen met meerdere kernen)
-const POOL = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1));
+// toestellen met weinig geheugen (iPhone/iPad, ≤ 4 GB): twee werkers, want elke werker houdt zijn eigen kopie
+// van de wereldgegevens in het geheugen (te veel geheugen = de browser sluit de pagina)
+const LOW_MEM = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) || (navigator.deviceMemory && navigator.deviceMemory <= 4);
+const POOL = Math.max(1, Math.min(LOW_MEM ? 2 : 4, (navigator.hardwareConcurrency || 4) - 1));
 const workers = [];
 let reqId = 0;
 const pending = new Map(); // id -> { h, w }
@@ -771,8 +774,10 @@ $('#btn-exit').addEventListener('click', async () => {
 });
 window.addEventListener('beforeunload', () => { if (game && game.running && game.dirty) saveGame(); });
 // gsm: naar een andere app = de pagina kan zomaar gesloten worden, dus nu bewaren
-document.addEventListener('visibilitychange', () => { if (document.hidden && game && game.running) saveGame(true); });
-window.addEventListener('pagehide', () => { if (game && game.running) saveGame(true); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } } if (document.hidden && game && game.running) saveGame(true); }); // naar de achtergrond: geen crash als de browser de pagina daarna sluit
+window.addEventListener('pagehide', () => { try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } if (game && game.running) saveGame(true); });
+// hartslag tijdens het spelen (om na een herstart te weten of de pagina zomaar wegviel)
+setInterval(() => { if (game && game.running && !document.hidden) try { sessionStorage.setItem('blokstad-alive', String(Date.now())); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ } }, 3000);
 
 // welke wereld open stond (blijft bewaard als de browser de pagina op de achtergrond herlaadt)
 function setInGame(v) { try { v ? sessionStorage.setItem('blokstad-ingame', JSON.stringify(v)) : sessionStorage.removeItem('blokstad-ingame'); } catch { /* geen opslag */ } }
@@ -1037,7 +1042,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16d';
+const APP_VERSION = '2026-11-16e';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
@@ -1067,5 +1072,18 @@ refreshList().then(() => {
   // de browser herlaadde de pagina terwijl je speelde (bv. na een andere app op de gsm): meteen terug in je wereld
   let ing = null;
   try { ing = JSON.parse(sessionStorage.getItem('blokstad-ingame') || 'null'); } catch { /* geen opslag */ }
+  // was de pagina tijdens het spelen weggevallen zonder dat ze netjes werd afgesloten? (de browser had geheugen nodig)
+  // dan zuiniger verder: kijkafstand en verre gebouwen een stap lager, en het zeggen
+  let crashed = false;
+  try { const alive = +sessionStorage.getItem('blokstad-alive') || 0; crashed = !!(ing && ing.id && alive && sessionStorage.getItem('blokstad-clean') !== '1' && Date.now() - alive < 120000); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ }
+  if (crashed) {
+    try {
+      const st = JSON.parse(localStorage.getItem('blokstad-settings') || '{}'), before = st.view || 96;
+      st.view = Math.max(48, (st.view || 96) - 32); st.lod = Math.max(400, Math.round((st.lod || 1000) * 0.7));
+      localStorage.setItem('blokstad-settings', JSON.stringify(st));
+      const n = (+localStorage.getItem('blokstad-crashes') || 0) + 1; localStorage.setItem('blokstad-crashes', String(n));
+      setTimeout(() => game && game.toast && game.toast(`⚠ De browser had te weinig geheugen en startte de pagina opnieuw. Kijkafstand verlaagd (${before} → ${st.view} m) om dit te voorkomen.`), 4000);
+    } catch { /* geen opslag */ }
+  }
   if (ing && ing.id) { $('#menu').hidden = true; (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => { setInGame(null); $('#menu').hidden = false; }); } // niet eerst de startpagina tonen
 });

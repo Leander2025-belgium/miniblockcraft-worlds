@@ -93,7 +93,7 @@ const PLANS = new Map();
 export function planOf(b) {
   const key = b.id + ':' + b.x0 + ':' + b.z0;
   let p = PLANS.get(key); if (p) return p;
-  if (PLANS.size > 30000) PLANS.clear();
+  if (PLANS.size > 6000) PLANS.clear(); // begrensd (geheugen in de werkers)
   p = makePlan(b); PLANS.set(key, p); return p;
 }
 function makePlan(b) {

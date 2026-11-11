@@ -211,14 +211,28 @@ export const ROADS = [...ROAD_ROUTES, ...EXTRA_JOINED].map((r, i) => {
     done.add(R2);
   }
 }
-const roadGrid = new Grid(64);
-for (const R of ROADS) for (let k = 0; k < R.n - 1; k++) { const m = R.hw + 46; roadGrid.add({ R, k }, Math.min(R.x[k], R.x[k + 1]) - m, Math.min(R.z[k], R.z[k + 1]) - m, Math.max(R.x[k], R.x[k + 1]) + m, Math.max(R.z[k], R.z[k + 1]) + m); }
+// zoekraster voor de wegen: elk wegstuk (weg-id × 32768 + punt) alleen in de vakken van 64 m die het raakt,
+// compact als Int32Array; roadNear bekijkt de vakken binnen het zoekbereik (zuinig met geheugen, ook in de workers)
+const RG = 64, roadGrid = (() => {
+  const tmp = new Map();
+  for (const R of ROADS) for (let k = 0; k < R.n - 1; k++) {
+    const m = R.hw + 6, x0 = Math.floor((Math.min(R.x[k], R.x[k + 1]) - m) / RG), x1 = Math.floor((Math.max(R.x[k], R.x[k + 1]) + m) / RG), z0 = Math.floor((Math.min(R.z[k], R.z[k + 1]) - m) / RG), z1 = Math.floor((Math.max(R.z[k], R.z[k + 1]) + m) / RG);
+    for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) { const key = cz * 8192 + cx; let l = tmp.get(key); if (!l) tmp.set(key, l = []); l.push(R.id * 32768 + k); }
+  }
+  const g = new Map(); for (const [k, l] of tmp) g.set(k, Int32Array.from(l)); return g;
+})();
+const NO_ROADS = new Int32Array(0);
+const roadCell = (x, z) => roadGrid.get(Math.floor(z / RG) * 8192 + Math.floor(x / RG)) || NO_ROADS;
 function roadNear(x, z, reach = 40) {
-  let best = null;
-  for (const { R, k } of roadGrid.at(x, z)) {
-    const ax = R.x[k], az = R.z[k], vx = R.x[k + 1] - ax, vz = R.z[k + 1] - az, L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
-    const d = Math.hypot(x - ax - vx * t, z - az - vz * t);
-    if (d <= reach && (!best || d - R.hw < best.d - best.R.hw)) best = { R, d, s: R.s[k] + (R.s[k + 1] - R.s[k]) * t, y: R.y[k] + (R.y[k + 1] - R.y[k]) * t, g: R.g[k] + (R.g[k + 1] - R.g[k]) * t, sd: (vx * (z - az) - vz * (x - ax)) > 0 ? d : -d };
+  let best = null; const x0 = Math.floor((x - reach) / RG), x1 = Math.floor((x + reach) / RG), z0 = Math.floor((z - reach) / RG), z1 = Math.floor((z + reach) / RG);
+  for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+    const l = roadGrid.get(cz * 8192 + cx); if (!l) continue;
+    for (let e = 0; e < l.length; e++) {
+      const R = ROADS[l[e] >> 15], k = l[e] & 32767;
+      const ax = R.x[k], az = R.z[k], vx = R.x[k + 1] - ax, vz = R.z[k + 1] - az, L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
+      const d = Math.hypot(x - ax - vx * t, z - az - vz * t);
+      if (d <= reach && (!best || d - R.hw < best.d - best.R.hw)) best = { R, d, s: R.s[k] + (R.s[k + 1] - R.s[k]) * t, y: R.y[k] + (R.y[k + 1] - R.y[k]) * t, g: R.g[k] + (R.g[k + 1] - R.g[k]) * t, sd: (vx * (z - az) - vz * (x - ax)) > 0 ? d : -d };
+    }
   }
   return best;
 }
@@ -1314,7 +1328,7 @@ function tilePaths(X0, Z0, lines) {
   }
   // nationale wegen: rechts rijden; snelwegen en N-wegen = hoofdwegen (bussen)
   const seen = new Set();
-  for (let z = Z0 - 8; z <= Z0 + T + 8; z += 32) for (let x = X0 - 8; x <= X0 + T + 8; x += 32) for (const { R } of roadGrid.at(x, z)) {
+  for (let z = Z0 - 8; z <= Z0 + T + 8; z += 32) for (let x = X0 - 8; x <= X0 + T + 8; x += 32) for (const e of roadCell(x, z)) { const R = ROADS[e >> 15];
     if (seen.has(R.id)) continue; seen.add(R.id);
     const t = R.kind === 'L' ? 'car' : 'carM', lanes = R.kind === 'A' ? [2, 5.5] : [1.8];
     for (const off of lanes) for (const side of [1, -1]) {
