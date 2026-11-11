@@ -116,9 +116,44 @@ function roadShape(x, z, h) {
   return h > hy ? Math.min(h, hy + (q.d - bed) * 0.8) : Math.max(h, hy - (q.d - bed) / 1.5);
 }
 
+// ---------- havens (fase 6): kade, containerterminal met portaalkranen, ferry- en cruiseterminal, scheepswerf, jachthaven ----------
+// Ligging: aan de kust bij Munkbay-Haven, Westport en Greenport (canon: Westport is een grote havenstad; de rest voorstel).
+// Elke haven is een rechthoek langs de kust: a = langs de kade (-450 … 450 m), n = landinwaarts (0 = kadelijn).
+export const HARBOURS = [
+  { name: 'Haven van Munkbay', from: [136500, 30000] },
+  { name: 'Haven van Westport', from: [9500, 27000] },
+  { name: 'Haven van Greenport', from: [31000, 42000] },
+].map(h => {
+  let best = null;
+  outer: for (let r = 0; r < 6000; r += 50) for (let k = 0; k < 128; k++) { const an = k / 128 * Math.PI * 2, x = h.from[0] + Math.cos(an) * r, z = h.from[1] + Math.sin(an) * r; if (Math.abs(coastDist(x, z)) < 20) { best = [x, z]; break outer; } }
+  const e = 30, gx = coastDist(best[0] + e, best[1]) - coastDist(best[0] - e, best[1]), gz = coastDist(best[0], best[1] + e) - coastDist(best[0], best[1] - e), l = Math.hypot(gx, gz);
+  return { ...h, x: best[0], z: best[1], nx: gx / l, nz: gz / l }; // n = richting landinwaarts
+});
+function harbourAt(x, z) {
+  for (const H of HARBOURS) {
+    const dx = x - H.x, dz = z - H.z; if (Math.abs(dx) > 800 || Math.abs(dz) > 800) continue;
+    const n = dx * H.nx + dz * H.nz, a = -dx * H.nz + dz * H.nx;
+    if (Math.abs(a) <= 520 && n >= -260 && n <= 260) return { H, a, n };
+  }
+  return null;
+}
+function harbourHeight(hb, raw) {
+  const { a, n } = hb, aa = Math.abs(a);
+  if (aa <= 450) {
+    if (n < -60) return Math.min(raw, -9);                 // havenbekken (uitgebaggerd)
+    if (n <= 180) return 2;                                 // kade en haventerrein
+    const t = (n - 180) / 80; return 2 + (raw - 2) * t * t * (3 - 2 * t);
+  }
+  if (n < -60) return null;
+  const t = Math.min(1, (aa - 450) / 70), u = n > 180 ? Math.max(t, (n - 180) / 80) : t, k = Math.min(1, u);
+  return 2 + (raw - 2) * k * k * (3 - 2 * k);
+}
+
 // ---------- het landschap ----------
 export function natural(x, z) {
   let h = rawHeight(x, z);
+  const hb = HARBOURS.length ? harbourAt(x, z) : null;
+  if (hb) { const hh = harbourHeight(hb, h); if (hh !== null) return hh; }
   if (h < -0.5) return h;
   h = roadShape(x, z, h);
   return railShape(x, z, h);
@@ -665,6 +700,7 @@ function fillColumnSurface(x, z, col, slope, ctx, h) {
 }
 // alles behalve spoor en wegen (ook onder een brug)
 function fillColumnBelow(x, z, col, slope, ctx, h, top) {
+  { const hb = harbourAt(x, z); if (hb && Math.abs(hb.a) <= 450 && hb.n <= 180) return harbourColumn(hb, x, z, col, top); }
   // zee, rivieren, meren
   if (top <= G - 1) {
     for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.SAND;
@@ -935,6 +971,7 @@ export function zoneName(x, z) {
   const pv = PROVINCES.find(p => p.id === provinceAt(x, z)).name;
   for (const L of LINES) { const q = L.near(x, z, 12); if (q) { const st = L.stationAt(q.s); if (st) return `Station ${st.name} · ${L.name}`; return `${L.name}${q.kind === 1 ? ' · tunnel' : q.kind === 2 ? ' · viaduct' : ''} · ${pv}`; } }
   for (const L of liftGrid.at(x, z)) { const [u, v] = liftUV(L, x, z); if (Math.abs(v) < L.stW + 2 && (Math.abs(u) < L.stL + 2 || Math.abs(u - L.len) < L.stL + 2)) return `${L.name} · ${Math.abs(u) < L.stL + 2 ? 'dalstation' : L.top}`; }
+  { const hb = harbourAt(x, z); if (hb && Math.abs(hb.a) <= 450 && hb.n >= -120 && hb.n <= 180) return `${hb.H.name} · ${hb.a < -170 ? 'containerterminal' : hb.a < 60 ? 'ferry- en cruiseterminal' : hb.a < 260 ? 'scheepswerf' : 'jachthaven'}`; }
   if (inAirport(x, z)) return AIRPORT.name;
   for (const b of bldGrid.at(x, z)) if (x >= b.x0 - 2 && x <= b.x1 + 2 && z >= b.z0 - 2 && z <= b.z1 + 2) return b.name;
   const a = areaAt(x, z); if (a) return `${a.name} · Munkbay`;
@@ -1149,3 +1186,92 @@ function busShelter(x, z, col, t, top) {
   return t;
 }
 export const _roadQ = (x, z) => roadNear(x, z, 30);
+
+// een kolom van de haven
+function harbourColumn(hb, x, z, col, top) {
+  const { a, n } = hb, W = G - 1; // waterpeil
+  const ai = Math.floor(a), ni = Math.floor(n), hsh = (p, q, k) => hash(p | 0, q | 0, k);
+  // bekken: water, met een cruiseschip, een containerschip, steigers en bootjes
+  if (n < -60) {
+    for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.SAND;
+    col[top] = B.GRAVEL; for (let y = top + 1; y <= W; y++) col[y] = B.WATER;
+    let t = W;
+    // portaalkraan: giek over het water
+    if (a > -450 && a < -170 && ((ai % 90) + 90) % 90 < 3 && n > -95) { col[14 + 30] = B.PAINT_YELLOW; col[14 + 31] = B.PAINT_YELLOW; t = 14 + 31; }
+    // containerschip aan de kade
+    if (a > -440 && a < -190 && n > -100 && n < -66) { const edge = n < -97 || n > -69 || a < -437 || a > -193; for (let y = W - 6; y <= W + 4; y++) col[y] = y <= W + 1 ? (edge ? B.PAINT_BLUE : B.PAINT_BLACK) : edge ? B.PAINT_BLUE : 0; if (!edge) { const h2 = 1 + Math.floor(hsh(ai >> 3, ni >> 2, 711) * 4); for (let y = W + 2; y < W + 2 + h2 * 2; y++) col[y] = [B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN, B.PAINT_ORANGE, B.PAINT_WHITE][Math.floor(hsh(ai >> 3, (ni >> 2) * 7 + (y >> 1), 712) * 5)]; t = Math.max(t, W + 1 + h2 * 2); } else t = Math.max(t, W + 4); if (a > -215 && !edge) { for (let y = W + 2; y <= W + 14; y++) col[y] = y % 3 === 0 ? B.GLASS : B.PAINT_WHITE; t = W + 14; } }
+    // cruiseschip bij de terminal
+    if (a > -150 && a < 30 && n > -112 && n < -70) { const edge = n < -109 || n > -73 || a < -147 || a > 27; for (let y = W - 7; y <= W + 3; y++) col[y] = edge ? B.PAINT_WHITE : y <= W ? B.PAINT_BLUE : 0; if (!edge) for (let y = W + 1; y <= W + 18; y++) col[y] = (y - W) % 3 === 0 ? B.PANEL_WHITE : B.GLASS_BLUE; col[W + 19] = B.PAINT_WHITE; if (Math.abs(a + 40) < 5 && Math.abs(n + 91) < 4) for (let y = W + 19; y <= W + 25; y++) col[y] = y > W + 23 ? B.PAINT_BLACK : B.PAINT_RED; t = Math.max(t, W + 25); }
+    // jachthaven: hoofdsteiger, vingersteigers en bootjes
+    if (a > 260 && a < 445) {
+      if (n > -72 && n < -68) { col[W + 1] = B.PLANKS; t = Math.max(t, W + 1); }
+      else if (n < -72 && n > -110 && ((ai % 12) + 12) % 12 < 2) { col[W + 1] = B.PLANKS; if (ni === -109 && ((ai % 12) + 12) % 12 === 0) { col[W + 2] = B.POST; t = W + 2; } else t = Math.max(t, W + 1); }
+      else if (n < -74 && n > -106) { const slot = Math.floor(a / 12), s2 = ((a % 12) + 12) % 12; if (hsh(slot, 3, 713) < 0.7 && s2 > 3 && s2 < 10 && n < -78 && n > -102) { const cab = n > -95 && n < -86 && s2 > 4 && s2 < 9; col[W] = B.PAINT_WHITE; col[W + 1] = hsh(slot, 4, 714) < 0.5 ? B.PAINT_BLUE : B.PAINT_WHITE; if (cab) { col[W + 2] = B.GLASS; col[W + 3] = B.PAINT_WHITE; t = Math.max(t, W + 3); } else t = Math.max(t, W + 1); if (hsh(slot, 5, 715) < 0.4 && s2 === 6 && n > -92 && n < -89) { for (let y = W + 2; y <= W + 12; y++) col[y] = B.POST; t = W + 12; } } }
+    }
+    return t;
+  }
+  // haventerrein: betonnen kade (verstevigd tot op de bodem), kaderand met bolders
+  for (let y = Math.max(1, top - 6); y < top; y++) col[y] = B.CONCRETE;
+  for (let y = top + 1; y <= top + 40; y++) col[y] = 0;
+  col[top] = B.CONCRETE;
+  const y = top;
+  if (n < -57) { if (((ai % 15) + 15) % 15 === 0) { col[y + 1] = B.PAINT_BLACK; return y + 1; } return y; } // bolders
+  // containerterminal
+  if (a < -170) {
+    if (Math.abs(n + 52) < 0.7 || Math.abs(n + 30) < 0.7) col[y] = B.METAL; // kraanrails
+    const ci = ((ai % 90) + 90) % 90;
+    if (ci < 3 && n > -95 && n < -18) { // portaalkraan
+      const leg = Math.abs(n + 52) < 1.5 || Math.abs(n + 30) < 1.5;
+      if (leg) { for (let k = y + 1; k <= y + 31; k++) col[k] = B.PAINT_YELLOW; return y + 31; }
+      col[y + 30] = B.PAINT_YELLOW; col[y + 31] = B.PAINT_YELLOW;
+      if (n > -46 && n < -36 && ci === 1) { col[y + 27] = B.GLASS; col[y + 28] = B.PAINT_YELLOW; col[y + 29] = B.PAINT_YELLOW; }
+      return y + 31;
+    }
+    if (n > -10 && n < 150) { // containerstapels (2,5 × 12 m, tot vier hoog), rijpaden ertussen
+      const rowN = Math.floor((n + 10) / 9), inN = ((n + 10) % 9 + 9) % 9, colA = Math.floor(a / 14), inA = ((a % 14) + 14) % 14;
+      if (inN < 6 && inA < 12) { const hgt = 1 + Math.floor(hsh(rowN, colA, 716) * 4), c = [B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN, B.PAINT_ORANGE, B.PAINT_WHITE, B.METAL]; for (let k = 1; k <= hgt * 2.5; k++) col[y + k] = c[Math.floor(hsh(rowN * 5 + Math.floor((k - 1) / 2.5), colA, 717) * c.length)]; return y + Math.floor(hgt * 2.5); }
+      col[y] = B.ASPHALT; return y;
+    }
+    if (n >= 150 && n < 175 && ((ai % 60) + 60) % 60 < 40) { for (let k = y + 1; k <= y + 8; k++) col[k] = k === y + 8 ? B.PANEL_DARK : (ai % 4 === 0 ? B.METAL : B.PANEL_WHITE); return y + 8; } // loodsen
+    return y;
+  }
+  // ferry- en cruiseterminal met loopbrug
+  if (a < 60) {
+    if (n > 40 && n < 140 && a > -150 && a < 40) {
+      const wall = n < 41 || n > 139 || a < -149 || a > 39, door = wall && n < 41 && Math.abs(((ai % 30) + 30) % 30 - 15) < 2;
+      if (door) { for (let k = y + 1; k <= y + 3; k++) col[k] = k === y + 3 ? B.DOOR_GLASS : B.DOOR_GLASS; col[y + 12] = B.GLASS_GREEN; return y + 12; }
+      if (wall) { for (let k = y + 1; k <= y + 12; k++) col[k] = k % 4 === 0 ? B.PANEL_WHITE : B.GLASS_BLUE; return y + 12; }
+      col[y] = B.MARBLE; col[y + 12] = ai % 9 === 0 && ni % 9 === 0 ? B.LAMP : B.GLASS_GREEN;
+      if (ni % 10 === 5 && ai % 6 === 0) col[y + 1] = B.DARK_PLANKS; // wachtbanken
+      if (n > 120 && Math.abs(a + 55) < 12 && n < 125) { col[y + 1] = B.PANEL_DARK; } // balie
+      return y + 12;
+    }
+    if (a > -60 && a < -40 && n > -72 && n <= 40) { for (let k = y + 1; k <= y + 5; k++) col[k] = 0; col[y + 5] = B.GLASS; if (Math.abs(a + 50) > 7) col[y + 6] = B.GLASS_GREEN; col[y + 6] = B.GLASS_GREEN; return y + 6; } // overdekte loopbrug
+    return y;
+  }
+  // scheepswerf: droogdok met schip in aanbouw en een grote portaalkraan, loodsen
+  if (a < 260) {
+    if (a > 90 && a < 230 && n > -60 && n < 60) {
+      const wall = a < 92 || a > 228 || n > 58;
+      const floor = G - 9;
+      if (wall) { for (let k = floor; k <= y; k++) col[k] = B.CONCRETE; return y; }
+      for (let k = floor; k <= y + 40; k++) col[k] = 0;
+      col[floor] = B.CONCRETE;
+      let t = floor;
+      if (n > -40 && n < 40 && a > 110 && a < 210) { // romp in aanbouw (stalen platen, deels open)
+        const w = 18 * Math.sqrt(Math.max(0, 1 - ((a - 160) / 52) ** 2));
+        if (Math.abs(n) < w) { const edge = Math.abs(n) > w - 1.5; for (let k = floor + 1; k <= floor + 16; k++) if (edge || k === floor + 1 || k === floor + 16 && a < 180) col[k] = (a | 0) % 9 < 6 ? B.PAINT_RED : B.METAL; t = floor + 16; }
+      }
+      if (((ai % 70) + 70) % 70 < 3) { col[y + 40] = B.PAINT_ORANGE; col[y + 41] = B.PAINT_ORANGE; t = y + 41; } // brug van de portaalkraan
+      return t;
+    }
+    if (a > 90 && a < 230 && (Math.abs(n + 62) < 2 || Math.abs(n - 64) < 2) && ((ai % 70) + 70) % 70 < 3) { for (let k = y + 1; k <= y + 41; k++) col[k] = B.PAINT_ORANGE; return y + 41; } // poten van de kraan
+    if (n > 80 && n < 170 && a > 80) { const wall = n < 81 || n > 169 || a < 81 || a > 258; if (wall) { const door = n < 81 && ((ai % 40) + 40) % 40 < 8; for (let k = y + 1; k <= y + 16; k++) col[k] = door && k < y + 12 ? 0 : B.PANEL_DARK; return y + 16; } col[y + 16] = ai % 11 === 0 && ni % 11 === 0 ? B.LAMP : B.PANEL_DARK; return y + 16; }
+    return y;
+  }
+  // jachthaven: clubhuis en botenhelling
+  if (n > 40 && n < 90 && a > 300 && a < 360) { const wall = n < 41 || n > 89 || a < 301 || a > 359; if (wall) { const door = n < 41 && Math.abs(a - 330) < 2; for (let k = y + 1; k <= y + 6; k++) col[k] = door && k <= y + 2 ? (k === y + 1 ? B.DOOR : B.DOOR_TOP) : k % 3 === 0 ? B.PLANKS : B.GLASS; col[y + 7] = B.ROOF_RED; return y + 7; } col[y] = B.PLANKS; col[y + 7] = B.ROOF_RED; if (ni % 6 === 0 && ai % 5 === 0) col[y + 1] = B.DARK_PLANKS; return y + 7; }
+  if (n < -40 && a > 270 && a < 280) { col[y] = B.CONCRETE; return y; }
+  col[y] = (ai + ni) % 23 === 0 ? B.COBBLE : B.CONCRETE;
+  return y;
+}

@@ -977,7 +977,7 @@ export class Game {
         if (mode === 'drive') { this.toast('Ga naar de cockpit (vooraan) om zelf te vliegen'); return; }
       } else if (!this.aboard) {
         const pl = this.airports.nearest(this.player.pos, 45);
-        if (pl) { if (pl.state !== 'parked' && pl.speed > 1) { this.toast('Dit vliegtuig rijdt of vliegt al'); return; } this.boardVessel(pl, true); return; }
+        if (pl) { if (pl.state !== 'parked' && pl.speed > 1) { this.toast('Dit vliegtuig rijdt of vliegt al'); return; } this.boardVessel(pl, true); if (pl.airline) this.toast(`✈ Welkom aan boord van ${pl.airline}!`); return; }
       }
     }
     // schip: in de stuurhut = sturen, anders aan boord gaan

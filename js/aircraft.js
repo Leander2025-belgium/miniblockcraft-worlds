@@ -25,6 +25,8 @@ export const PLANES = {
   cessna: { name: 'Cessna 172', L: 8.3, span: 11, r: 0.6, eng: 0, engR: 0, tail: 2.7, wide: false, prop: true, highWing: true, small: true },
 };
 const LIVERIES = [[0xffffff, 0x0b3d91], [0xffffff, 0xd4121c], [0xffffff, 0x1c7c54], [0xf4f4f4, 0x16213e], [0xffffff, 0xf2a900], [0xe8eef4, 0x7a1f6e]];
+// GreenAir (canon: de luchtvaartmaatschappij van Greenisland): witte romp, groene staart; in Greenisland vliegt zij het meest
+const GREENAIR = [0xf7faf6, 0x1f9d4b];
 
 // ---------- 3D-model ----------
 function wing(P, color, rootX, rootChord, tipChord, span, sweep, th, y, z, dihedral, side) {
@@ -229,14 +231,18 @@ export class Airports {
     const r = Math.random();
     return r < 0.22 ? 'a320' : r < 0.42 ? 'b737' : r < 0.54 ? 'a350' : r < 0.66 ? 'b787' : r < 0.74 ? 'a380' : r < 0.82 ? 'b747' : r < 0.88 ? 'b747f' : r < 0.95 ? 'jet' : 'cessna';
   }
+  pickLivery() {
+    if (this.game.meta && this.game.meta.greenisland && Math.random() < 0.6) return { liv: GREENAIR, airline: 'GreenAir' };
+    return { liv: LIVERIES[Math.floor(Math.random() * LIVERIES.length)], airline: null };
+  }
   spawnAtGate(g) {
-    const pl = new Plane(this.game, this.pickType(), LIVERIES[Math.floor(Math.random() * LIVERIES.length)]);
+    const lv = this.pickLivery(), pl = new Plane(this.game, this.pickType(), lv.liv); pl.airline = lv.airline;
     pl.state = 'parked'; pl.timer = 40 + Math.random() * 80; pl.gate = g; g.plane = pl;
     pl.yaw = g.yaw; pl.pos.set(g.x, g.y + pl.groundY, g.z);
     this.planes.push(pl); return pl;
   }
   spawnArrival(r, aboard) {
-    const pl = new Plane(this.game, aboard ? 'a320' : this.pickType(), LIVERIES[Math.floor(Math.random() * LIVERIES.length)]);
+    const lv = this.pickLivery(), pl = new Plane(this.game, aboard ? 'a320' : this.pickType(), lv.liv); pl.airline = lv.airline;
     const dx = r.b[0] - r.a[0], dz = r.b[2] - r.a[2], L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L, dist = 5500;
     pl.pos.set(r.a[0] - ux * dist, r.a[1] + pl.groundY + dist * Math.tan(3 * Math.PI / 180), r.a[2] - uz * dist);
     pl.yaw = Math.atan2(ux, uz); pl.speed = VAPP; pl.state = 'approach'; pl.rw = r; pl.flaps = 1; pl.gearDown = true; pl.pitch = 0.02;

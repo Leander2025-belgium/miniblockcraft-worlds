@@ -1,0 +1,20 @@
+const { chromium } = require('playwright');
+const fs = require('fs'), THREE_PATH = require('path').join(__dirname, '../../node_modules/three/build/three.module.js');
+(async () => {
+  const [x, y, z, yaw, pitch, out, wait] = process.argv.slice(2);
+  const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const p = await b.newPage({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1 });
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.route('**/three.module.js', r => r.fulfill({ body: fs.readFileSync(THREE_PATH), contentType: 'application/javascript' }));
+  await p.route(/tile\.openstreetmap|nominatim|elevation|overpass/, r => r.abort());
+  await p.goto('http://localhost:8765/#debug');
+  await p.evaluate(() => localStorage.setItem('blokstad-settings', JSON.stringify({ view: 160, lod: 1200, hour: 13, quality: 'normal' })));
+  await p.click('[data-mode="fantasy"]'); await p.click('#btn-gi-play');
+  await p.waitForFunction(() => { const g = window.blokGame && window.blokGame(); return g && g.tiled && g.alpRail && g.world.tileAt(g.player.pos.x, g.player.pos.z); }, null, { timeout: 120000 });
+  await p.evaluate(([x, y, z, yaw, pitch]) => { const g = window.blokGame(), pl = g.player; pl.fly = true; pl.pos.set(+x, +y, +z); pl.yaw = +yaw; pl.pitch = +pitch; g.tiled.aheadKey = null; g.updateTiles(true); g.touch = true; g.paused = false; document.querySelectorAll('.overlay, #overlay, #click-to-play, .modal').forEach(e => e.style.display = 'none'); }, [x, y, z, yaw, pitch]);
+  await p.waitForTimeout(+(wait || 30000));
+  await p.evaluate(() => { document.querySelectorAll('.ov').forEach(e => e.style.display = 'none'); });
+  await p.screenshot({ path: out });
+  console.log('fouten:', errs.length ? errs.join(' | ') : 'geen', JSON.stringify(await p.evaluate(() => window.blokGame().ui.place.textContent)));
+  await b.close();
+})();
