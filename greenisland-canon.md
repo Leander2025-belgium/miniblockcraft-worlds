@@ -51,16 +51,24 @@ Na een wijziging van ligging of lijnen: `node tools/plan-green.mjs` (tracés), d
 - **Internationaal**: ICE door een Noordzeetunnel aan de oostkust; aan het einde reis je verder naar de Frankfurt-wereld of naar Amsterdam Centraal (echte stad, OpenStreetMap).
 - **Luchthaven Munkbay**: ten zuiden van de stad, twee banen, terminal; ondergronds AX1-station.
 - **Ligging van landmarks**: parlement, presidentieel paleis, GNMI, Zenvo (hoofdkantoor Munkbay, fabriek Riverside), nationale bank, ziekenhuis, universiteit, GreenAir-hoofdkantoor, vuurtoren Black Point, wrak SS Viridonia voor de kust.
+- **Metro M1–M10**: ligging van alle lijnen en stations, extra stations (bv. Noordplein, Zuidpoort, Beurs), twee diepteniveaus (12 en 24 m), frequentie M4–M10 elke 10 min (05:30–00:30). Canon: lijnnamen, stationsnamen, M1–M3 elke 15 min 06:30–23:00.
+- **Tram T1–T15**: ligging over de lanen van Munkbay en de haltenamen (tools/plan-tram.mjs); T1s stopt om de andere halte; T2–T15 elke 10 min. Canon: 15 lijnen, T1 en T1s elke 15 min 06:30–23:00.
+- **Straatprofielen**: laan 22 m (fietspad, rijstroken, dubbel tramspoor), straat 12 m (dorp 9 m); fietspaden langs alle wegen (N-wegen aan beide kanten).
+- **Snelweg A1 Munkbay-doorsteek**: verhoogd door de stad van Munkbay West naar Munkbay Oost.
+- **Bussen**: X10/X20 (snelbus), R31–R44 (streekbus), B60 (bergbus Viridonia–Silverpine), B1–B8 (stadsbus met busbanen), N3/N6 (nachtbus); routes, haltes en frequenties.
+- **Kabelbanen in Silverpine**: Silverpine Horn-Kabelbaan, Zilvergrat-Gondelbaan, Silverpine-Stoeltjeslift.
+- **Havens**: in Munkbay-Haven, Westport en Greenport (containerterminal, ferry- en cruiseterminal, scheepswerf, jachthaven). Canon: Westport is een havenstad.
+- **GreenAir-kleuren**: witte romp, groene staart. **GNMI-weermodel** en de drempels van de waarschuwingen. **ViridCoin-economie**: prijzen, startkapitaal, beloningen. **Zenvo**: showroom, testterrein bij Riverside en de modellen City, Volt, Tourer, GT.
 
 ## Stand van de bouw
 
 | Fase | Stand |
 |---|---|
 | 1 Fundament (eiland, provincies, terrein, streaming) | klaar |
-| 2 Geografie (steden, Munkbay, gebergte, rivieren, natuur, hoofdwegen) | klaar (eerste versie) |
+| 2 Geografie (steden, Munkbay, gebergte, rivieren, natuur, hoofdwegen, fietspaden, snelweg door Munkbay) | klaar |
 | 3 Nationaal spoor (Munkbay Central, IC1, IC2, S1, AX1, ICE) | klaar (eerste versie) |
-| 4 Metro (M1–M10) en tram (T1–T15) | nog niet gebouwd (gegevens staan klaar in `METRO_PLAN` / `TRAM_PLAN`) |
-| 5 Regionaal vervoer (bussen op alle wegen, busstations) | deels: bussen en auto's rijden op het wegennet en in de steden |
-| 6 Luchthavens, havens, ferry's | deels: vliegtuigen op Munkbay Airport, schepen op de zeeroutes rond het eiland; havenkranen en terminals nog niet |
-| 7 Nationale gebouwen | deels: buitenkant van parlement, paleis, GNMI, Zenvo, ziekenhuis, universiteit, vuurtoren, wrak |
-| 8–10 Interactiviteit, graphics, OV-beheer, weer per regio | nog niet |
+| 4 Metro (M1–M10) en tram (T1–T15, T1s) | klaar (eerste versie): ondergrondse stations met trappen, trams op straatniveau |
+| 5 Regionaal vervoer (buslijnen, busstations, busbanen) | klaar (eerste versie); geen luchthavenshuttle per bus (AX1 en M1 rijden naar de luchthaven) |
+| 6 Luchthavens, havens, ferry's | havens klaar (eerste versie), GreenAir-kleuren; de schepen in de havens staan stil (de veerboten op zee varen) |
+| 7 Nationale gebouwen | buitenkant en inrichting van de begane grond (GNMI, bank, paleis, universiteit, ziekenhuis, GreenAir, parlement); deuren en kamers in alle gebouwen |
+| 8–10 Interactiviteit, OV-beheer, weer | OV-beheer (dienstregelingseditor, vertragingen, depot), GNMI-weer per regio met waarschuwingen, routeplanner en hoogtekaart, ViridCoin en Zenvo |
