@@ -17,7 +17,8 @@ export function buildLifts(defs, G, natural) {
     LIFTS.push(L);
   }
   for (const L of LIFTS) {
-    const gnd = (u) => { let m = -1e9; for (const o of [-L.track - 2, 0, L.track + 2]) { const x = L.ax + L.ux * u - L.uz * o, z = L.az + L.uz * u + L.ux * o; m = Math.max(m, G + natural(x, z)); } return m; };
+    const gmemo = new Map(), gnd = (u) => { const key = Math.round(u / 3); let v = gmemo.get(key); if (v === undefined) { v = gnd0(key * 3); gmemo.set(key, v); } return v; };
+    const gnd0 = (u) => { let m = -1e9; for (const o of [-L.track - 2, 0, L.track + 2]) { const x = L.ax + L.ux * u - L.uz * o, z = L.az + L.uz * u + L.ux * o; m = Math.max(m, G + natural(x, z)); } return m; };
     const attach = L.kind === 'chair' ? 6 : 6.2;
     const pts = [{ u: L.stL - 2, y: L.ya + attach }];
     const end = L.len - L.stL + 2, yEnd = L.yb + attach, maxSpan = L.kind === 'cable' ? 1400 : L.kind === 'gondola' ? 460 : 180, clearH = L.kind === 'chair' ? 6 : 12;

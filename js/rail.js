@@ -358,10 +358,15 @@ export class AlpRail {
     this.player = null; // trein die de speler zelf bestuurt
     // overwegen: twee rode lampen per paal, knipperen als er een trein nadert
     this.xLamps = [];
-    for (const c of CROSSINGS) for (const al of [-8, 8]) for (const sd of [-1, 1]) {
+    for (const c of CROSSINGS) for (const al of [-(c.al ?? 8), c.al ?? 8]) for (const sd of [-1, 1]) {
       const x = c.x + c.ux * al - c.uz * sd * (c.hw + 1), z = c.z + c.uz * al + c.ux * sd * (c.hw + 1);
-      this.xLamps.push({ c, x: Math.floor(x) + 0.5, y: groundAt(x, z) + 4.5, z: Math.floor(z) + 0.5 });
+      this.xLamps.push({ c, x: Math.floor(x) + 0.5, y: (c.y !== undefined && c.al ? c.y + 1 : groundAt(x, z)) + 4.5, z: Math.floor(z) + 0.5, al, sd });
     }
+    // slagbomen (alleen bij overwegen met een eigen lengte: Greenisland): rood-wit, omlaag als er een trein komt
+    this.xArms = this.xLamps.filter(l => l.c.al && Math.sign(l.al) === -l.sd);
+    this.armMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.22, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.max(1, this.xArms.length));
+    this.armMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, this.xArms.length) * 3), 3);
+    this.armMesh.frustumCulled = false; this.armMesh.count = 0; this.group.add(this.armMesh);
     this.xMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.45, 0.45, 0.45), new THREE.MeshBasicMaterial({ color: 0xffffff }), Math.max(1, this.xLamps.length));
     this.xMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, this.xLamps.length) * 3), 3);
     this.xMesh.frustumCulled = false; this.group.add(this.xMesh);
@@ -516,8 +521,9 @@ export class AlpRail {
     this.sigMesh.instanceMatrix.needsUpdate = true; if (this.sigMesh.instanceColor) this.sigMesh.instanceColor.needsUpdate = true;
   }
   updateCrossings(act) {
-    const m4 = new THREE.Matrix4(), col = new THREE.Color(), blink = Math.floor(this.t * 2) % 2;
+    const m4 = new THREE.Matrix4(), col = new THREE.Color(), blink = Math.floor(this.t * 2) % 2, P0 = this.g.player.pos;
     this.xLamps.forEach((l, i) => {
+      if (Math.abs(l.x - P0.x) > 1500 || Math.abs(l.z - P0.z) > 1500) { if (l.c.closed) l.c.closed = false; m4.makeTranslation(l.x, -1000, l.z); this.xMesh.setMatrixAt(i, m4); return; } // ver weg: niet bijwerken
       let near = false;
       for (const a of act) { if (a.run.pr.L.id !== l.c.line || a.t < 0) continue; const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x); if (Math.abs(s - l.c.s) < 700) near = true; }
       if (this.player && this.player.L.id === l.c.line && Math.abs(this.player.s - l.c.s) < 700) near = true;
@@ -526,6 +532,21 @@ export class AlpRail {
       col.set(near ? ((i + blink) % 2 ? 0xff2010 : 0x300000) : 0x300000); this.xMesh.setColorAt(i, col);
     });
     this.xMesh.instanceMatrix.needsUpdate = true; if (this.xMesh.instanceColor) this.xMesh.instanceColor.needsUpdate = true;
+    // slagbomen: liggend over de rijbaan als de overweg dicht is, anders rechtop
+    let n = 0; const q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (const l of this.xArms) {
+      if (Math.abs(l.x - P0.x) > 600 || Math.abs(l.z - P0.z) > 600) continue;
+      const c = l.c, len = c.hw + 0.6, down = c.closed, yaw = Math.atan2(-c.uz * -l.sd, c.ux * -l.sd); void yaw;
+      // richting van de paal naar het midden van de weg: (c.uz * sd, -c.ux * sd) (loodrecht op de weg)
+      const dx = c.uz * l.sd, dz = -c.ux * l.sd;
+      if (down) { v.set(l.x + dx * len / 2, l.y - 3.3, l.z + dz * len / 2); e.set(0, Math.atan2(dx, dz), 0); sc.set(1, 1, len); }
+      else { v.set(l.x + dx * 0.4, l.y - 3.3 + len / 2, l.z + dz * 0.4); e.set(Math.PI / 2, Math.atan2(dx, dz), 0, 'YXZ'); sc.set(1, 1, len); }
+      q.setFromEuler(e); m4.compose(v, q, sc); this.armMesh.setMatrixAt(n, m4); col.set(n % 2 ? 0xd71920 : 0xf4f4f4); this.armMesh.setColorAt(n, col); n++;
+      if (n >= this.xArms.length) break;
+    }
+    this.armMesh.count = n; this.armMesh.instanceMatrix.needsUpdate = true; if (this.armMesh.instanceColor) this.armMesh.instanceColor.needsUpdate = true;
+    // het verkeer wacht voor een gesloten overweg
+    if (this.g.traffic) this.g.traffic.stopZones = CROSSINGS.filter(c => c.closed).map(c => ({ x: c.x, z: c.z, r: (c.al ?? 8) + 2 }));
   }
   // ---------- tunnelbekleding rond de speler ----------
   updateTunnel(p) {

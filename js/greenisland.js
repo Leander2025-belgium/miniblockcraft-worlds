@@ -46,12 +46,108 @@ function urbanAt(x, z) {
   return best ? { p: best, dens: bd } : null;
 }
 
+// ---------- gedeelde infrastructuur: wegen houden rekening met het spoor ----------
+// (1) een weg die evenwijdig over of vlak naast het spoorbed loopt, wordt opzij gelegd;
+// (2) een weg die in een station eindigt, stopt aan de rand ervan (stationsplein);
+// (3) elke kruising krijgt een type: 'overweg', 'brug' (weg over het spoor), 'onder' (weg onder een viaduct) of 'tunnel' (spoor diep eronder).
+const RAILS = LINES.filter(L => !L.metro && !L.tram);
+const HIGH_SPEED = new Set(['ICEF', 'ICEA', 'AX1']);
+// grof raster: welke spoorlijnen liggen binnen ~80 m van een punt (snelle voortest)
+const RAIL_NEAR = new Map();
+for (const L of RAILS) for (let i = 0; i < L.n; i += 8) { const cx = Math.floor(L.x[i] / 128), cz = Math.floor(L.z[i] / 128); for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const k = (cz + dz) * 4096 + cx + dx; let l = RAIL_NEAR.get(k); if (!l) RAIL_NEAR.set(k, l = []); if (!l.includes(L)) l.push(L); } }
+const railsNear = (x, z) => RAIL_NEAR.get(Math.floor(z / 128) * 4096 + Math.floor(x / 128)) || EMPTY;
+function fitToRail(xs, zs, hw) {
+  const n = xs.length;
+  // eindpunten in een station of op het spoorbed: wegnemen tot buiten de spoorzone
+  const inRail = (k) => railsNear(xs[k], zs[k]).some(L => { const q = L.near(xs[k], zs[k], BED + hw + 40); return q && q.kind !== 1 && (q.d < BED + hw + 4 || (L.stationAt(q.s) && q.d < BED + hw + 36)); });
+  let a = 0, b = n - 1; while (a < n - 8 && inRail(a)) a++; while (b > a + 8 && inRail(b)) b--;
+  if (a > 0 || b < n - 1) {
+    const X = xs.slice(a, b + 1), Z = zs.slice(a, b + 1);
+    // het afgeknipte einde sluit aan op het stationsplein aan deze kant van het spoor (daar komen de wegen samen)
+    const join = (cut, px, pz) => { if (!cut) return null; const sq = stationSquare(px, pz, xs[cut.from], zs[cut.from]); return sq; };
+    const sA = a > 0 ? join({ from: 0 }, X[0], Z[0]) : null, sB = b < n - 1 ? join({ from: n - 1 }, X[X.length - 1], Z[Z.length - 1]) : null;
+    xs.length = 0; zs.length = 0;
+    const seg = (x0, z0, x1, z1) => { const m = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 8)); for (let q = 0; q < m; q++) { xs.push(x0 + (x1 - x0) * q / m); zs.push(z0 + (z1 - z0) * q / m); } };
+    if (sA) seg(sA[0], sA[1], X[0], Z[0]);
+    xs.push(...X); zs.push(...Z);
+    if (sB) { const x0 = xs.pop(), z0 = zs.pop(); seg(x0, z0, sB[0], sB[1]); xs.push(sB[0]); zs.push(sB[1]); }
+  }
+  for (let it = 0; it < 3; it++) {
+    const m = xs.length, ox = new Float32Array(m), oz = new Float32Array(m);
+    for (let k = 0; k < m; k++) {
+      const k0 = Math.max(0, k - 2), k1 = Math.min(m - 1, k + 2), rx = xs[k1] - xs[k0], rz = zs[k1] - zs[k0], rl = Math.hypot(rx, rz) || 1;
+      for (const L of railsNear(xs[k], zs[k])) {
+        const reach = BED + hw + 12, q = L.near(xs[k], zs[k], reach); if (!q || q.kind === 1) continue;
+        const p = L.at(q.s), cos = Math.abs((rx * p.tx + rz * p.tz) / rl);
+        if (cos < 0.82) continue; // echte kruising: blijft
+        const side = q.sd >= 0 ? 1 : -1, need = reach - q.d;
+        ox[k] += -p.tz * side * need; oz[k] += p.tx * side * need;
+      }
+    }
+    // verschuiving vloeiend maken (geen knikken)
+    const W = 14, sx = new Float32Array(m), sz = new Float32Array(m);
+    for (let k = 0; k < m; k++) { let ax = 0, az = 0, wsum = 0; for (let j = Math.max(0, k - W); j <= Math.min(m - 1, k + W); j++) { const w = W + 1 - Math.abs(j - k); ax += ox[j] * w; az += oz[j] * w; wsum += w; } sx[k] = ax / wsum; sz[k] = az / wsum; }
+    for (let k = 0; k < m; k++) { const big = Math.hypot(ox[k], oz[k]) > Math.hypot(sx[k], sz[k]) ? 1 : 0; xs[k] += big ? ox[k] * 0.6 + sx[k] * 0.4 : sx[k]; zs[k] += big ? oz[k] * 0.6 + sz[k] * 0.4 : sz[k]; }
+  }
+}
+// stationsplein: vanaf het oude eindpunt (in de spoorzone) recht van het spoor weg, aan de kant waar de weg vandaan komt,
+// tot buiten elke spoorzone; alle wegen van die kant komen op hetzelfde punt uit (afgerond op 20 m)
+const SQUARES = new Map();
+function stationSquare(px, pz, ex, ez) {
+  let best = null, bd = 1e9; for (const L of RAILS) { const q = L.near(ex, ez, 200); if (q && q.d < bd) { bd = q.d; best = { L, q }; } }
+  if (!best) return null;
+  const p = best.L.at(best.q.s), nx = -p.tz, nz = p.tx, side = ((px - p.x) * nx + (pz - p.z) * nz) >= 0 ? 1 : -1;
+  const key = best.L.id + ':' + Math.round(best.q.s / 200) + ':' + side; if (SQUARES.has(key)) return SQUARES.get(key);
+  let d = BED + 30; const clear = (x, z) => !RAILS.some(L => { const q = L.near(x, z, BED + 30); return q && q.kind !== 1 && q.d < BED + 26; });
+  while (d < 400 && !clear(p.x + nx * d * side, p.z + nz * d * side)) d += 10;
+  const sq = [Math.round((p.x + nx * d * side) / 4) * 4, Math.round((p.z + nz * d * side) / 4) * 4];
+  SQUARES.set(key, sq); return sq;
+}
+function railCrossings(xs, zs, s, y, kind, hw) {
+  const out = [];
+  for (let k = 1; k < xs.length - 1; k++) for (const L of railsNear(xs[k], zs[k])) {
+    const q = L.near(xs[k], zs[k], BED + 1); if (!q) continue;
+    if (out.some(c => c.L === L && Math.abs(c.s - s[k]) < 60)) continue;
+    const p = L.at(q.s), rx = xs[k + 1] - xs[k - 1], rz = zs[k + 1] - zs[k - 1], rl = Math.hypot(rx, rz) || 1, sin = Math.abs((rx * p.tz - rz * p.tx) / rl);
+    const half = (BED + hw + 3) / Math.max(0.35, sin); // lengte van de weg boven het spoorbed (schuine kruising = langer)
+    let type, cy;
+    if (q.kind === 1) { type = 'tunnel'; cy = q.y + 12; if (y[k] > cy) continue; type = 'brug'; }
+    else if (q.kind === 2 && q.y - y[k] >= 2) { type = 'onder'; cy = q.y - 9; }
+    else if (kind === 'L' && !HIGH_SPEED.has(L.id) && !L.stationAt(q.s) && q.kind === 0 && Math.abs(q.y + 1 - y[k]) < 5 && sin > 0.55) { type = 'overweg'; cy = q.y + 1; }
+    else { type = 'brug'; cy = q.y + 11; }
+    out.push({ type, s: s[k], half, y: cy, L, rs: q.s, x: xs[k], z: zs[k], railY: q.y, ux: rx / rl, uz: rz / rl });
+  }
+  // kruisingen vlak na elkaar (een bundel sporen, zoals bij Munkbay Central): één ontwerp voor de hele bundel
+  out.sort((a, b) => a.s - b.s);
+  for (let i = 0; i < out.length;) {
+    let j = i; while (j + 1 < out.length && out[j + 1].s - out[j].s < out[j].half + out[j + 1].half + 60) j++;
+    if (j > i) {
+      const grp = out.slice(i, j + 1), types = new Set(grp.map(c => c.type));
+      if (types.size > 1 || types.has('brug')) { const top = Math.max(...grp.map(c => c.railY)); for (const c of grp) { c.type = 'brug'; c.y = top + 11; } }
+      if (types.size === 1 && types.has('onder')) { const lo = Math.min(...grp.map(c => c.railY)); for (const c of grp) c.y = lo - 9; }
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
 // ---------- wegen (nationaal net) met een vloeiend hoogteprofiel ----------
 const ROAD_HW = { A: 8, N: 4.2, L: 3.2 };
-export const ROADS = [...ROAD_ROUTES, ...EXTRA_ROADS].map((r, i) => {
+// extra wegen (zoals de A1-doorsteek) sluiten aan beide uiteinden aan op de dichtstbijzijnde snelweg of N-weg
+const EXTRA_JOINED = EXTRA_ROADS.map(r => {
+  const pts = r.pts.map(p => [...p]);
+  for (const end of [0, pts.length - 1]) {
+    let best = null, bd = 1e18;
+    for (const R of ROAD_ROUTES) for (const q of R.pts) { const d = ((q[0] - pts[end][0]) ** 2 + (q[1] - pts[end][1]) ** 2) * (R.kind === 'L' ? 4 : 1); if (d < bd) { bd = d; best = q; } }
+    if (best && Math.sqrt(bd) < 6000) { if (end === 0) pts.unshift([best[0], best[1]]); else pts.push([best[0], best[1]]); }
+  }
+  return { ...r, pts };
+});
+export const ROADS = [...ROAD_ROUTES, ...EXTRA_JOINED].map((r, i) => {
   const pts = r.pts, xs = [], zs = [];
   for (let k = 0; k < pts.length - 1; k++) { const [ax, az] = pts[k], [bx, bz] = pts[k + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 8)); for (let q = 0; q < n; q++) { xs.push(ax + (bx - ax) * q / n); zs.push(az + (bz - az) * q / n); } }
   xs.push(pts[pts.length - 1][0]); zs.push(pts[pts.length - 1][1]);
+  fitToRail(xs, zs, ROAD_HW[r.kind]);
   const n = xs.length, g = new Float32Array(n), y = new Float32Array(n), s = new Float32Array(n);
   for (let k = 1; k < n; k++) s[k] = s[k - 1] + Math.hypot(xs[k] - xs[k - 1], zs[k] - zs[k - 1]);
   for (let k = 0; k < n; k += 3) g[k] = G + Math.max(1, rawHeight(xs[k], zs[k]));
@@ -62,6 +158,16 @@ export const ROADS = [...ROAD_ROUTES, ...EXTRA_ROADS].map((r, i) => {
   for (let k = 0; k < n; k++) { let a = 0, c = 0; for (let j = Math.max(0, k - W2); j <= Math.min(n - 1, k + W2); j++) { a += g[j]; c++; } y[k] = a / c; }
   y[0] = g[0]; y[n - 1] = g[n - 1];
   for (let it = 0; it < 2; it++) { for (let k = 1; k < n; k++) { const d = s[k] - s[k - 1]; y[k] = Math.max(y[k - 1] - grade * d, Math.min(y[k - 1] + grade * d, y[k])); } for (let k = n - 2; k >= 0; k--) { const d = s[k + 1] - s[k]; y[k] = Math.max(y[k + 1] - grade * d, Math.min(y[k + 1] + grade * d, y[k])); } }
+  // kruisingen met het spoor: overweg (lokale weg, regionale lijn op dezelfde hoogte), brug over het spoor of onder een viaduct door
+  const xings = railCrossings(xs, zs, s, y, r.kind, ROAD_HW[r.kind]);
+  for (const c of xings) {
+    for (let k = 0; k < n; k++) {
+      const d = Math.max(0, Math.abs(s[k] - c.s) - c.half);
+      if (c.type === 'overweg') { const lo = c.y - grade * d, hi = c.y + grade * d; y[k] = Math.max(lo, Math.min(hi, y[k])); }
+      else if (c.type === 'brug') y[k] = Math.max(y[k], c.y - grade * d);
+      else if (c.type === 'onder') y[k] = Math.min(y[k], c.y + grade * d);
+    }
+  }
   // verhoogde snelweg in de stad (op pijlers boven straten en sporen), met opritten van hooguit 4 %
   if (r.elevated) {
     for (let k = 0; k < n; k++) if (xs[k] > r.cityX[0] && xs[k] < r.cityX[1]) y[k] = Math.max(y[k], g[k] + r.elevated);
@@ -70,8 +176,40 @@ export const ROADS = [...ROAD_ROUTES, ...EXTRA_ROADS].map((r, i) => {
   }
   // fietspaden: N-wegen aan beide kanten (één richting per kant), andere wegen één tweerichtingsfietspad rechts; niet op een brug
   const bike = r.elevated ? 'none' : r.kind === 'N' ? 'both' : 'one';
-  return { id: i, a: r.a, b: r.b, kind: r.kind, name: r.name, hw: ROAD_HW[r.kind], bike, n, x: Float32Array.from(xs), z: Float32Array.from(zs), y, s, g };
+  const R = { id: i, a: r.a, b: r.b, kind: r.kind, name: r.name, hw: ROAD_HW[r.kind], bike, n, x: Float32Array.from(xs), z: Float32Array.from(zs), y, s, g, xings };
+  for (const c of xings) c.R = R;
+  return R;
 });
+// samenloop en kruising van twee wegen: de kleinere weg neemt daar de hoogte van de grotere over (geleidelijk, max. 6 %);
+// ligt de ene weg al 7 m of meer boven de andere, dan is het een ongelijkvloerse kruising en verandert er niets
+{
+  const RANK = { A: 3, N: 2, L: 1 }, order = [...ROADS].sort((a, b) => RANK[b.kind] - RANK[a.kind]);
+  const g0 = new Grid(64); for (const R of order) for (let k = 0; k < R.n - 1; k += 1) g0.add({ R, k }, Math.min(R.x[k], R.x[k + 1]) - 12, Math.min(R.z[k], R.z[k + 1]) - 12, Math.max(R.x[k], R.x[k + 1]) + 12, Math.max(R.z[k], R.z[k + 1]) + 12);
+  const done = new Set();
+  for (const R2 of order) {
+    const delta = new Float32Array(R2.n), has = new Uint8Array(R2.n);
+    for (let k = 0; k < R2.n; k++) {
+      let best = null;
+      for (const { R, k: j } of g0.at(R2.x[k], R2.z[k])) {
+        if (R === R2 || !done.has(R)) continue;
+        const d = Math.hypot(R.x[j] - R2.x[k], R.z[j] - R2.z[k]); if (d > R.hw + R2.hw + 2) continue;
+        if (!best || d < best.d) best = { d, y: R.y[j] };
+      }
+      if (best && Math.abs(best.y - R2.y[k]) < 7) { delta[k] = best.y - R2.y[k]; has[k] = 1; }
+    }
+    if (has.some(Boolean)) {
+      const grade = R2.kind === 'A' ? 0.04 : 0.06, out = new Float32Array(R2.n);
+      // uitlopen met hooguit de toegestane helling (heen en terug, apart voor omhoog en omlaag)
+      const pos = new Float32Array(R2.n), neg = new Float32Array(R2.n);
+      for (let k = 0; k < R2.n; k++) if (has[k]) { pos[k] = Math.max(0, delta[k]); neg[k] = Math.max(0, -delta[k]); }
+      for (let k = 1; k < R2.n; k++) { const dd = (R2.s[k] - R2.s[k - 1]) * grade; if (!has[k]) { pos[k] = Math.max(pos[k], pos[k - 1] - dd); neg[k] = Math.max(neg[k], neg[k - 1] - dd); } }
+      for (let k = R2.n - 2; k >= 0; k--) { const dd = (R2.s[k + 1] - R2.s[k]) * grade; if (!has[k]) { pos[k] = Math.max(pos[k], pos[k + 1] - dd); neg[k] = Math.max(neg[k], neg[k + 1] - dd); } }
+      for (let k = 0; k < R2.n; k++) out[k] = has[k] ? delta[k] : pos[k] >= neg[k] ? pos[k] : -neg[k];
+      for (let k = 0; k < R2.n; k++) R2.y[k] += out[k];
+    }
+    done.add(R2);
+  }
+}
 const roadGrid = new Grid(64);
 for (const R of ROADS) for (let k = 0; k < R.n - 1; k++) { const m = R.hw + 46; roadGrid.add({ R, k }, Math.min(R.x[k], R.x[k + 1]) - m, Math.min(R.z[k], R.z[k + 1]) - m, Math.max(R.x[k], R.x[k + 1]) + m, Math.max(R.z[k], R.z[k + 1]) + m); }
 function roadNear(x, z, reach = 40) {
@@ -79,7 +217,7 @@ function roadNear(x, z, reach = 40) {
   for (const { R, k } of roadGrid.at(x, z)) {
     const ax = R.x[k], az = R.z[k], vx = R.x[k + 1] - ax, vz = R.z[k + 1] - az, L2 = vx * vx + vz * vz || 1, t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2));
     const d = Math.hypot(x - ax - vx * t, z - az - vz * t);
-    if (d <= reach && (!best || d < best.d)) best = { R, d, s: R.s[k] + (R.s[k + 1] - R.s[k]) * t, y: R.y[k] + (R.y[k + 1] - R.y[k]) * t, g: R.g[k] + (R.g[k + 1] - R.g[k]) * t, sd: (vx * (z - az) - vz * (x - ax)) > 0 ? d : -d };
+    if (d <= reach && (!best || d - R.hw < best.d - best.R.hw)) best = { R, d, s: R.s[k] + (R.s[k + 1] - R.s[k]) * t, y: R.y[k] + (R.y[k + 1] - R.y[k]) * t, g: R.g[k] + (R.g[k + 1] - R.g[k]) * t, sd: (vx * (z - az) - vz * (x - ax)) > 0 ? d : -d };
   }
   return best;
 }
@@ -100,7 +238,7 @@ function railShape(x, z, h) {
     const k = Math.min(L.n - 1, q.k), kind = L.kind[k];
     if (kind === 1) continue;
     const hb = L.y[k] - 1 - G, bed = (L.single ? 2.8 : BED) + 1;
-    if (q.d <= bed) { if (kind !== 2) out = Math.min(out, hb); if (kind === 0 && out < hb) out = Math.max(out, hb); continue; }
+    if (q.d <= bed) { if (kind !== 2) out = Math.min(out, hb); if (kind === 0 && out < hb && !(hb - out >= 8 && streetUnderRail(x, z))) out = Math.max(out, hb); continue; } // geen dijk waar een straat onder het spoor door loopt
     if (out > hb) out = Math.min(out, hb + (q.d - bed) * 0.7);
     else if (kind === 0 && hb - out < 9) out = Math.max(out, hb - (q.d - bed) / 1.6);
   }
@@ -299,7 +437,13 @@ export const BLD = [];
 const bldGrid = new Grid(64);
 for (const lm of LANDMARKS) {
   const p = PLACE[lm.town]; if (!p) continue;
-  const x = p.x + lm.dx, z = p.z + lm.dz;
+  let x = p.x + lm.dx, z = p.z + lm.dz;
+  // op het stratenraster: midden in een bouwblok (of een groep blokken), nooit over een straat heen gezet
+  const u = urbanAt(x, z);
+  if (u && u.dens > 0.12) {
+    const g = gridFor(u.p), snap = (c, o, w) => { const n = Math.max(1, Math.ceil((w + 26) / g.B)), b0 = Math.round((c - o) / g.B - n / 2); return o + b0 * g.B + 24 + (n * g.B - 26) / 2; };
+    x = snap(x, g.ox, lm.w); z = snap(z, g.oz, lm.d);
+  }
   const b = { x0: Math.round(x - lm.w / 2), x1: Math.round(x + lm.w / 2), z0: Math.round(z - lm.d / 2), z1: Math.round(z + lm.d / 2), kind: lm.kind, floors: lm.floors, name: lm.name, face: 'z1', landmark: true, id: BLD.length };
   BLD.push(b); bldGrid.add(b, b.x0 - 3, b.z0 - 3, b.x1 + 3, b.z1 + 3);
 }
@@ -328,6 +472,14 @@ function railColumn(x, z, col, top, ctx, only) {
   let two = !L.single;
   if (L.single) for (const st2 of L.stations) if (q.s > st2.s0 - 95 && q.s < st2.s1 + 95) two = true;
   const bed = L.single && !two ? 2.6 : BED, st = L.stationAt(q.s), kind = q.kind;
+  // overweg: het wegdek loopt over het spoor, de rails liggen in het asfalt
+  if (kind === 0 && ad <= bed + 1.4) { const lx = levelCrossingAt(x, z) || streetLevelCrossing(x, z); if (lx) {
+    for (let y = Math.max(1, by - 3); y < by; y++) col[y] = B.GRAVEL;
+    const rail = Math.abs(ad - TRACK) > 0.35 && Math.abs(ad - TRACK) < 1.15;
+    col[by] = rail ? B.METAL : lx.q.d > lx.R.hw - 0.5 ? B.LINE_WHITE : B.ASPHALT;
+    for (let y = by + 1; y <= Math.max(top, by + 7); y++) col[y] = 0;
+    return by;
+  } }
   if (kind === 1) {
     if (ad > bed + 1.2) return -1;
     if (top - by >= 13) { deepTunnels.push([L, q, bed]); return -1; } // diepe tunnel: eerst straat en gebouwen erboven, daarna uitgraven
@@ -368,7 +520,10 @@ function railColumn(x, z, col, top, ctx, only) {
   const high = by - top;
   if (kind === 2 || high > 9) {
     let other = false; for (const L2 of ctx.lines) if (L2 !== L && L2.near(x, z, 12)) { other = true; break; }
-    if (high <= 60) { const span = 36, u = ((q.s % span) + span) % span - span / 2, ya = by - 3 - (high - 3) * Math.pow(Math.abs(u) / (span / 2), 2.4); for (let y = Math.max(top + 1, Math.ceil(ya)); y < by; y++) if (!other || y > by - 10) col[y] = (y + Math.round(q.s)) % 5 === 0 ? B.STONE : B.ASHLAR; }
+    // weg of straat onder het viaduct: alleen het brugdek, geen bogen of pijlers op de rijbaan
+    let under = false; { const rq = roadNear(x, z, 16); if ((rq && rq.d <= rq.R.hw + 5.5 && Math.round(rq.y) - 1 < by - 6) || streetUnderRail(x, z, by)) { other = true; under = true; } }
+    if (under) { col[by - 2] = B.CONCRETE; } // alleen het brugdek boven de weg of straat
+    else if (high <= 60) { const span = 36, u = ((q.s % span) + span) % span - span / 2, ya = by - 3 - (high - 3) * Math.pow(Math.abs(u) / (span / 2), 2.4); for (let y = Math.max(top + 1, Math.ceil(ya)); y < by; y++) if (!other || y > by - 10) col[y] = (y + Math.round(q.s)) % 5 === 0 ? B.STONE : B.ASHLAR; }
     else { const u = ((q.s % 60) + 60) % 60; if (u < 5 && ad < bed - 1 && !other) for (let y = top + 1; y < by - 3; y++) col[y] = B.CONCRETE; col[by - 3] = B.CONCRETE; col[by - 2] = B.CONCRETE; }
     col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE;
     if (ad > bed - 0.7) { col[by + 1] = B.METAL; return Math.max(by + 1, top); }
@@ -410,8 +565,32 @@ function bikeBand(R, d, sd) {
   if (sd > R.hw + 1 && sd <= R.hw + 4.2) return { w: 3.2, c: sd - R.hw - 1, two: true }; // één fietspad rechts, voor beide richtingen
   return null;
 }
+// eindpunten van wegen waar geen andere weg aansluit: een ontworpen einde (dorpsplein of keerlus)
+const ROAD_ENDS = (() => {
+  const out = [];
+  for (const R of ROADS) for (const k of [0, R.n - 1]) {
+    const x = R.x[k], z = R.z[k];
+    const joined = ROADS.some(R2 => R2 !== R && [0, R2.n - 1].some(j => Math.hypot(R2.x[j] - x, R2.z[j] - z) < 12));
+    if (joined) continue;
+    const u = urbanAt(x, z);
+    out.push({ x, z, y: R.y[k] - 1, R, plaza: !!(u && u.dens > 0.12), r: R.hw + (u && u.dens > 0.12 ? 9 : 5) });
+  }
+  return out;
+})();
+export { ROAD_ENDS };
 function roadColumn(x, z, col, top) {
+  for (const e of ROAD_ENDS) { const d = Math.hypot(x - e.x, z - e.z); if (d <= e.r) { // dorpsplein of keerlus
+    const y = Math.round(e.y); for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.GRAVEL; for (let k = y + 1; k <= Math.max(top, y + 5); k++) col[k] = 0;
+    col[y] = e.plaza ? ((Math.floor(x) + Math.floor(z)) % 5 === 0 ? B.SIDEWALK : B.COBBLE) : d > e.r - 1 ? B.LINE_WHITE : B.ASPHALT;
+    if (e.plaza && d < 1) { for (let k = y + 1; k <= y + 4; k++) col[k] = B.POST; col[y + 5] = B.LAMP; return y + 5; }
+    if (!e.plaza && d > e.r - 0.8 && Math.round(Math.atan2(z - e.z, x - e.x) * 8) % 3 === 0) { col[y + 1] = B.POST; return y + 1; } // paaltjes
+    return y;
+  } }
   const q = roadNear(x, z, 16); if (!q) return -1;
+  // overweg: palen met een andreaskruis en een (opgeheven) slagboom aan beide kanten
+  for (const c of q.R.xings) if (c.type === 'overweg' && Math.abs(Math.abs(q.s - c.s) - Math.min(14, c.half + 1.5)) < 0.6 && Math.abs(q.d - (q.R.hw + 1)) < 0.6) {
+    const y = Math.round(q.y) - 1; for (let k = y + 1; k <= y + 3; k++) col[k] = B.POST; col[y + 4] = B.PAINT_RED; col[y + 5] = B.PAINT_WHITE; col[y + 6] = B.PAINT_RED; return y + 6;
+  }
   const R = q.R, hw = R.hw, ry = Math.round(q.y) - 1; // wegdek = bovenste blok op ry
   const bb = bikeBand(R, q.d, q.sd);
   if (q.d > hw + 1.6 && !bb && !(R.bike !== 'none' && q.d <= hw + 5)) return -1;
@@ -444,7 +623,13 @@ function roadColumn(x, z, col, top) {
   return ry;
 }
 // ligt er een brugdek (hoger dan 9 m boven deze kolom) van een weg boven?
-function deckAbove(x, z, t) { const q = roadNear(x, z, 16); if (!q || q.d > q.R.hw + 1.6) return -1; const ry = Math.round(q.y) - 1; return ry - t > 9 ? ry : -1; }
+// ligt hier een overweg? → { R, q (positie op de weg), c (de kruising) }
+function levelCrossingAt(x, z) {
+  const q = roadNear(x, z, 12); if (!q || q.d > q.R.hw) return null;
+  for (const c of q.R.xings) if (c.type === 'overweg' && Math.abs(q.s - c.s) <= c.half + 2) return { R: q.R, q, c };
+  return null;
+}
+function deckAbove(x, z, t) { const q = roadNear(x, z, 16); if (!q || q.d > q.R.hw + 1.6) return -1; const ry = Math.round(q.y) - 1; return ry - t > 7 ? ry : -1; }
 // brugdek (bv. de verhoogde snelweg) boven een kolom die al gebouwd is
 function bridgeDeck(x, z, col, t, ry, overRail) {
   const q = roadNear(x, z, 16), R = q.R, hw = R.hw;
@@ -645,7 +830,90 @@ function interior(b, x, z, fl, inLvl, fh) {
 }
 
 // straten in de bebouwde kom
+// ---------- straat × spoor: elk kruispunt van een stadsstraat met het spoor krijgt een ontwerp ----------
+// 'overweg' (straat en spoor op dezelfde hoogte, regionale lijn), 'brug' (straat over een spoorsleuf),
+// 'onder' (straat onder een viaduct door) of 'einde' (een netjes afgewerkt doodlopend einde met paaltjes).
+const STREET_X = new Map();
+const naturalNoRail = (x, z) => { const h = rawHeight(x, z); return h < -0.5 ? h : roadShape(x, z, h); };
+function streetRail(x, z, st, u) {
+  const list = railGrid.at(x, z); if (!list.length) return null;
+  let best = null;
+  for (const sg of list) {
+    const L = sg.L; if (best && best.L === L) continue;
+    const q = L.near(x, z, 120); if (!q) continue;
+    const des = streetDesign(L, q, st, u); if (!des) continue;
+    const a = Math.abs((st.alongX ? x : z) - des.ca), dist = Math.min(a, q.d);
+    if (dist <= des.reach && (!best || dist < best.dist)) best = { ...des, a, dist, L };
+  }
+  return best;
+}
+function streetDesign(L, q, st, u) {
+  const g = st.g, alongX = st.alongX, line = alongX ? st.bz : st.bx, key = `${u.p.name}|${alongX ? 'z' : 'x'}|${line}|${L.id}|${Math.round(q.s / 300)}`;
+  let d = STREET_X.get(key); if (d !== undefined) return d;
+  const c = (alongX ? g.oz + line * g.B : g.ox + line * g.B) + st.hw / 2; // as van de straat (vaste coördinaat)
+  // snijpunt van het spoor met de as van de straat (in de buurt van het dichtste punt)
+  let hit = null;
+  for (let i = Math.max(0, q.i - 80); i < Math.min(L.n - 1, q.i + 80); i++) {
+    const a0 = (alongX ? L.z[i] : L.x[i]) - c, a1 = (alongX ? L.z[i + 1] : L.x[i + 1]) - c;
+    if (a0 === 0 || (a0 < 0) !== (a1 < 0)) { const t = a0 / ((a0 - a1) || 1), s = L.s[i] + (L.s[i + 1] - L.s[i]) * t; if (!hit || Math.abs(s - q.s) < Math.abs(hit - q.s)) hit = s; }
+  }
+  if (hit === null) { // spoor loopt evenwijdig naast de straat: de straat stopt aan de rand van de spoorzone
+    const p = L.at(q.s), ry = p.y - 1 - G, sy = naturalNoRail(p.x, p.z);
+    d = p.kind === 1 ? null : { type: 'einde', ca: alongX ? p.x : p.z, reach: BED + 3 + (sy > ry ? (sy - ry) / 0.7 : (ry - sy) * 1.6), parallel: true };
+    STREET_X.set(key, d); return d;
+  }
+  const p = L.at(hit), ca = alongX ? p.x : p.z;
+  if (p.kind === 1) { STREET_X.set(key, null); return null; } // spoor in een tunnel: geen invloed
+  // straathoogte zonder het spoor: gemiddelde van beide kanten, buiten de spoorzone
+  const off = BED + 40, sx = (dx) => alongX ? naturalNoRail(ca + dx, c) : naturalNoRail(c, ca + dx), sy = (sx(off) + sx(-off)) / 2, ry = p.y - 1 - G;
+  const sin = Math.abs(alongX ? p.tz : p.tx), widen = 1 / Math.max(0.3, sin), half = (BED + 3) * widen;
+  let type;
+  if (L.stationAt(hit)) type = 'einde';
+  else if (p.kind === 2 && ry - sy >= 8) type = 'onder';
+  else if (p.kind === 0 && !HIGH_SPEED.has(L.id) && Math.abs(sy - ry) <= 2.5 && sin > 0.5 && (u.dens < 0.55 || st.hw >= 22 || ((line % 3) + 3) % 3 === 0)) type = 'overweg'; // in de drukke stad niet aan elke zijstraat een overweg
+  else if (sy - ry >= 9) type = 'brug';
+  else if (ry - sy >= 9) type = 'onder';
+  else type = 'einde';
+  const slope = sy > ry ? (sy - ry) / 0.7 : (ry - sy) * 1.6;
+  d = { type, ca, s: hit, ry, sy, deckY: Math.round(G + sy), reach: (BED + 3 + slope) * widen + 2, half };
+  STREET_X.set(key, d); return d;
+}
+// overweg in een stadsstraat? (zelfde vorm als bij een nationale weg)
+function streetLevelCrossing(x, z) {
+  const u = urbanAt(x, z); if (!u || u.dens <= 0.12) return null;
+  const st = streetAt(x, z, u); if (!st.street) return null;
+  const r = streetRail(x, z, st, u); if (!r || r.type !== 'overweg' || r.a > r.half + 2) return null;
+  return { R: { hw: st.hw / 2 }, q: { d: Math.abs(st.d - st.hw / 2) }, street: true };
+}
+// is deze kolom een stadsstraat die hier onder het spoor door loopt?
+function streetUnderRail(x, z) {
+  const u = urbanAt(x, z); if (!u || u.dens <= 0.12) return false;
+  const st = streetAt(x, z, u); if (!st.street) return false;
+  const r = streetRail(x, z, st, u); return !!(r && r.type === 'onder' && r.a <= r.half + 2);
+}
 function streetColumn(st, u, x, z, col, top) {
+  // voorplein rond een groot gebouw (landmark): de straat eindigt hier met paaltjes
+  for (const b of bldGrid.at(x, z)) if (b.landmark && x >= b.x0 - 5 && x <= b.x1 + 5 && z >= b.z0 - 5 && z <= b.z1 + 5) {
+    const ring = Math.max(b.x0 - x, x - b.x1, b.z0 - z, z - b.z1);
+    col[top] = (Math.floor(x) + Math.floor(z)) % 7 === 0 ? B.SIDEWALK : B.COBBLE; for (let k = top + 1; k <= top + 4; k++) col[k] = 0;
+    if (ring > 4 && (Math.floor(x) + Math.floor(z)) % 2 === 0) { col[top + 1] = B.POST; return top + 1; }
+    return top;
+  }
+  { const r = streetRail(x, z, st, u); if (r) {
+    if (r.type === 'einde' && r.dist < r.reach) { // doodlopend: paaltjes en een bord, daarachter gras tot aan de spoorzone
+      if (r.dist > r.reach - 1.5) { col[top] = B.SIDEWALK; if ((Math.floor(x) + Math.floor(z)) % 2 === 0) { col[top + 1] = B.POST; return top + 1; } if (st.d < 1.5) { col[top + 1] = B.POST; col[top + 2] = B.POST; col[top + 3] = B.PAINT_BLUE; return top + 3; } return top; }
+      col[top] = B.GRASS; return top;
+    }
+    if (r.type === 'overweg' && Math.abs(r.a - Math.min(14, r.half + 1)) < 0.6 && (st.d < 1 || st.d >= st.hw - 1)) { for (let k = top + 1; k <= top + 3; k++) col[k] = B.POST; col[top + 4] = B.PAINT_RED; col[top + 5] = B.PAINT_WHITE; col[top + 6] = B.PAINT_RED; col[top] = B.SIDEWALK; return top + 6; }
+    if (r.type === 'brug' && r.a < r.reach) { // straatbrug over de spoorsleuf: het wegdek blijft op straathoogte
+      const y = r.deckY; for (let k = y + 1; k <= y + 4; k++) col[k] = 0;
+      col[y - 1] = B.CONCRETE; col[y - 2] = B.CONCRETE;
+      if (st.d < 1 || st.d >= st.hw - 1) { col[y] = B.CONCRETE; col[y + 1] = B.METAL; return y + 1; } // borstwering
+      col[y] = Math.abs(st.d + 0.5 - st.hw / 2) < 0.5 && Math.floor((st.alongX ? x : z) / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
+      if (r.a > r.reach - 3 && top < y) for (let k = top + 1; k < y - 2; k++) col[k] = B.CONCRETE; // landhoofd
+      return y;
+    }
+  } }
   const y = top, d = st.d, hw = st.hw, along = st.alongX ? x : z;
   for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.GRAVEL;
   for (let k = y + 1; k <= y + 4; k++) col[k] = 0;
@@ -760,7 +1028,17 @@ function fillColumnSurface(x, z, col, slope, ctx, h) {
   for (let y = 1; y < top - 3; y++) col[y] = B.STONE;
   // spoor en wegen eerst (ook bruggen en viaducten over water); daaronder vult het water aan
   const water = (top <= G - 1) ? G - 1 : -1;
-  { const rc = railColumnAll(x, z, col, top, ctx); if (rc >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; const t = Math.max(rc, water); const dk = deckAbove(x, z, t); return dk > 0 ? Math.max(t, bridgeDeck(x, z, col, t, dk, true)) : t; } }
+  { const rc = railColumnAll(x, z, col, top, ctx); if (rc >= 0) {
+    if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER;
+    let t = Math.max(rc, water);
+    // straat over of onder het spoor (stadsstraten)
+    { const u = urbanAt(x, z); if (u && u.dens > 0.12) { const st = streetAt(x, z, u); if (st.street) { const r = streetRail(x, z, st, u);
+      if (r && r.type === 'brug' && r.a < r.reach) t = Math.max(t, streetColumn(st, u, x, z, col, top));
+      if (r && r.type === 'onder' && r.a <= r.half + 2) { const keep = col.slice(top + 6, rc + 2); streetColumn(st, u, x, z, col, top); col.set(keep, top + 6); }
+    } } }
+    // weg onder een viaduct door: het wegdek onder het brugdek
+    { const rq = roadNear(x, z, 16); if (rq && rq.d <= rq.R.hw + 5.5 && Math.round(rq.y) - 1 < rc - 6) { const keep = col.slice(Math.round(rq.y) + 4, rc + 2); const rd = roadColumn(x, z, col, top); if (rd >= 0) { col.set(keep, Math.round(rq.y) + 4); } } }
+    const dk = deckAbove(x, z, t); return dk > 0 ? Math.max(t, bridgeDeck(x, z, col, t, dk, true)) : t; } }
   let deckY = -1;
   { const rd = roadColumn(x, z, col, top); if (rd >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; return Math.max(rd, water); } if (rd <= -2) deckY = -2 - rd; }
   if (deckY > 0) { const t = fillColumnBelow(x, z, col, slope, ctx, h, top); return Math.max(t, bridgeDeck(x, z, col, Math.max(t, top), deckY)); }
@@ -984,6 +1262,13 @@ function tilePaths(X0, Z0, lines) {
     };
     for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) lanePaths([Z0 - 4, Z0 + T + 4], g.ox + gx * g.B, true, p === MUNK && BUS_BX.has(gx));
     for (let gz = Math.ceil((Z0 - g.oz) / g.B); g.oz + gz * g.B < Z0 + T; gz++) lanePaths([X0 - 4, X0 + T + 4], g.oz + gz * g.B, false);
+    // verkeerslichten op de kruispunten van lanen en drukke straten (in een stad)
+    if (p.kind === 'capital' || p.kind === 'city') for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) for (let gz = Math.ceil((Z0 - g.oz) / g.B); g.oz + gz * g.B < Z0 + T; gz++) {
+      const ix = g.ox + gx * g.B + 6, iz = g.oz + gz * g.B + 6, u = urbanAt(ix, iz); if (!u || u.p !== p || u.dens < 0.45) continue;
+      const av = ((gx % 4) + 4) % 4 === 0 || ((gz % 4) + 4) % 4 === 0; if (!av && u.dens < 0.7) continue;
+      if (railGrid.at(ix, iz).some(sg => sg.L.near(ix, iz, 30))) continue;
+      out.push({ type: 'signal', pts: new Float32Array([ix - X0, iz - Z0, Math.round(G + natural(ix, iz))]) });
+    }
     // bushalte en tramhalte in het centrum
     if (p.x >= X0 && p.x < X0 + T && p.z >= Z0 && p.z < Z0 + T) out.push({ type: 'busstop', name: p.name, pts: new Float32Array([p.x - X0 + 6, p.z - Z0 + 6, groundAt(p.x + 6, p.z + 6)]) });
   }
@@ -1157,7 +1442,7 @@ function busLineFrom(id, name, kind, pts, ys, lane, stops) {
   const near = new Grid(64); pts.forEach((p, i) => near.add(i, p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1));
   const idxAt = (x, z) => { let b = 0, bd = 1e18; for (let r = 0; r <= 1; r++) for (const dz of [-64, 0, 64]) for (const dx of [-64, 0, 64]) for (const i of near.at(x + dx, z + dz)) { const d = (pts[i][0] - x) ** 2 + (pts[i][1] - z) ** 2; if (d < bd) { bd = d; b = i; } } return b; };
   const laneArr = new Float32Array(L.n);
-  for (let i = 0; i < L.n; i++) { const k = idxAt(L.x[i], L.z[i]); laneArr[i] = lane[k]; if (kind === 'city') { L.y[i] = ys[k]; continue; } const q = roadNear(L.x[i], L.z[i], 12); L.y[i] = q ? q.y - 1 : ys[k]; } // precies het wegdek
+  for (let i = 0; i < L.n; i++) { const k = idxAt(L.x[i], L.z[i]); laneArr[i] = lane[k]; if (kind === 'city') { L.y[i] = ys[k]; continue; } const q = roadNear(L.x[i], L.z[i], 12); L.y[i] = q ? q.y - 1 : ys[k]; if (q) laneArr[i] = q.R.kind === 'A' ? 5.5 : q.R.hw / 2; } // precies het wegdek en de rijstrook van de weg waarop de bus rijdt
   L.track = undefined; L.trackAt = (s) => laneArr[L.idx(s)];
   L.findStations();
   for (const st of L.stations) st.y = Math.round(L.at(st.s).y);
@@ -1389,4 +1674,30 @@ function trackColumn(x, z, col, top) {
   }
   col[y] = (t.d < W + 4) ? B.GRAVEL : B.GRASS;
   return y;
+}
+// voor de analyse- en controletools
+export { urbanAt as _urbanAt, streetAt as _streetAt, lotAt as _lotAt, fitLot as _fitLot, roadNear as _roadNear };
+export { streetRail as _streetRail };
+
+// alle overwegen (nationale wegen en stadsstraten) voor de knipperlichten, slagbomen en het wachtende verkeer
+export function levelCrossings() {
+  const out = [];
+  for (const R of ROADS) for (const c of R.xings) if (c.type === 'overweg') out.push({ x: c.x, z: c.z, y: Math.round(c.y) - 1, line: c.L.id, s: c.rs, ux: c.ux, uz: c.uz, hw: R.hw, al: Math.min(14, c.half + 1.5), kind: 'weg' });
+  const seen = new Set();
+  for (const L of RAILS) for (let i = 1; i < L.n; i++) {
+    const x0 = L.x[i - 1], z0 = L.z[i - 1], x1 = L.x[i], z1 = L.z[i];
+    const u = urbanAt(x1, z1); if (!u || u.dens <= 0.12) continue;
+    const g = gridFor(u.p);
+    for (const isX of [true, false]) {
+      const o = isX ? g.ox : g.oz, a0 = isX ? x0 : z0, a1 = isX ? x1 : z1, k0 = Math.floor((a0 - o) / g.B), k1 = Math.floor((a1 - o) / g.B);
+      if (k0 === k1) continue;
+      const k = Math.max(k0, k1), line = o + k * g.B + 4, t = (line - a0) / ((a1 - a0) || 1), px = x0 + (x1 - x0) * t, pz = z0 + (z1 - z0) * t;
+      const st = streetAt(px, pz, u); if (!st.street || st.alongX === isX) continue;
+      const r = streetRail(px, pz, st, u); if (!r || r.type !== 'overweg' || r.L !== L) continue;
+      const key = L.id + ':' + Math.round(r.s); if (seen.has(key)) continue; seen.add(key);
+      const c = isX ? g.ox + st.bx * g.B + st.hw / 2 : g.oz + st.bz * g.B + st.hw / 2, p = L.at(r.s);
+      out.push({ x: isX ? c : p.x, z: isX ? p.z : c, y: Math.round(p.y), line: L.id, s: r.s, ux: isX ? 0 : 1, uz: isX ? 1 : 0, hw: st.hw / 2 - 1.5, al: Math.min(14, r.half + 1), kind: 'straat' });
+    }
+  }
+  return out;
 }

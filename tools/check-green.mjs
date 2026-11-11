@@ -8,7 +8,7 @@ import { B } from '../js/blocks.js';
 const A = await import('../js/greenisland.js');
 const { LINES, trackOffset, ROADS } = A;
 const T = 128, fails = [], out = { rail: 0, railN: 0, clear: 0, grade: 0, plat: 0, bld: 0, bldCols: 0, road: 0, roadN: 0, seam: 0, seamN: 0 };
-const BED = new Set([B.BALLAST, B.CONCRETE, B.ASPHALT, B.GRAVEL, B.STONE]);
+const BED = new Set([B.BALLAST, B.CONCRETE, B.ASPHALT, B.GRAVEL, B.STONE, B.METAL, B.LINE_WHITE]); // (overweg: rails in het asfalt)
 const cache = new Map(), col = (x, z) => A._columnAt(Math.floor(x), Math.floor(z), cache);
 // trams: beide sporen liggen in de straat (rails of bedding) en de ruimte erboven is vrij
 out.tramN = 0; out.tram = 0;
@@ -20,6 +20,40 @@ for (const L of LINES) if (L.tram) for (let s = 10; s < L.len - 10; s += 20) for
   let bad = !TRAMBED.has(c[by]) ? `blok ${c[by]} op het spoor` : '';
   for (let y = by + 1; y <= by + 5 && !bad; y++) if (c[y] && c[y] !== B.LAMP) bad = `blok ${c[y]} boven het spoor`;
   if (bad) { out.tram++; if (fails.length < 40) fails.push(`${L.id} bij s=${Math.round(s)} (${Math.round(x)},${Math.round(z)}): ${bad}`); }
+}
+// kruisingen weg × spoor: overweg = wegdek op spoorhoogte en vrij; brug = wegdek hoog genoeg boven het spoor; onder = wegdek onder het viaduct, vrije doorrit
+out.xN = 0; out.xBad = 0; const xt = {};
+for (const R of A.ROADS) for (const c of R.xings) {
+  if (c.type === 'tunnel') continue;
+  out.xN++; xt[c.type] = (xt[c.type] || 0) + 1;
+  const k = R.s.findIndex(v => v >= c.s), x = R.x[k], z = R.z[k], { col: cc } = col(x, z), ry = Math.round(R.y[k]) - 1, rail = Math.round(c.railY);
+  let bad = '';
+  if (c.type === 'overweg') { if (Math.abs(ry - rail) > 1) bad = `wegdek ${ry} ≠ spoor ${rail}`; else for (let y = ry + 1; y <= ry + 5; y++) if (cc[y] && cc[y] !== B.LAMP) { bad = `niet vrij (blok ${cc[y]} op ${y})`; break; } }
+  else if (c.type === 'brug') { if (ry - rail < 9) bad = `brug te laag (${ry - rail} m boven het spoor)`; else if (![B.ASPHALT, B.LINE_WHITE, B.METAL, B.CONCRETE].includes(cc[ry])) bad = `geen brugdek (blok ${cc[ry]})`; }
+  else if (c.type === 'onder') { if (rail - ry < 8) bad = `te weinig doorrijhoogte (${rail - ry} m)`; else for (let y = ry + 1; y <= ry + 5; y++) if (cc[y] && cc[y] !== B.LAMP) { bad = `onderdoorgang dicht (blok ${cc[y]} op ${y})`; break; } }
+  if (bad) { out.xBad++; if (fails.length < 40) fails.push(`kruising ${c.type} ${R.a}–${R.b} × ${c.L.id} bij (${Math.round(x)},${Math.round(z)}): ${bad}`); }
+}
+// straten × spoor in Munkbay en enkele steden: elk ontwerp correct gebouwd
+out.sxN = 0; out.sxBad = 0; const sxt = {};
+for (const pn of ['Munkbay', 'Riverside', 'Westport', 'Viridonia']) {
+  const p = A.PLACE[pn], g = A._gridFor(p);
+  for (const isX of [true, false]) for (let k = -Math.ceil(p.r / g.B); k <= Math.ceil(p.r / g.B); k++) {
+    const fixed = (isX ? g.ox : g.oz) + k * g.B; let last = null;
+    for (let a = (isX ? p.z : p.x) - p.r; a <= (isX ? p.z : p.x) + p.r; a += 3) {
+      const u = A._urbanAt(isX ? fixed + 3 : a, isX ? a : fixed + 3); if (!u || u.p !== p || u.dens <= 0.12) continue;
+      const st0 = A._streetAt(isX ? fixed + 3 : a, isX ? a : fixed + 3, u); if (!st0.street) continue;
+      const cx = isX ? fixed + st0.hw / 2 : a, cz = isX ? a : fixed + st0.hw / 2, st = A._streetAt(cx, cz, u); if (!st.street) continue;
+      const r = A._streetRail(cx, cz, st, u); if (!r || r.a > 1.6) continue;
+      const key = r.L.id + ':' + Math.round(r.s); if (key === last) continue; last = key;
+      out.sxN++; sxt[r.type] = (sxt[r.type] || 0) + 1;
+      const { col: cc } = col(cx, cz); let bad = '';
+      const free = (y0, n) => { for (let y = y0; y < y0 + n; y++) if (cc[y] && cc[y] !== B.LAMP) return y; return 0; };
+      if (r.type === 'overweg') { const y0 = Math.round(r.ry + A.G + 1), y = [y0, y0 - 1, y0 + 1].find(v => [B.METAL, B.ASPHALT, B.LINE_WHITE].includes(cc[v])) ?? y0; if (![B.METAL, B.ASPHALT, B.LINE_WHITE].includes(cc[y]) || free(y + 1, 5)) bad = `overweg niet vrij (blok ${cc[y]})`; }
+      else if (r.type === 'brug') { const y = r.deckY; if (![B.ASPHALT, B.LINE_WHITE].includes(cc[y]) || free(y + 1, 4)) bad = `geen vrij brugdek op ${y} (blok ${cc[y]})`; }
+      else if (r.type === 'onder') { let y = Math.round(A.G + r.sy); while (y > 1 && !cc[y]) y--; if (free(y + 1, 6)) bad = `onderdoorgang dicht boven ${y}`; }
+      if (bad) { out.sxBad++; if (fails.length < 40) fails.push(`${pn}: straat × ${r.L.id} (${r.type}) bij (${Math.round(cx)},${Math.round(cz)}): ${bad}`); }
+    }
+  }
 }
 // kabelbanen: stationsvloer op de juiste hoogte en vrij erboven, masten tot aan de kabel
 out.liftSt = 0; out.liftBad = 0;
@@ -114,6 +148,8 @@ for (const R of ROADS.slice(0, 120)) {
   }
 }
 console.log(`metrostations (perronkanten) ${out.metroSt} · trap niet tot op straat ${out.metroBad} · zonder eigen trap ${out.metroNoStair || 0}`);
+console.log(`kruisingen weg × spoor ${out.xN} (${Object.entries(xt).map(([k, v]) => v + ' ' + k).join(', ')}) · fout ${out.xBad}`);
+console.log(`kruisingen straat × spoor ${out.sxN} (${Object.entries(sxt).map(([k, v]) => v + ' ' + k).join(', ')}) · fout ${out.sxBad}`);
 console.log(`kabelbaanstations (meetpunten) ${out.liftSt} · niet begaanbaar ${out.liftBad}`);
 console.log(`buspunten ${out.busN} · niet op de weg of niet vrij ${out.bus}`);
 console.log(`trampunten ${out.tramN} · niet vrij of niet in de straat ${out.tram}`);

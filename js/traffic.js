@@ -562,6 +562,14 @@ export class Traffic {
         const amber = sg.axis === 0 ? (ph >= 19 && ph < 22) : ph >= 41;
         if (!green && !(amber && dist < 10)) target = Math.min(target, Math.max(0, Math.sqrt(Math.max(0, 2 * 3 * (dist - 1)))));
       }
+      // overweg dicht (er komt een trein): wachten voor de slagboom
+      if (this.stopZones && this.stopZones.length && a.kind !== 'walk' && a.kind !== 'train' && a.kind !== 'ship' && a.kind !== 'metro') {
+        at(e, a.d, this._p0 || (this._p0 = {})); at(e, a.d + r.dir * 6, this._p1 || (this._p1 = {}));
+        for (const z of this.stopZones) {
+          const d0 = Math.hypot(this._p0.x - z.x, this._p0.z - z.z); if (d0 < z.r || d0 > z.r + 40) continue;
+          if (Math.hypot(this._p1.x - z.x, this._p1.z - z.z) < d0) target = Math.min(target, Math.max(0, (d0 - z.r - 1) * 0.8));
+        }
+      }
       // voorrang: kruisend verkeer van rechts of op de grote weg eerst
       if (e.yields && a.kind !== 'walk' && r.dir > 0) {
         for (const y of e.yields) {
