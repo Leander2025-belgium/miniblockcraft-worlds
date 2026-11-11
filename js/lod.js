@@ -76,6 +76,13 @@ export class FarView {
     ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
   key(tx, tz) { return tz * 4096 + tx; }
+  // alles opnieuw opbouwen uit de bewaarde gegevens (na een verloren grafische context)
+  rebuild() {
+    const all = [...this.data];
+    for (const m of this.meshes.values()) { this.scene.remove(m); try { m.geometry.dispose(); } catch { /* al weg */ } }
+    this.meshes.clear(); this.data.clear();
+    for (const [k, lod] of all) this.add(k % 4096, Math.floor(k / 4096), lod);
+  }
   add(tx, tz, lod) {
     const k = this.key(tx, tz);
     if (!lod || this.data.has(k)) return;

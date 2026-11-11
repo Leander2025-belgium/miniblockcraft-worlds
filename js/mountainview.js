@@ -65,6 +65,8 @@ export class MountainView {
     const C = MountainView.CH, dx = Math.max(0, Math.abs(px - (cx + 0.5) * C) - C / 2), dz = Math.max(0, Math.abs(pz - (cz + 0.5) * C) - C / 2), d = Math.hypot(dx, dz);
     return d < 3500 ? 50 : d < 12000 ? 125 : 250;
   }
+  // na een verloren grafische context: elk stuk opnieuw laten opbouwen (de oude worden vervangen zodra ze klaar zijn)
+  rebuild() { for (const c of this.chunks.values()) c.level = -1; this.lastCheck = null; this.jobs = []; }
   updateChunks(px, pz, budgetMs) {
     const C = MountainView.CH, M = 2; // 8 km buiten de wereld verder tekenen (zakt weg)
     const n0 = -M, n1 = Math.ceil(MW / C) + M;

@@ -26,7 +26,9 @@ const fs = require('fs');
   console.log('geplaatst', JSON.stringify(placed));
   await p.waitForTimeout(7000);
   await p.reload(); // geen afsluitknop: alsof de pagina wegvalt
-  await p.click('[data-mode="fantasy"]'); await p.click('#btn-berg');
+  // na het herladen zet de game je meteen terug in je wereld (zonder eerst de startpagina); anders zelf openen
+  await p.waitForTimeout(1500);
+  if (await p.evaluate(() => !document.getElementById('menu').hidden)) { await p.click('[data-mode="fantasy"]'); await p.click('#btn-berg'); }
   await wait();
   const after = await p.evaluate((pl) => { const g = window.blokGame(); const out = []; for (let k = 0; k < 5; k++) out.push(g.world.get(pl.x, pl.y + k, pl.z)); return { blocks: out, pos: [Math.round(g.player.pos.x), Math.round(g.player.pos.z)] }; }, placed);
   console.log('na herladen', JSON.stringify(after), JSON.stringify(after.blocks) === JSON.stringify(placed.blocks) ? 'GELIJK' : 'VERSCHIL');

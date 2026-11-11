@@ -767,6 +767,7 @@ $('#btn-exit').addEventListener('click', async () => {
   setInGame(null);
   $('#menu').hidden = false;
   refreshList();
+  if (pendingUpdate) reloadForUpdate(); // nieuwe versie klaar: nu (in het menu) bijwerken
 });
 window.addEventListener('beforeunload', () => { if (game && game.running && game.dirty) saveGame(); });
 // gsm: naar een andere app = de pagina kan zomaar gesloten worden, dus nu bewaren
@@ -1036,19 +1037,26 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16c';
+const APP_VERSION = '2026-11-16d';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
-fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
-  if (version && version !== APP_VERSION) {
-    // oude kopie in de browser: één keer opnieuw laden met de nieuwe bestanden
-    let last = 0;
-    try { last = +sessionStorage.getItem('blokstad-reload') || 0; } catch { /* geen opslag */ }
-    if (Date.now() - last > 60000) {
-      try { sessionStorage.setItem('blokstad-reload', String(Date.now())); } catch { /* geen opslag */ }
-      location.reload();
-    }
-  }
-}).catch(() => {});
+// Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
+// een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
+// dan wacht het herladen tot je terug in het menu bent: nooit midden in het spel naar de startpagina.
+let pendingUpdate = false;
+function checkVersion() {
+  fetch('./version.json', { cache: 'no-store' }).then(r => r.json()).then(({ version }) => {
+    if (!version || !(version > APP_VERSION)) return;
+    if (game && game.running) { pendingUpdate = true; return; }
+    reloadForUpdate();
+  }).catch(() => {});
+}
+function reloadForUpdate() {
+  let last = 0;
+  try { last = +sessionStorage.getItem('blokstad-reload') || 0; } catch { /* geen opslag */ }
+  if (Date.now() - last > 60000) { try { sessionStorage.setItem('blokstad-reload', String(Date.now())); } catch { /* geen opslag */ } location.reload(); }
+}
+checkVersion();
+setInterval(() => { if (pendingUpdate && !(game && game.running)) reloadForUpdate(); }, 5000);
 
 // start
 let startMode = 'real';
@@ -1059,5 +1067,5 @@ refreshList().then(() => {
   // de browser herlaadde de pagina terwijl je speelde (bv. na een andere app op de gsm): meteen terug in je wereld
   let ing = null;
   try { ing = JSON.parse(sessionStorage.getItem('blokstad-ingame') || 'null'); } catch { /* geen opslag */ }
-  if (ing && ing.id) (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => setInGame(null));
+  if (ing && ing.id) { $('#menu').hidden = true; (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => { setInGame(null); $('#menu').hidden = false; }); } // niet eerst de startpagina tonen
 });

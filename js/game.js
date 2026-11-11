@@ -284,7 +284,13 @@ export class Game {
     this.applyQuality();
     this.renderer.setClearColor(SKY);
     // grafische kaart even weg (bv. iPhone op de achtergrond): de pagina herladen en verder spelen
-    ui.canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.ui.onSave?.(true); this.toast?.('Grafische kaart herstarten…'); setTimeout(() => location.reload(), 600); });
+    // grafische context kwijt (bv. de gsm had geheugen nodig): bewaren en wachten tot de browser hem teruggeeft;
+    // three.js laadt alles dan opnieuw in. Alleen als hij na 8 s niet terug is, de pagina herladen.
+    ui.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); this.ui.onSave?.(true); this.toast?.('Grafische kaart herstarten…');
+      clearTimeout(this.ctxTimer); this.ctxTimer = setTimeout(() => location.reload(), 8000);
+    });
+    ui.canvas.addEventListener('webglcontextrestored', () => { clearTimeout(this.ctxTimer); this.ctxTimer = null; this.rebuildAfterContextLoss(); this.toast?.('Grafische kaart hersteld'); });
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.08, 1000);
     this.camera.rotation.order = 'YXZ';
@@ -519,6 +525,20 @@ export class Game {
     this.rideInfo = `🚡 ${L.name} · nog ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')} · G = uitstappen`;
   }
 
+  // na een verloren grafische context: de geometrie in het geheugen is na het doorsturen vrijgegeven (zuinig op
+  // telefoons), dus alles wat zo'n lege kopie heeft verbergen en opnieuw opbouwen (blokken, verre laag, ver landschap)
+  rebuildAfterContextLoss() {
+    const stale = (o) => { const g = o.geometry; if (!g || !g.attributes) return false; for (const a of Object.values(g.attributes)) if (!a.array) return true; return !!(g.index && !g.index.array); };
+    const hide = (root) => root && root.traverse((o) => { if (stale(o)) o.visible = false; });
+    hide(this.scene); if (this.far && this.far.scene) hide(this.far.scene);
+    // blokken: alle chunks opnieuw maken
+    this.clearChunks(); this.queue = [];
+    if (this.world && this.world.tiles) for (const src of this.world.tiles.values()) this.addSource(src);
+    else if (this.world && this.world.src) this.addSource(this.world.src);
+    // verre laag en ver landschap opnieuw opbouwen
+    if (this.lod && this.lod.rebuild) this.lod.rebuild();
+    if (this.far && this.far.rebuild) this.far.rebuild();
+  }
   addSource(src) {
     const nc = src.w.nc;
     src.pendingChunks = nc * nc; src.ready = false;
