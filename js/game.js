@@ -1008,9 +1008,40 @@ export class Game {
     this.toast({ first: '👁 Eerste persoon', third: '🎥 Derde persoon', front: '🙂 Van voren' }[this.settings.cam]);
   }
 
+  // ---------- GNMI: echt weer per regio in Greenisland, met waarschuwingen ----------
+  isGreen() { return !!(this.meta && (this.meta.greenisland || this.meta.id === 'greenisland')); }
+  gnmiWeather() {
+    if (!this.isGreen()) return null;
+    if (!this.gnmi) { if (!this.gnmiLoading) { this.gnmiLoading = true; import('./gnmi.js').then(m => { this.gnmi = m; }).catch(e => console.error(e)); } return null; }
+    const now = performance.now(), p = this.player.pos;
+    if (!this.gnmiNow || now - this.gnmiT > 8000) {
+      this.gnmiT = now; this.gnmiNow = this.gnmi.weatherAt(p.x, p.z);
+      const warn = this.gnmi.warningsFor(this.gnmiNow), top = warn.sort((a, b) => this.gnmi.LEVEL_RANK[b.level] - this.gnmi.LEVEL_RANK[a.level])[0];
+      const key = this.gnmiNow.region + ':' + warn.map(x => x.level + x.what.split(' (')[0]).join(',');
+      if (top && key !== this.gnmiWarnKey) this.toast(`⚠ GNMI code ${top.level} voor ${this.gnmiNow.name}: ${warn.map(x => x.what).join(', ')}`);
+      this.gnmiWarnKey = key;
+    }
+    return { storm: 'storm', snow: 'snow', rain: 'rain', fog: 'cloudy', cloudy: 'cloudy', clear: 'clear' }[this.gnmiNow.kind];
+  }
+  showGnmi() {
+    const ov = document.getElementById('ov-gnmi'), body = document.getElementById('gnmi-body');
+    const draw = (m) => {
+      const hh = (h) => { const d = new Date(Date.now() + h * 3600000); return `${String(d.getHours()).padStart(2, '0')}:00`; };
+      const rows = m.overview().map(o => `<tr><th>${o.R.name}</th><td>${o.now.icon} ${o.now.text}<br><b>${o.now.temp.toFixed(1)} °C</b> · wind ${o.now.wind} km/u${o.now.rain ? ` · ${o.now.rain} mm/u` : ''}</td>`
+        + `<td>${o.next.map(n => `<span style="white-space:nowrap">${hh(n.h)} ${n.w.icon} ${Math.round(n.w.temp)}°</span>`).join(' · ')}</td>`
+        + `<td>${o.warn.length ? o.warn.map(w => `<span class="gnmi-warn ${w.level}">code ${w.level}: ${w.what}</span>`).join('') : '<span class="muted">geen</span>'}</td></tr>`).join('');
+      const here = m.weatherAt(this.player.pos.x, this.player.pos.z);
+      body.innerHTML = `<p>Hier (${here.name}): ${here.icon} ${here.text}, ${here.temp.toFixed(1)} °C, wind ${here.wind} km/u</p><table><tr><th>Regio</th><th>Nu</th><th>Straks</th><th>Waarschuwingen</th></tr>${rows}</table>`;
+    };
+    if (this.gnmi) draw(this.gnmi); else import('./gnmi.js').then(m => { this.gnmi = m; draw(m); });
+    void ov; this.showOverlay('gnmi');
+  }
+
   // ---------- weer: regen, onweer, sneeuw en natte wegen ----------
   applyWeather(env, dt) {
-    let w = this.settings.weather || 'clear';
+    // in Greenisland standaard het echte GNMI-weer, tot je zelf een weer kiest
+    let w = this.isGreen() && !this.settings.weatherSet ? 'gnmi' : this.settings.weather || 'clear';
+    if (w === 'gnmi') w = this.gnmiWeather() || 'clear';
     if (w === 'auto') { const t = Math.floor(this.clock / 240) % 5; w = ['clear', 'cloudy', 'rain', 'clear', 'storm'][t]; }
     this.curWeather = w;
     const grey = { clear: 0, cloudy: 0.35, rain: 0.55, storm: 0.75, snow: 0.45 }[w] || 0;
@@ -1492,7 +1523,7 @@ export class Game {
     if (m.proc) {
       const deg = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
       const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];
-      this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m`;
+      this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m${this.gnmiNow && this.isGreen() ? ` · ${this.gnmiNow.icon} ${Math.round(this.gnmiNow.temp)} °C` : ''}`;
       const zn = this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : zoneName;
       this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
       return;
@@ -1549,7 +1580,7 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
   }
   resume() {
@@ -1600,7 +1631,7 @@ export class Game {
       if (!ql.dataset.bound) { ql.dataset.bound = '1'; ql.addEventListener('change', () => { this.settings.quality = ql.value; saveSettings(this.settings); this.applyQuality(); }); }
     }
     const wSel = document.getElementById('set-weather');
-    if (wSel) { wSel.value = this.settings.weather || 'clear'; if (!wSel.dataset.bound) { wSel.dataset.bound = '1'; wSel.addEventListener('change', () => { this.settings.weather = wSel.value; saveSettings(this.settings); }); } }
+    if (wSel) { wSel.value = this.isGreen() && !this.settings.weatherSet ? 'gnmi' : this.settings.weather || 'clear'; if (!wSel.dataset.bound) { wSel.dataset.bound = '1'; wSel.addEventListener('change', () => { this.settings.weather = wSel.value; this.settings.weatherSet = true; saveSettings(this.settings); }); } }
     const fov = document.getElementById('set-fov');
     if (fov) {
       fov.value = this.settings.fov || 75; document.getElementById('set-fov-label').textContent = `${fov.value}°`; this.camera.fov = +fov.value; this.camera.updateProjectionMatrix();
@@ -1768,6 +1799,8 @@ export class Game {
     ui.touch.inv.addEventListener('click', () => this.openInventory());
     ui.touch.menu.addEventListener('click', () => { if (this.photo) { this.togglePhoto(false); return; } this.setPaused(true); });
     document.getElementById('btn-photo')?.addEventListener('click', () => { this.togglePhoto(true); this.resume(); });
+    document.getElementById('btn-gnmi')?.addEventListener('click', () => this.showGnmi());
+    document.getElementById('gnmi-close')?.addEventListener('click', () => this.resume());
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
     document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());

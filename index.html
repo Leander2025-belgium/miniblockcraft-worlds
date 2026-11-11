@@ -228,6 +228,10 @@
   #t-knob { position: absolute; left: 30px; top: 30px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255,255,255,.55); }
   /* aanraakbediening: knoppen binnen de veilige zone (camera-uitsparing, thuisbalk) */
   #game { --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px); }
+  .gnmi-body table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .gnmi-body td, .gnmi-body th { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.12); text-align: left; vertical-align: top; }
+  .gnmi-warn { display: inline-block; padding: 1px 7px; border-radius: 9px; margin: 2px 4px 2px 0; font-size: 12px; color: #111; }
+  .gnmi-warn.geel { background: #f5d90a; } .gnmi-warn.oranje { background: #f59e0b; } .gnmi-warn.rood { background: #ef4444; color: #fff; }
   .tbtn { position: absolute; z-index: 7; width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255,255,255,.55); background: rgba(0,0,0,.32); color: #fff; font-size: 21px; display: grid; place-items: center; touch-action: none; -webkit-tap-highlight-color: transparent; backdrop-filter: blur(2px); }
   .tbtn:active { background: rgba(255,255,255,.35); }
   /* rechtsboven: één rij */
@@ -558,6 +562,14 @@
       <div class="row"><button class="btn primary" id="rail-close">Terug naar het spel</button><button class="btn" id="rail-plain">🗺 Gewone kaart</button></div>
     </div>
   </div>
+  <div class="ov" id="ov-gnmi" hidden>
+    <div class="card map-card">
+      <h2>🌦 GNMI – weer in Greenisland</h2>
+      <p class="help" style="margin-top:0">Greenislands Nationaal Meteorologisch Instituut. Weer per regio nu en de komende uren, met waarschuwingen (code geel, oranje, rood). In Greenisland zie je dit weer ook in het spel (regen, onweer, sneeuw, natte wegen); bij Weer kan je zelf een ander weer kiezen.</p>
+      <div id="gnmi-body" class="gnmi-body"></div>
+      <div class="row"><button class="btn primary" id="gnmi-close">Terug naar het spel</button></div>
+    </div>
+  </div>
   <div class="ov" id="ov-start" hidden>
     <div class="card" style="cursor:pointer;text-align:center">
       <h2>Klik om te spelen</h2>
@@ -572,6 +584,7 @@
         <button class="btn" id="btn-save">Opslaan</button>
         <button class="btn" id="btn-exit">Opslaan & terug naar kaart</button>
         <button class="btn" id="btn-photo">📷 Fotomodus</button>
+        <button class="btn" id="btn-gnmi" hidden>🌦 GNMI-weer</button>
       </div>
       <label>Opdrachten</label>
       <div id="missions" class="missions"></div>
@@ -607,7 +620,7 @@
         <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
       <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
       <label>Weer
-        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw</option><option value="auto">Wisselend</option></select></label>
+        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>
       <label>Zichtveld (ook voor de fotomodus): <span id="set-fov-label"></span>
         <input type="range" id="set-fov" min="40" max="100" step="1"></label>
       <label>Gevoeligheid
