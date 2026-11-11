@@ -196,7 +196,8 @@ export class FarView {
   // natuurlandschap: een glad oppervlak door de middens van de vakken (met een rokje tegen naden)
   buildSmooth(tx, tz, lod) {
     const n = lod.n, s = this.T / n, pos = [], col = [], side = [], idx = [];
-    const H = (x, z) => lod.h[Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))] + 1;
+    // de grond volgen (bomen en daken hooguit 4 m erboven), anders zweeft het oppervlak op boomkruinhoogte boven het dal
+    const H = (x, z) => { const i = Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x)); return (lod.g ? Math.min(lod.h[i], lod.g[i] + 4) : lod.h[i]) + 1; };
     const C = (x, z, k) => lod.c[(Math.max(0, Math.min(n - 1, z)) * n + Math.max(0, Math.min(n - 1, x))) * 3 + k] / 255;
     const X0 = tx * this.T, Z0 = tz * this.T;
     // hoekpunten op de vakgrenzen: gemiddelde van de 4 vakken eromheen

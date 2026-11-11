@@ -11,10 +11,11 @@ const VERT = `
 attribute vec3 color;
 varying vec3 vColor;
 varying vec3 vRel;
+varying float vY;
 void main() {
   vColor = color;
   vec4 wp = modelMatrix * vec4(position, 1.0);
-  vRel = wp.xyz - cameraPosition;
+  vRel = wp.xyz - cameraPosition; vY = wp.y;
   gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 const FRAG = `
@@ -23,12 +24,22 @@ uniform float fogNear;
 uniform float fogFar;
 uniform float day;
 uniform float nearCut;
+uniform vec3 sunColor;
 varying vec3 vColor;
 varying vec3 vRel;
+varying float vY;
 void main() {
   if (length(vRel.xz) < nearCut) discard; // dichtbij staan de echte blokken
-  vec3 col = vColor * mix(0.16, 1.0, day);
-  float fog = smoothstep(fogNear, fogFar, length(vRel));
+  vec3 col = vColor * mix(0.16, 1.0, day) * mix(vec3(1.0), sunColor, 0.35);
+  float dist = length(vRel);
+  // luchtperspectief: verre bergen worden blauwer en lichter
+  float haze = smoothstep(2000.0, 45000.0, dist);
+  vec3 hazeCol = mix(fogColor, vec3(0.62, 0.72, 0.86) * mix(0.2, 1.0, day), 0.45);
+  col = mix(col, hazeCol, haze * 0.55);
+  // dalmist: laaghangende nevel in de dalen, sterker in de verte
+  float mist = exp(-max(0.0, vY - 80.0) / 650.0) * smoothstep(1200.0, 9000.0, dist) * 0.5;
+  col = mix(col, mix(fogColor, vec3(0.86, 0.88, 0.9) * mix(0.25, 1.0, day), 0.5), mist);
+  float fog = smoothstep(fogNear, fogFar, dist);
   gl_FragColor = vec4(mix(col, fogColor, fog * 0.92), 1.0);
 }`;
 
@@ -39,7 +50,7 @@ export class MountainView {
     this.camera.rotation.order = 'YXZ';
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 5000 }, fogFar: { value: 70000 }, day: { value: 1 }, nearCut: { value: 200 } },
+      uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 5000 }, fogFar: { value: 70000 }, day: { value: 1 }, nearCut: { value: 200 }, sunColor: { value: new THREE.Vector3(1, 1, 1) } },
     });
     this.chunks = new Map(); this.jobs = [];
     this.gondolas = new Gondolas();
@@ -131,7 +142,7 @@ export class MountainView {
     c.position.copy(mainCam.position); c.rotation.copy(mainCam.rotation);
     if (c.aspect !== mainCam.aspect || c.fov !== mainCam.fov) { c.aspect = mainCam.aspect; c.fov = mainCam.fov; c.updateProjectionMatrix(); }
     const u = this.mat.uniforms;
-    u.fogColor.value.set(...env.sky); u.day.value = env.day; u.nearCut.value = nearCut;
+    u.fogColor.value.set(...env.sky); u.day.value = env.day; u.nearCut.value = nearCut; if (env.sunColor) u.sunColor.value.set(...env.sunColor);
     this.gondolas.farLines.material.color.setScalar(0.12 + 0.1 * env.day);
     this.lifts.farLines.material.color.setScalar(0.12 + 0.1 * env.day);
     renderer.render(this.scene, c);
