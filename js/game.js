@@ -11,6 +11,7 @@ import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
+import { diag } from './diag.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { rleEncode, rleDecode } from './storage.js';
@@ -286,11 +287,13 @@ export class Game {
     // grafische kaart even weg (bv. iPhone op de achtergrond): de pagina herladen en verder spelen
     // grafische context kwijt (bv. de gsm had geheugen nodig): bewaren en wachten tot de browser hem teruggeeft;
     // three.js laadt alles dan opnieuw in. Alleen als hij na 8 s niet terug is, de pagina herladen.
+    // nooit vanzelf herladen: wachten tot de browser de context teruggeeft; komt hij niet terug, dan een knop
     ui.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault(); this.ui.onSave?.(true); this.toast?.('Grafische kaart herstarten…');
-      clearTimeout(this.ctxTimer); this.ctxTimer = setTimeout(() => location.reload(), 8000);
+      diag('grafische context verloren', { tegels: this.world && this.world.tiles ? this.world.tiles.size : 0 });
+      clearTimeout(this.ctxTimer); this.ctxTimer = setTimeout(() => { const el = document.getElementById('ctx-lost'); if (el) el.hidden = false; diag('grafische context na 10 s niet terug'); }, 10000);
     });
-    ui.canvas.addEventListener('webglcontextrestored', () => { clearTimeout(this.ctxTimer); this.ctxTimer = null; this.rebuildAfterContextLoss(); this.toast?.('Grafische kaart hersteld'); });
+    ui.canvas.addEventListener('webglcontextrestored', () => { clearTimeout(this.ctxTimer); this.ctxTimer = null; const el = document.getElementById('ctx-lost'); if (el) el.hidden = true; diag('grafische context hersteld'); this.rebuildAfterContextLoss(); this.toast?.('Grafische kaart hersteld'); });
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.08, 1000);
     this.camera.rotation.order = 'YXZ';
@@ -561,7 +564,7 @@ export class Game {
     if (this._mem) return this._mem;
     const dm = navigator.deviceMemory || (this.touch ? 3 : 8), ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (this.touch && /Mac/.test(navigator.userAgent));
     // in MB: telefoons zuinig (Safari sluit tabbladen die te veel geheugen gebruiken), computers ruim
-    this._mem = ios ? 140 : this.touch ? Math.min(260, dm * 45) : Math.min(1400, Math.max(350, dm * 110));
+    this._mem = ios ? 100 : this.touch ? Math.min(260, dm * 45) : Math.min(1400, Math.max(350, dm * 110));
     return this._mem;
   }
   tileBytes(src) {
@@ -1931,7 +1934,8 @@ const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (
 
 function loadSettings() {
   const phone = matchMedia('(pointer: coarse)').matches;
-  const def = { view: phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: phone ? 1000 : 2000, quality: phone ? 'normal' : 'sharp' };
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const def = { view: ios ? 80 : phone ? 96 : 140, sens: 1, hour: 13, cycle: false, lod: ios ? 800 : phone ? 1000 : 2000, quality: phone ? 'normal' : 'sharp' };
   let st = def;
   try { st = { ...def, ...JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }; } catch { /* standaard */ }
   if (phone) st.lod = Math.min(st.lod, 1200); // telefoons: verre gebouwen beperken (geheugen)

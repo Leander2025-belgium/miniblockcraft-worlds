@@ -465,7 +465,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-16e</p>
+    <p class="help" id="app-version">Versie 2026-11-16f</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>
@@ -571,6 +571,15 @@
       <div class="row"><button class="btn primary" id="gnmi-close">Terug naar het spel</button></div>
     </div>
   </div>
+  <div class="ov" id="ov-diag" hidden>
+    <div class="card map-card">
+      <h2>🩺 Diagnose</h2>
+      <p class="help" style="margin-top:0">Wat er de laatste tijd gebeurde (ook als de pagina opnieuw startte). Spring je weer naar de startpagina? Kopieer dit en stuur het door.</p>
+      <textarea id="diag-text" readonly style="width:100%;height:46vh;font:12px/1.35 ui-monospace,monospace"></textarea>
+      <div class="row"><button class="btn primary" id="diag-copy">📋 Kopiëren</button><button class="btn" id="diag-close">Terug naar het spel</button></div>
+    </div>
+  </div>
+  <div id="ctx-lost" class="ov" hidden style="z-index:70"><div class="card" style="text-align:center"><h2>Grafische kaart weggevallen</h2><p class="muted">De browser gaf het beeld niet terug. Je wereld is bewaard.</p><button class="btn primary" onclick="location.reload()">Opnieuw laden</button></div></div>
   <div class="ov" id="ov-vc" hidden>
     <div class="card map-card">
       <h2>💰 ViridCoin &amp; Zenvo</h2>
@@ -594,6 +603,7 @@
         <button class="btn" id="btn-photo">📷 Fotomodus</button>
         <button class="btn" id="btn-gnmi" hidden>🌦 GNMI-weer</button>
         <button class="btn" id="btn-vc" hidden>💰 ViridCoin &amp; Zenvo</button>
+        <button class="btn" id="btn-diag">🩺 Diagnose</button>
       </div>
       <label>Opdrachten</label>
       <div id="missions" class="missions"></div>
@@ -684,6 +694,6 @@
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
-<script type="module" src="./js/app.js?v=2026-11-16e"></script>
+<script type="module" src="./js/app.js?v=2026-11-16f"></script>
 </body>
 </html>

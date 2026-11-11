@@ -28,6 +28,9 @@ const fs = require('fs');
   });
   await p.waitForTimeout(9000); // langer dan de 8 s wachttijd: geen herlaad als de context terug is
   const na2 = await p.evaluate(() => ({ zelfdePagina: window.__marker === 42, inSpel: !document.getElementById('game').hidden, menuVerborgen: document.getElementById('menu').hidden }));
+  // (3) context kwijt en niet terug: geen herlaad, wel een knop
+  const r3 = await p.evaluate(async () => { const c = window.blokGame().ui.canvas, gl = c.getContext('webgl2') || c.getContext('webgl'), ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); await new Promise(r => setTimeout(r, 12000)); return { knop: !document.getElementById('ctx-lost').hidden, zelfdePagina: window.__marker === 42 }; });
+  na2.zonderHerstel = r3;
   if (process.env.SHOT) await p.screenshot({ path: process.env.SHOT });
   console.log('geen-herlaad:', JSON.stringify({ oudereVersieGeenHerlaad: na1, context: r, ...na2, paginaLaadbeurten: loads }));
   console.log('fouten:', errs.length ? errs.join(' | ') : 'geen');

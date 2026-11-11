@@ -18,6 +18,7 @@ async function loadAlps() {
 }
 // Greenisland: ook pas laden als je die wereld opent
 import { META as GREEN, COUNTRY as GI } from './greenisland-meta.js';
+import { diag, diagText } from './diag.js';
 let GREENW = null;
 async function loadGreen() {
   if (GREENW) return GREENW;
@@ -220,7 +221,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc') },
+      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -774,8 +775,10 @@ $('#btn-exit').addEventListener('click', async () => {
 });
 window.addEventListener('beforeunload', () => { if (game && game.running && game.dirty) saveGame(); });
 // gsm: naar een andere app = de pagina kan zomaar gesloten worden, dus nu bewaren
-document.addEventListener('visibilitychange', () => { if (document.hidden) { try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } } if (document.hidden && game && game.running) saveGame(true); }); // naar de achtergrond: geen crash als de browser de pagina daarna sluit
-window.addEventListener('pagehide', () => { try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } if (game && game.running) saveGame(true); });
+document.addEventListener('visibilitychange', () => { diag(document.hidden ? 'naar de achtergrond' : 'terug op de voorgrond'); if (document.hidden) { try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } } if (document.hidden && game && game.running) saveGame(true); }); // naar de achtergrond: geen crash als de browser de pagina daarna sluit
+window.addEventListener('pagehide', () => { diag('pagina verlaten (pagehide)'); try { sessionStorage.setItem('blokstad-clean', '1'); } catch { /* geen opslag */ } if (game && game.running) saveGame(true); });
+// elke 30 s een momentopname van het geheugengebruik in het logboek (alleen tijdens het spelen)
+setInterval(() => { if (!game || !game.running || document.hidden) return; try { const r = game.renderer && game.renderer.info; diag('spel', { tegels: game.world && game.world.tiles ? game.world.tiles.size : 0, geparkeerd: game.tiled && game.tiled.parked ? game.tiled.parked.size : 0, heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null, geometrie: r ? r.memory.geometries : null, kijk: game.settings.view, x: Math.round(game.player.pos.x), z: Math.round(game.player.pos.z) }); } catch { /* niets */ } }, 30000);
 // hartslag tijdens het spelen (om na een herstart te weten of de pagina zomaar wegviel)
 setInterval(() => { if (game && game.running && !document.hidden) try { sessionStorage.setItem('blokstad-alive', String(Date.now())); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ } }, 3000);
 
@@ -1042,7 +1045,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16e';
+const APP_VERSION = '2026-11-16f';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
@@ -1056,6 +1059,7 @@ function checkVersion() {
   }).catch(() => {});
 }
 function reloadForUpdate() {
+  diag('herladen voor update');
   let last = 0;
   try { last = +sessionStorage.getItem('blokstad-reload') || 0; } catch { /* geen opslag */ }
   if (Date.now() - last > 60000) { try { sessionStorage.setItem('blokstad-reload', String(Date.now())); } catch { /* geen opslag */ } location.reload(); }
@@ -1076,6 +1080,7 @@ refreshList().then(() => {
   // dan zuiniger verder: kijkafstand en verre gebouwen een stap lager, en het zeggen
   let crashed = false;
   try { const alive = +sessionStorage.getItem('blokstad-alive') || 0; crashed = !!(ing && ing.id && alive && sessionStorage.getItem('blokstad-clean') !== '1' && Date.now() - alive < 120000); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ }
+  diag('pagina geladen', { herstart: !!(ing && ing.id), crash: crashed, versie: APP_VERSION, navigatie: performance.getEntriesByType && performance.getEntriesByType('navigation')[0]?.type });
   if (crashed) {
     try {
       const st = JSON.parse(localStorage.getItem('blokstad-settings') || '{}'), before = st.view || 96;
@@ -1087,3 +1092,10 @@ refreshList().then(() => {
   }
   if (ing && ing.id) { $('#menu').hidden = true; (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => { setInGame(null); $('#menu').hidden = false; }); } // niet eerst de startpagina tonen
 });
+
+// diagnose in het pauzemenu
+$('#btn-diag')?.addEventListener('click', () => { $('#diag-text').value = diagText(); game && game.showOverlay('diag'); });
+$('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
+$('#diag-close')?.addEventListener('click', () => game && game.resume());
+window.addEventListener('error', (e) => diag('fout', String(e.message || e).slice(0, 200)));
+window.addEventListener('unhandledrejection', (e) => diag('fout (belofte)', String(e.reason && e.reason.message || e.reason).slice(0, 200)));
