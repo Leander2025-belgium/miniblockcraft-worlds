@@ -250,7 +250,33 @@ export const BLD = [];
 const bldGrid = new Grid(32);
 function addBld(b) {
   b.x0 = Math.round(b.x0); b.x1 = Math.round(b.x1); b.z0 = Math.round(b.z0); b.z1 = Math.round(b.z1);
+  if (b.fit && !fitBuilding(b)) return false;
+  // geen overlap met een ander gebouw
+  for (let x = b.x0; x <= b.x1; x += 4) for (let z = b.z0; z <= b.z1; z += 4) if (bldAt(x, z, 1)) return false;
   BLD.push(b); bldGrid.add(b, b.x0 - 2, b.z0 - 2, b.x1 + 2, b.z1 + 2);
+  return true;
+}
+// Elk gebouw op zijn eigen hoogte: de grond onder de hele voetafdruk meten, de vloer gelijk met de grond vóór de deur
+// (zo is de ingang bereikbaar), op een te steile helling of op het spoor niet bouwen.
+function fitBuilding(b) {
+  let lo = 1e9, hi = -1e9;
+  for (let x = b.x0; x <= b.x1 + 0.01; x += Math.max(1, (b.x1 - b.x0) / 8)) for (let z = b.z0; z <= b.z1 + 0.01; z += Math.max(1, (b.z1 - b.z0) / 8)) {
+    const h = G + surfaceAt(x, z); lo = Math.min(lo, h); hi = Math.max(hi, h);
+    for (const L of LINES) if (L.near(x, z, BED + 4)) return false; // niet op of tegen het spoor
+    const lk = lakeAt(x, z); if (lk && G + surfaceAt(x, z) < lk[0].level + 1) return false; // niet in een meer
+  }
+  if (hi - lo > (b.kind === 'church' || b.kind === 'hotel' ? 7 : 9)) return false; // te steil
+  const fp = frontPoint(b, 2);
+  const hd = Math.round(G + surfaceAt(fp[0], fp[1]));
+  b.F = Math.max(Math.round(lo), Math.min(Math.round(hi), hd));
+  b.lo = Math.round(lo); b.hi = Math.round(hi);
+  return true;
+}
+// punt vóór de voordeur (d meter buiten de gevel)
+function frontPoint(b, d) {
+  const f = b.face, mid = f[0] === 'x' ? (b.z0 + b.z1) / 2 : (b.x0 + b.x1) / 2;
+  if (f === 'x0') return [b.x0 - d, mid]; if (f === 'x1') return [b.x1 + d, mid];
+  if (f === 'z0') return [mid, b.z0 - d]; return [mid, b.z1 + d];
 }
 // stratenplan per dorp (in het assenstelsel van het dorp: u langs het spoor, v ervan weg)
 export const ROADS = [];
@@ -318,7 +344,7 @@ function layoutTown(t, seed) {
         const cx = (rc.x0 + rc.x1) / 2, cz = (rc.z0 + rc.z1) / 2;
         if (Math.hypot(cx - t.x, cz - t.z) > R * 0.95) { u += w + gap; continue; }
         pal = kind === 'church' ? [B.PLASTER, B.PLASTER, B.ROOF_DARK] : PALETTE[kind][Math.floor(r(k + 5) * PALETTE[kind].length)];
-        const b = { ...rc, kind, floors, F, gf: pal[0], uf: pal[1], roof: pal[2], town: t.name, seed: k, flat: kind === 'apartment' || (kind === 'shop' && city),
+        const b = { ...rc, kind, floors, F, fit: true, gf: pal[0], uf: pal[1], roof: pal[2], town: t.name, seed: k, flat: kind === 'apartment' || (kind === 'shop' && city),
           front: side > 0 ? 'near' : 'far', frontV: v0, axis: Math.abs(c) > 0.5 ? 'x' : 'z' };
         // welke gevel is de voorkant (naar de straat)?
         const sp = W2(u + w / 2, v); const dx = sp[0] - cx, dz = sp[1] - cz;
@@ -326,7 +352,7 @@ function layoutTown(t, seed) {
         if (kind === 'hotel') b.name = HOTEL_NAMES[(seed + k) % HOTEL_NAMES.length];
         if (kind === 'shop') b.name = SHOP_NAMES[(seed * 3 + k) % SHOP_NAMES.length];
         if (kind === 'church') { b.name = 'Kerk ' + t.name; b.tower = 6; }
-        addBld(b);
+        if (!addBld(b) && kind === 'church') church = false;
         u += w + gap;
       }
     }
@@ -458,6 +484,15 @@ function railColumn(x, z, col, top, ctx) {
       }
       return t;
     }
+    // stationsplein tussen perron en stationsgebouw (zelfde hoogte als de vloer van het gebouw)
+    if (ad > pOut + 0.4 && ad <= pOut + 9 && Math.abs(q.s - (st.s0 + st.s1) / 2) < st.len * 0.3 && !bldAt(x, z)) {
+      under(col, top, by, B.STONE);
+      for (let y = top + 1; y < by; y++) col[y] = B.STONE;
+      for (let y = by + 1; y <= Math.max(top, by + 4); y++) col[y] = 0;
+      col[by] = (Math.round(q.s) + Math.round(ad)) % 6 === 0 ? B.COBBLE : B.TILE;
+      if (Math.abs(ad - (pOut + 8.4)) < 0.5 && top > by) { for (let y = by + 1; y <= top; y++) col[y] = B.ASHLAR; return top; } // steunmuur
+      return by;
+    }
   }
   if (ad > bed + 1.4) {
     // keermuur in een sleuf
@@ -557,9 +592,10 @@ function buildingColumn(b, x, z, col, top) {
   const F = b.F, inCore = x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1, wall = !inCore;
   const fh = b.kind === 'hbf' ? 5 : b.kind === 'church' ? 6 : 3;
   const wallTop = F + b.floors * fh;
-  // fundering tot op de grond
-  for (let y = Math.max(1, top - 3); y < F; y++) col[y] = B.ASHLAR;
-  for (let y = top + 1; y <= F; y++) col[y] = 0;
+  // fundering: van de natuurlijke grond tot onder de vloer (stenen sokkel aan de lage kant);
+  // aan de hoge kant wordt de helling onder het gebouw weggegraven (kelder)
+  for (let y = Math.max(1, Math.min(top, F) - 3); y < F; y++) col[y] = y <= top - 4 ? (col[y] || B.STONE) : B.ASHLAR;
+  for (let y = F + 1; y <= top; y++) col[y] = 0;
   col[F] = b.kind === 'hbf' || b.kind === 'station' || b.kind === 'panorama' ? B.MARBLE : b.kind === 'church' ? B.CHECKER : B.PLANKS;
   const face = b.face, along = face[0] === 'x' ? z - b.z0 : x - b.x0;
   const onFace = (face === 'x0' && x === b.x0) || (face === 'x1' && x === b.x1) || (face === 'z0' && z === b.z0) || (face === 'z1' && z === b.z1);
@@ -715,6 +751,9 @@ function fillColumnNew(x, z, col, slope, ctx, hs) {
   }
   const rc = railColumn(x, z, col, top, ctx); if (rc >= 0) return rc;
   const b = bldAt(x, z); if (b) return buildingColumn(b, x, z, col, top);
+  // steunmuur waar een gebouw in de helling is uitgegraven
+  const nb = bldAt(x, z, 2);
+  if (nb && top > nb.F + 1) { for (let y = Math.max(1, nb.F - 1); y <= top; y++) col[y] = (y + x + z) % 5 === 0 ? B.STONE : B.ASHLAR; return top; }
   const lc = liftColumn(x, z, col, top); if (lc >= 0) return lc;
   const rd = roadColumn(x, z, col, top); if (rd >= 0) return rd;
   // wandelpad
