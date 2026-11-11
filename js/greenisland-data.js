@@ -120,6 +120,7 @@ export const LANDMARKS = [
   { name: 'GNMI – Greenislands Nationaal Meteorologisch Instituut', town: 'Munkbay', dx: -3500, dz: -1200, w: 60, d: 40, floors: 7, kind: 'office', canon: true },
   { name: 'Zenvo hoofdkantoor', town: 'Munkbay', dx: -5200, dz: 2600, w: 70, d: 50, floors: 14, kind: 'office', canon: true },
   { name: 'Zenvo autofabriek', town: 'Riverside', dx: 1800, dz: 900, w: 260, d: 140, floors: 3, kind: 'factory', canon: true },
+  { name: 'Zenvo Showroom', town: 'Munkbay', dx: -5100, dz: 2720, w: 64, d: 36, floors: 2, kind: 'showroom', canon: false, canonNote: 'Zenvo canon, showroom voorstel' },
   { name: 'Universiteit van Munkbay', town: 'Munkbay', dx: -4300, dz: 400, w: 140, d: 90, floors: 6, kind: 'university', canon: false },
   { name: 'Centraal Ziekenhuis Munkbay', town: 'Munkbay', dx: -1600, dz: -2300, w: 120, d: 80, floors: 9, kind: 'hospital', canon: false },
   { name: 'GreenAir hoofdkantoor', town: 'Munkbay', dx: -900, dz: 7600, w: 80, d: 50, floors: 8, kind: 'office', canon: true },

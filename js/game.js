@@ -341,7 +341,7 @@ export class Game {
     this.avatar = new Avatar(this.scene, this.settings.look);
     this.builder = new Builder(this);
     this.eye = new THREE.Vector3();
-    this.missions = new Missions((m) => this.toast(`🏆 Opdracht voltooid: ${m.name}`));
+    this.missions = new Missions((m) => { this.toast(`🏆 Opdracht voltooid: ${m.name}${this.wallet ? ' · +40 VC' : ''}`); if (this.wallet) this.wallet.earn(40, `opdracht ${m.name}`); });
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
     window.visualViewport?.addEventListener('resize', () => this.resize());
@@ -1012,6 +1012,7 @@ export class Game {
   isGreen() { return !!(this.meta && (this.meta.greenisland || this.meta.id === 'greenisland')); }
   gnmiWeather() {
     if (!this.isGreen()) return null;
+    if (!this.wallet && !this.vcLoading) { this.vcLoading = true; import('./viridcoin.js').then(m => { this.vc = m; this.wallet = new m.Wallet(); this.wallet.ticket = m.ticketPrice; const b = this.wallet.dailyBonus(); if (b) this.toast(`💰 Dagbonus: +${b} ViridCoin (saldo ${Math.round(this.wallet.balance)} VC)`); }).catch(e => console.error(e)); }
     if (!this.gnmi) { if (!this.gnmiLoading) { this.gnmiLoading = true; import('./gnmi.js').then(m => { this.gnmi = m; }).catch(e => console.error(e)); } return null; }
     const now = performance.now(), p = this.player.pos;
     if (!this.gnmiNow || now - this.gnmiT > 8000) {
@@ -1022,6 +1023,37 @@ export class Game {
       this.gnmiWarnKey = key;
     }
     return { storm: 'storm', snow: 'snow', rain: 'rain', fog: 'cloudy', cloudy: 'cloudy', clear: 'clear' }[this.gnmiNow.kind];
+  }
+  showWallet() {
+    const draw = () => {
+      const m = this.vc, w = this.wallet, body = document.getElementById('vc-body'); if (!m || !w || !body) return;
+      const zn = (this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : () => '')(this.player.pos.x, this.player.pos.z);
+      const inShow = /^Zenvo Showroom/.test(zn);
+      let h = `<p style="font-size:18px;margin:0 0 6px">Saldo: <b>${m.fmt(w.balance)}</b></p>`;
+      h += `<h3 style="margin:8px 0 4px">🚗 Zenvo</h3><div class="small muted">${inShow ? 'Je bent in de Zenvo Showroom: kies een model.' : 'Kopen kan in de Zenvo Showroom in Munkbay (naast het Zenvo-hoofdkantoor). Proefrijden kan gratis op het Zenvo-testterrein bij Riverside.'}</div><table class="small" style="width:100%">`;
+      for (const md of m.ZENVO_MODELS) {
+        const own = w.cars.includes(md.id);
+        h += `<tr><td><span style="color:#${md.color.toString(16).padStart(6, '0')}">■</span> <b>${md.name}</b> – ${md.desc}</td><td>${m.fmt(md.price)}</td><td>${own ? `<button class="btn" data-call="${md.id}">🔑 Oproepen</button>` : inShow ? `<button class="btn" data-buy="${md.id}"${w.balance < md.price ? ' disabled' : ''}>Kopen</button>` : ''}</td></tr>`;
+      }
+      h += '</table><h3 style="margin:10px 0 4px">📒 Laatste verrichtingen</h3><table class="small" style="width:100%">';
+      for (const e of w.history.slice(-12).reverse()) h += `<tr><td>${new Date(e.t).toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td><td>${e.what}</td><td align="right" style="color:${e.n < 0 ? '#f87171' : '#4ade80'}">${e.n > 0 ? '+' : ''}${m.fmt(e.n)}</td></tr>`;
+      h += '</table><p class="help">Verdienen: +40 VC per voltooide opdracht, +25 VC dagbonus. Betalen: een kaartje bij het instappen (metro, tram en stadsbus 1,90 · streekbus 3,40 · trein 4,20 · internationaal 29 VC).</p>';
+      body.innerHTML = h;
+      for (const b of body.querySelectorAll('[data-buy]')) b.onclick = () => { const md = m.ZENVO_MODELS.find(q => q.id === b.dataset.buy), r = w.buy(md); this.toast(r === 'ok' ? `🚗 Gefeliciteerd met je ${md.name}! Roep hem op waar je maar wil.` : r === 'geld' ? '💰 Niet genoeg ViridCoin' : 'Die heb je al'); draw(); };
+      for (const b of body.querySelectorAll('[data-call]')) b.onclick = () => this.callZenvo(m.ZENVO_MODELS.find(q => q.id === b.dataset.call));
+    };
+    if (this.vc) draw(); else import('./viridcoin.js').then(m => { this.vc = m; if (!this.wallet) { this.wallet = new m.Wallet(); this.wallet.ticket = m.ticketPrice; } draw(); });
+    this.showOverlay('vc');
+  }
+  // eigen Zenvo: een auto op een weg in de buurt, en meteen zelf rijden
+  callZenvo(md) {
+    if (!this.traffic) return;
+    const a = this.traffic.spawnNear('car', this.player.pos);
+    if (!a) { this.toast('🚗 Geen weg in de buurt om je Zenvo neer te zetten'); return; }
+    a.color = md.color; a.zenvo = md.name; a.v = 0;
+    this.showOverlay(null);
+    this.drive = new Drive(this, a, 'drive');
+    this.toast(`🚗 Je ${md.name} staat klaar. Goede rit!`);
   }
   showGnmi() {
     const ov = document.getElementById('ov-gnmi'), body = document.getElementById('gnmi-body');
@@ -1523,7 +1555,7 @@ export class Game {
     if (m.proc) {
       const deg = ((-p.yaw * 180 / Math.PI) % 360 + 360) % 360;
       const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];
-      this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m${this.gnmiNow && this.isGreen() ? ` · ${this.gnmiNow.icon} ${Math.round(this.gnmiNow.temp)} °C` : ''}`;
+      this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m${this.gnmiNow && this.isGreen() ? ` · ${this.gnmiNow.icon} ${Math.round(this.gnmiNow.temp)} °C` : ''}${this.wallet && this.isGreen() ? ` · 💰 ${Math.round(this.wallet.balance)} VC` : ''}`;
       const zn = this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : zoneName;
       this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
       return;
@@ -1580,7 +1612,7 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
   }
   resume() {
@@ -1800,6 +1832,8 @@ export class Game {
     ui.touch.menu.addEventListener('click', () => { if (this.photo) { this.togglePhoto(false); return; } this.setPaused(true); });
     document.getElementById('btn-photo')?.addEventListener('click', () => { this.togglePhoto(true); this.resume(); });
     document.getElementById('btn-gnmi')?.addEventListener('click', () => this.showGnmi());
+    document.getElementById('btn-vc')?.addEventListener('click', () => this.showWallet());
+    document.getElementById('vc-close')?.addEventListener('click', () => this.resume());
     document.getElementById('gnmi-close')?.addEventListener('click', () => this.resume());
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());

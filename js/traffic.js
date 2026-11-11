@@ -379,6 +379,8 @@ export class Traffic {
     if (!cand.length) return null;
     let r = Math.random() * total, e = cand[0];
     for (const c of cand) { r -= c.len; if (r <= 0) { e = c; break; } }
+    let nearD = null; // eigen auto: op het dichtste stuk weg, op de dichtste plek
+    if (this.spawnNearPos) { let bd = 1e18; for (const c of cand) for (let i = 0; i < c.pts.length; i += 3) { const d = (c.pts[i] - player.x) ** 2 + (c.pts[i + 2] - player.z) ** 2; if (d < bd) { bd = d; e = c; nearD = c.cum[i / 3]; } } }
     const rr = Math.random();
     if (kind === 'ship') {
       const type = shipTypeFor(e.cls, rr), T = SHIP_TYPES[type];
@@ -405,6 +407,7 @@ export class Traffic {
     // lange voertuigen: zo plaatsen dat ze passen
     const need = Math.min(e.len - 1, a.L + 2);
     a.d = dir > 0 ? need + Math.random() * Math.max(0, e.len - need) : e.len - need - Math.random() * Math.max(0, e.len - need);
+    if (nearD !== null) a.d = Math.max(need, Math.min(e.len, nearD));
     if (a.L > e.len) this.extendBack(a);
     // niet bovenop een ander voertuig
     if (kind !== 'walk') for (const b of this.agents) if (b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
@@ -412,6 +415,8 @@ export class Traffic {
     this.agents.push(a);
     return a;
   }
+  // een auto op de dichtste weg bij de speler (eigen Zenvo)
+  spawnNear(kind, player) { this.spawnNearPos = true; try { return this.spawn(kind, player, false); } finally { this.spawnNearPos = false; } }
   // route naar achteren aanvullen (bij het plaatsen van lange treinen)
   extendBack(a) {
     let got = (a.route[0].dir > 0 ? a.d : a.route[0].e.len - a.d);

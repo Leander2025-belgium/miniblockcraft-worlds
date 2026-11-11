@@ -86,7 +86,7 @@ for (const L of LINES) if (L.metro) for (const st of L.stations) for (const side
   if (!ok) { out.metroBad++; if (fails.length < 40) fails.push(`${L.id} ${st.name} (kant ${side}): trap niet tot op straat – ${why || 'te kort'}`); }
 }
 // gebouwen en naden in echte tegels
-const spots = { 'Munkbay Central': [130700, 27900], 'Munkbay CBD': [130200, 27200], 'Old Town': [133100, 28400], 'Munkbay-Noord': [130800, 22900], Westport: [9600, 27600], Viridonia: [70100, 28600], Silverpine: [81500, 20500], Riverside: [111500, 22100], dorp: [A.ALL_PLACES[40].x, A.ALL_PLACES[40].z], gehucht: [A.ALL_PLACES[200].x, A.ALL_PLACES[200].z], ...Object.fromEntries(A.HARBOURS.map(H => [H.name, [H.x - H.nz * 300 + H.nx * 100, H.z + H.nx * 300 + H.nz * 100]])) };
+const spots = { 'Munkbay Central': [130700, 27900], 'Munkbay CBD': [130200, 27200], 'Old Town': [133100, 28400], 'Munkbay-Noord': [130800, 22900], Westport: [9600, 27600], Viridonia: [70100, 28600], Silverpine: [81500, 20500], Riverside: [111500, 22100], dorp: [A.ALL_PLACES[40].x, A.ALL_PLACES[40].z], gehucht: [A.ALL_PLACES[200].x, A.ALL_PLACES[200].z], ...Object.fromEntries(A.HARBOURS.map(H => [H.name, [H.x - H.nz * 300 + H.nx * 100, H.z + H.nx * 300 + H.nz * 100]])), 'Zenvo Showroom': [125400, 30220], 'Zenvo-testterrein': [115000, 22500] };
 // grondhoogte aan de rand: alleen natuurlijke grond, wegen en stoepen (in gebouwen staan muren en meubels)
 const NAT = new Set([B.GRASS, B.DIRT, B.SAND, B.STONE, B.GRAVEL, B.FLOWERS, B.SNOW, B.COBBLE, B.SIDEWALK, B.ASPHALT, B.LINE_WHITE]);
 const ground = (r, x, z) => { const base = (z * T + x) * r.H; for (let y = 1; y < r.H; y++) { const b = r.vox[base + y]; if (!b || b === B.WATER) return NAT.has(r.vox[base + y - 1]) ? r.y0 + y - 1 : null; } return null; };

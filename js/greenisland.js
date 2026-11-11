@@ -149,11 +149,17 @@ function harbourHeight(hb, raw) {
   return 2 + (raw - 2) * k * k * (3 - 2 * k);
 }
 
+// ---------- Zenvo-testterrein bij de autofabriek in Riverside (Zenvo canon, testterrein voorstel) ----------
+// ovaal: twee rechte stukken van 560 m en bochten met een straal van 100 m, 14 m breed; tribune, pitgebouw en hekken
+export const TRACK_Z = { name: 'Zenvo-testterrein', x: 115000, z: 22500, hx: 420, hz: 170, h: 110, straight: 280, r: 100, w: 7 };
+function trackDist(x, z) { const lx = x - TRACK_Z.x, lz = z - TRACK_Z.z, S = TRACK_Z.straight; if (Math.abs(lx) <= S) return { d: Math.abs(Math.abs(lz) - TRACK_Z.r), lx, lz, turn: false }; const cx = Math.sign(lx) * S; return { d: Math.abs(Math.hypot(lx - cx, lz) - TRACK_Z.r), lx, lz, turn: true, inner: Math.hypot(lx - cx, lz) < TRACK_Z.r }; }
+
 // ---------- het landschap ----------
 export function natural(x, z) {
   let h = rawHeight(x, z);
   const hb = HARBOURS.length ? harbourAt(x, z) : null;
   if (hb) { const hh = harbourHeight(hb, h); if (hh !== null) return hh; }
+  if (Math.abs(x - TRACK_Z.x) < TRACK_Z.hx + 80 && Math.abs(z - TRACK_Z.z) < TRACK_Z.hz + 80) { const t = Math.max(Math.abs(x - TRACK_Z.x) - TRACK_Z.hx, Math.abs(z - TRACK_Z.z) - TRACK_Z.hz, 0) / 80, k = t * t * (3 - 2 * t); h = TRACK_Z.h + (h - TRACK_Z.h) * k; if (k === 0) return h; }
   if (h < -0.5) return h;
   h = roadShape(x, z, h);
   return railShape(x, z, h);
@@ -468,11 +474,12 @@ function matsFor(b) {
   if (b.kind === 'parliament' || b.kind === 'palace') return [B.MARBLE, B.LIMESTONE, B.COPPER];
   if (b.kind === 'hospital' || b.kind === 'university' || b.kind === 'campus' || b.kind === 'office') return [B.GLASS, B.PANEL_WHITE, B.CONCRETE];
   if (b.kind === 'lighthouse') return [B.PAINT_WHITE, B.PAINT_RED, B.PAINT_RED];
+  if (b.kind === 'showroom') return [B.GLASS, B.GLASS_GREEN, B.PANEL_WHITE];
   const set = STYLE_MAT[b.style] || STYLE_MAT.land; return set[Math.floor(b.r2 * set.length) % set.length];
 }
 function buildingColumn(b, F, x, z, col, top) {
   const [gf, uf, roof] = matsFor(b), inCore = x > b.x0 && x < b.x1 && z > b.z0 && z < b.z1, wall = !inCore;
-  const fh = b.kind === 'tower' || b.kind === 'office' ? 4 : b.kind === 'warehouse' || b.kind === 'factory' ? 6 : 3;
+  const fh = b.kind === 'tower' || b.kind === 'office' ? 4 : b.kind === 'warehouse' || b.kind === 'factory' || b.kind === 'showroom' ? 6 : 3;
   const wallTop = F + b.floors * fh;
   // fundering tot op de grond; aan de hoge kant de helling weggraven
   for (let y = Math.max(1, Math.min(top, F) - 3); y < F; y++) col[y] = y <= top - 4 ? (col[y] || B.STONE) : B.ASHLAR;
@@ -537,7 +544,7 @@ function interior(b, x, z, fl, inLvl, fh) {
   const RS = big ? 8 : 6, midZ = Math.floor(D / 2), corridor = D >= 12 && Math.abs(lz - midZ) <= 1;
   const top = inLvl === fh - 2; // net onder het plafond
   // grote zalen: geen tussenmuren
-  const hall = b.kind === 'warehouse' || b.kind === 'factory' || b.kind === 'parliament' || (b.kind === 'shop' && fl === 0) || (b.kind === 'palace' && fl === 0) || b.kind === 'lighthouse';
+  const hall = b.kind === 'warehouse' || b.kind === 'factory' || b.kind === 'showroom' || b.kind === 'parliament' || (b.kind === 'shop' && fl === 0) || (b.kind === 'palace' && fl === 0) || b.kind === 'lighthouse';
   // tussenmuren (dwars) met een deur in elke kamer, behalve in de gang
   if (!hall && !corridor && lx % RS === 0 && lx > 1 && lx < W - 1) {
     const dz = ((lz % RS) + RS) % RS;
@@ -572,6 +579,20 @@ function interior(b, x, z, fl, inLvl, fh) {
     case 'parliament': { const cx = W / 2, cz = D / 2, r = Math.hypot(lx - cx, lz - cz); if (fl === 0 && Math.round(r) % 3 === 0 && r > 6 && r < 28) return B.WOOL_RED; if (fl === 0 && r < 3) return B.PLANKS; return 0; }
     case 'palace': return fl === 0 ? (lx % 2 === lz % 2 ? 0 : 0) : (rx === 3 && rz === 3 ? B.PLANKS : 0);
     case 'warehouse': case 'factory': return (lx % 6 < 3 && lz % 8 < 5 && lx > 2 && lz > 2) ? B.CRATE : 0;
+    case 'showroom': { // Zenvo-modellen op de vloer (romp, ruiten, wielen), verkoopbalie achteraan
+      if (fl > 0) return rx % 4 === 1 && rz % 4 === 1 ? B.PLANKS : 0;
+      const cx = lx % 12, cz = lz % 10, row = Math.floor(lz / 10), carN = Math.floor(lx / 12) + row * 7;
+      const paint = [B.PAINT_GREEN, B.PAINT_WHITE, B.PAINT_BLACK, B.PAINT_RED, B.PAINT_BLUE, B.PAINT_YELLOW][carN % 6];
+      if (lz > 4 && lz < D - 7 && cx >= 4 && cx <= 6 && cz >= 2 && cz <= 7) {
+        if (inLvl === 0) return (cz === 2 || cz === 7) && cx !== 5 ? B.PAINT_BLACK : paint;
+        if (inLvl === 1) return cz >= 3 && cz <= 6 ? (cx === 5 && cz > 3 && cz < 6 ? B.WOOL_RED : B.GLASS) : paint;
+        if (inLvl === 2 && cz >= 3 && cz <= 6) return paint;
+        return 0;
+      }
+      if (lz >= D - 4 && lz <= D - 3 && lx > W / 2 - 8 && lx < W / 2 + 8 && inLvl === 0) return B.PANEL_DARK; // verkoopbalie
+      if (inLvl === 0 && (lx + lz) % 9 === 0 && lz < 4) return B.FLOWERS;
+      return 0;
+    }
     default: return 0;
   }
 }
@@ -701,6 +722,7 @@ function fillColumnSurface(x, z, col, slope, ctx, h) {
 // alles behalve spoor en wegen (ook onder een brug)
 function fillColumnBelow(x, z, col, slope, ctx, h, top) {
   { const hb = harbourAt(x, z); if (hb && Math.abs(hb.a) <= 450 && hb.n <= 180) return harbourColumn(hb, x, z, col, top); }
+  if (Math.abs(x - TRACK_Z.x) <= TRACK_Z.hx && Math.abs(z - TRACK_Z.z) <= TRACK_Z.hz) return trackColumn(x, z, col, top);
   // zee, rivieren, meren
   if (top <= G - 1) {
     for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.SAND;
@@ -918,6 +940,16 @@ function tilePaths(X0, Z0, lines) {
     // bushalte en tramhalte in het centrum
     if (p.x >= X0 && p.x < X0 + T && p.z >= Z0 && p.z < Z0 + T) out.push({ type: 'busstop', name: p.name, pts: new Float32Array([p.x - X0 + 6, p.z - Z0 + 6, groundAt(p.x + 6, p.z + 6)]) });
   }
+  // Zenvo-testterrein: testauto's rijden rondjes (beide rijstroken in dezelfde richting)
+  if (Math.abs(X0 + T / 2 - TRACK_Z.x) < TRACK_Z.hx + T && Math.abs(Z0 + T / 2 - TRACK_Z.z) < TRACK_Z.hz + T) for (const off of [-3, 3]) {
+    const pts = [], S2 = TRACK_Z.straight, R = TRACK_Z.r + off, y = Math.round(G + TRACK_Z.h);
+    for (let x = -S2; x <= S2; x += 8) pts.push([TRACK_Z.x + x, TRACK_Z.z - R, y]);
+    for (let a = -Math.PI / 2; a <= Math.PI / 2; a += 8 / R) pts.push([TRACK_Z.x + S2 + Math.cos(a) * R, TRACK_Z.z + Math.sin(a) * R, y]);
+    for (let x = S2; x >= -S2; x -= 8) pts.push([TRACK_Z.x + x, TRACK_Z.z + R, y]);
+    for (let a = Math.PI / 2; a <= Math.PI * 1.5; a += 8 / R) pts.push([TRACK_Z.x - S2 + Math.cos(a) * R, TRACK_Z.z + Math.sin(a) * R, y]);
+    pts.push(pts[0]);
+    clipPush('car', pts);
+  }
   // scheepvaart: veerboten en cruiseschepen langs de kust (ruim buiten de kustlijn)
   for (const R of SEA_ROUTES) {
     // de route ligt om de ~400 m: binnen deze tegel om de 8 m bijvullen
@@ -971,6 +1003,7 @@ export function zoneName(x, z) {
   const pv = PROVINCES.find(p => p.id === provinceAt(x, z)).name;
   for (const L of LINES) { const q = L.near(x, z, 12); if (q) { const st = L.stationAt(q.s); if (st) return `Station ${st.name} · ${L.name}`; return `${L.name}${q.kind === 1 ? ' · tunnel' : q.kind === 2 ? ' · viaduct' : ''} · ${pv}`; } }
   for (const L of liftGrid.at(x, z)) { const [u, v] = liftUV(L, x, z); if (Math.abs(v) < L.stW + 2 && (Math.abs(u) < L.stL + 2 || Math.abs(u - L.len) < L.stL + 2)) return `${L.name} · ${Math.abs(u) < L.stL + 2 ? 'dalstation' : L.top}`; }
+  if (Math.abs(x - TRACK_Z.x) <= TRACK_Z.hx && Math.abs(z - TRACK_Z.z) <= TRACK_Z.hz) return `${TRACK_Z.name} · Riverside`;
   { const hb = harbourAt(x, z); if (hb && Math.abs(hb.a) <= 450 && hb.n >= -120 && hb.n <= 180) return `${hb.H.name} · ${hb.a < -170 ? 'containerterminal' : hb.a < 60 ? 'ferry- en cruiseterminal' : hb.a < 260 ? 'scheepswerf' : 'jachthaven'}`; }
   if (inAirport(x, z)) return AIRPORT.name;
   for (const b of bldGrid.at(x, z)) if (x >= b.x0 - 2 && x <= b.x1 + 2 && z >= b.z0 - 2 && z <= b.z1 + 2) return b.name;
@@ -1273,5 +1306,40 @@ function harbourColumn(hb, x, z, col, top) {
   if (n > 40 && n < 90 && a > 300 && a < 360) { const wall = n < 41 || n > 89 || a < 301 || a > 359; if (wall) { const door = n < 41 && Math.abs(a - 330) < 2; for (let k = y + 1; k <= y + 6; k++) col[k] = door && k <= y + 2 ? (k === y + 1 ? B.DOOR : B.DOOR_TOP) : k % 3 === 0 ? B.PLANKS : B.GLASS; col[y + 7] = B.ROOF_RED; return y + 7; } col[y] = B.PLANKS; col[y + 7] = B.ROOF_RED; if (ni % 6 === 0 && ai % 5 === 0) col[y + 1] = B.DARK_PLANKS; return y + 7; }
   if (n < -40 && a > 270 && a < 280) { col[y] = B.CONCRETE; return y; }
   col[y] = (ai + ni) % 23 === 0 ? B.COBBLE : B.CONCRETE;
+  return y;
+}
+
+// een kolom van het testterrein
+function trackColumn(x, z, col, top) {
+  const t = trackDist(x, z), y = top, W = TRACK_Z.w;
+  for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.DIRT;
+  for (let k = y + 1; k <= y + 12; k++) col[k] = 0;
+  const edgeX = Math.abs(t.lx) >= TRACK_Z.hx - 1 || Math.abs(t.lz) >= TRACK_Z.hz - 1;
+  if (edgeX) { col[y] = B.GRASS; col[y + 1] = B.POST; col[y + 2] = B.POST; if ((x + z) % 3 === 0) col[y + 3] = B.METAL; return y + 2; } // hek rondom
+  if (t.d < W) { // baan: asfalt, witte randlijnen, start-finish in blokjes
+    col[y] = t.d >= W - 1 ? B.LINE_WHITE : B.ASPHALT;
+    if (!t.turn && t.lz < 0 && Math.abs(t.lx) < 2) col[y] = (Math.floor(x) + Math.floor(z)) % 2 ? B.PAINT_BLACK : B.PAINT_WHITE;
+    return y;
+  }
+  if (t.d < W + 1.8 && t.turn) { col[y] = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 ? B.PAINT_RED : B.PAINT_WHITE; return y; } // curbs
+  // tribune langs het rechte stuk aan de noordkant
+  if (!t.turn && t.lz < -TRACK_Z.r - 14 && t.lz > -TRACK_Z.r - 40 && Math.abs(t.lx) < 120) {
+    const step = Math.floor((-TRACK_Z.r - 14 - t.lz) / 2);
+    for (let k = y; k <= y + step; k++) col[k] = B.CONCRETE;
+    if (Math.floor(-TRACK_Z.r - 14 - t.lz) % 2 === 0) col[y + step + 1] = Math.abs(t.lx) % 4 < 3 ? B.PAINT_GREEN : 0;
+    if (t.lz < -TRACK_Z.r - 38) { for (let k = y + step; k <= y + 18; k++) col[k] = B.PANEL_WHITE; return y + 18; }
+    col[y + 18] = B.GLASS_GREEN; return y + 18; // overkapping
+  }
+  // pitgebouw binnen de ovaal, met boxen naar de baan
+  if (!t.turn && t.lz > -TRACK_Z.r + 12 && t.lz < -TRACK_Z.r + 32 && Math.abs(t.lx) < 150) {
+    const wall = t.lz > -TRACK_Z.r + 31 || Math.abs(t.lx) > 149, box = t.lz < -TRACK_Z.r + 13 && Math.floor(t.lx + 150) % 12 > 1;
+    col[y] = B.CONCRETE;
+    if (box) { col[y + 6] = B.PANEL_WHITE; return y + 6; }
+    if (wall || t.lz < -TRACK_Z.r + 13) { for (let k = y + 1; k <= y + 6; k++) col[k] = k === y + 5 ? B.PAINT_GREEN : B.PANEL_WHITE; return y + 6; }
+    if (Math.floor(t.lx + 150) % 12 === 0) { for (let k = y + 1; k <= y + 5; k++) col[k] = B.PANEL_WHITE; }
+    if (Math.floor(t.lx + 150) % 12 === 6 && Math.floor(t.lz) % 7 === 0) { col[y + 1] = B.PAINT_GREEN; col[y + 2] = B.GLASS; } // auto in de box
+    col[y + 6] = B.PANEL_WHITE; return y + 6;
+  }
+  col[y] = (t.d < W + 4) ? B.GRAVEL : B.GRASS;
   return y;
 }
