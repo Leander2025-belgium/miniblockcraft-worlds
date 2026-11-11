@@ -73,11 +73,12 @@ export class RLine {
     for (let i = 0; i < n; i++) if (!isNaN(this.fixed[i])) fix[i] = this.fixed[i];
     // stationshoogtes: zo dicht mogelijk bij de grond, maar haalbaar met de toegestane helling
     const key = (st) => st.name + (st.hbf !== undefined ? '' : ':' + this.id);
+    const metro = !!this.plan.metro; // metrostations: elk op de eigen diepte (andere lijnen met dezelfde naam liggen elders)
     const pts = [];
     for (let i = 0; i < n; i += 25) if (!isNaN(fix[i])) pts.push({ s: this.s[i], y: fix[i], fixed: true });
     for (const st of this.stations) {
       if (st.old) continue;
-      const known = levels.get(key(st)) ?? levels.get(st.name);
+      const known = metro ? levels.get(key(st)) : levels.get(key(st)) ?? levels.get(st.name);
       let sum = 0, c = 0; for (let i = this.idx(st.s0); i <= this.idx(st.s1); i++) { sum += this.ground[i]; c++; }
       pts.push({ s: st.s, y: known ?? Math.round(sum / c + 0.5), fixed: known !== undefined, st });
     }
@@ -90,7 +91,7 @@ export class RLine {
     for (const p of pts) if (p.st) {
       const st = p.st, y = Math.round(p.y);
       if (!levels.has(key(st))) levels.set(key(st), y);
-      if (!levels.has(st.name)) levels.set(st.name, y);
+      if (!metro && !levels.has(st.name)) levels.set(st.name, y);
       st.y = y;
       for (let i = this.idx(st.s0 - 30); i <= Math.min(n - 1, this.idx(st.s1 + 30)); i++) fix[i] = y;
     }
@@ -135,7 +136,9 @@ export class RLine {
       }
     };
     runs(1, 80, 0); runs(2, 24, 0);
-    // stations nooit in een tunnel
+    // stations nooit in een tunnel (behalve metrostations: die liggen altijd ondergronds)
+    if (this.plan.metro) k.fill(1); // de metro ligt overal ondergronds
+    else
     for (const st of this.stations) if (!st.old) { const m = this.single ? 100 : 20; for (let i = this.idx(st.s0 - m); i <= this.idx(st.s1 + m); i++) if (k[i] === 1) k[i] = 0; }
     // tunnels: korte open stukken tussen twee tunnels dicht
     for (let i = 0; i < n;) {

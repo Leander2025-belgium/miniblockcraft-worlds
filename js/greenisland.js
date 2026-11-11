@@ -83,7 +83,7 @@ function roadNear(x, z, reach = 40) {
 
 // ---------- spoor: dalen, sleuven en dijken (zoals in de Alpen) ----------
 const railGrid = new Grid(256);
-for (const L of LINES) for (let i = 0; i + 10 < L.n; i += 10) { const R = Math.min(400, L.tun / 0.7) + BED + 40; railGrid.add({ L, i, j: i + 10 }, Math.min(L.x[i], L.x[i + 10]) - R, Math.min(L.z[i], L.z[i + 10]) - R, Math.max(L.x[i], L.x[i + 10]) + R, Math.max(L.z[i], L.z[i + 10]) + R); }
+for (const L of LINES) if (!L.metro) for (let i = 0; i + 10 < L.n; i += 10) { const R = Math.min(400, L.tun / 0.7) + BED + 40; railGrid.add({ L, i, j: i + 10 }, Math.min(L.x[i], L.x[i + 10]) - R, Math.min(L.z[i], L.z[i + 10]) - R, Math.max(L.x[i], L.x[i + 10]) + R, Math.max(L.z[i], L.z[i + 10]) + R); }
 function railShape(x, z, h) {
   const list = railGrid.at(x, z); if (!list.length) return h;
   const seen = new Map();
@@ -183,10 +183,44 @@ function fitLot(b, cache) {
   const hd = Math.round(G + natural(fx, fz));
   f = (hi - lo > 8 || lo < G) ? null : Math.max(Math.round(lo), Math.min(Math.round(hi), hd));
   // niet op het spoor of een nationale weg
-  if (f !== null) for (const L of LINES) if (L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
+  if (f !== null) for (const L of LINES) if (!L.metro && L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
   if (f !== null) { const q = roadNear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 10); if (q && q.d < Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + q.R.hw + (q.R.bike === 'none' ? 4 : 6)) f = null; }
+  if (f !== null && metroExitIn(b)) f = null; // metrotrap: de uitgang komt op een vrij pleintje
   if (cache) cache.set(k, f);
   return f;
+}
+// richting van de metrotrap per perronkant: +1 (naar het ene perroneinde), -1 (het andere) of 0 (geen trap: overal een spoorlijn aan de oppervlakte)
+const stairDirs = new Map();
+export function metroStair(L, st, side) {
+  const k = L.id + ':' + st.name + ':' + side; let r = stairDirs.get(k);
+  if (r !== undefined) return r;
+  r = 0;
+  const mid = (st.s0 + st.s1) / 2, d0 = TRACK + 2.2 + 4.2 + 1.4;
+  for (const dir of [1, -1]) {
+    let ok = true;
+    for (let u = -4; u <= 64 && ok; u += 2) for (const dd of [0, 2, 4]) {
+      const q = L.at(mid - dir * 8 + dir * u), d = d0 + dd, x = q.x - q.tz * d * side, z = q.z + q.tx * d * side;
+      if (Math.round(G + natural(x, z)) < Math.round(q.y) + u / 1.5 - 6) { u = 1e9; break; }
+      for (const L2 of LINES) if (!L2.metro && L2.near(x, z, 14)) { ok = false; break; }
+      if (!ok) break;
+    }
+    if (ok) { r = dir; break; }
+  }
+  stairDirs.set(k, r);
+  return r;
+}
+// uitgangen van de metrotrappen (middellijn van de trap, om de 2 m), pas opgebouwd bij het eerste gebruik
+let exitGrid = null;
+function metroExitIn(b) {
+  if (!exitGrid) {
+    exitGrid = new Grid(64);
+    for (const L of LINES) if (L.metro) for (const st of L.stations) for (const side of [1, -1]) {
+      const mid = (st.s0 + st.s1) / 2, d = TRACK + 2.2 + 4.2 + 1.4 + 2, dir = metroStair(L, st, side); if (!dir) continue;
+      for (let u = -4; u <= 64; u += 2) { const q = L.at(mid - dir * 8 + dir * u), x = q.x - q.tz * d * side, z = q.z + q.tx * d * side; if (Math.round(G + natural(x, z)) < Math.round(q.y) + u / 1.5 - 6) break; exitGrid.add({ x, z }, x - 8, z - 8, x + 8, z + 8); }
+    }
+  }
+  for (const [x, z] of [[b.x0, b.z0], [b.x1, b.z1], [(b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2]]) for (const e of exitGrid.at(x, z)) if (e.x > b.x0 - 5 && e.x < b.x1 + 5 && e.z > b.z0 - 5 && e.z < b.z1 + 5) return true;
+  return false;
 }
 
 // ---------- bijzondere gebouwen (landmarks) en de luchthaven ----------
@@ -496,6 +530,50 @@ function streetColumn(st, u, x, z, col, top) {
 }
 
 function fillColumn(x, z, col, slope, ctx, h) {
+  const t = fillColumnSurface(x, z, col, slope, ctx, h);
+  return ctx.metro && ctx.metro.length ? metroCarve(x, z, col, t, Math.round(G + h), ctx) : t;
+}
+// ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------
+const M_PIN = TRACK + 2.2, M_POUT = M_PIN + 4.2, M_STAIR = 4; // perron 4,2 m breed, trap 4 m breed
+const METRO_PAINT = { M1: B.PAINT_RED, M2: B.PAINT_BLUE, M3: B.PAINT_YELLOW, M4: B.PAINT_GREEN, M5: B.PAINT_GREEN, M6: B.PAINT_BLACK, M7: B.PAINT_RED, M8: B.PAINT_BLUE, M9: B.PAINT_ORANGE, M10: B.PAINT_WHITE };
+function metroCarve(x, z, col, t, top, ctx) {
+  for (const L of ctx.metro) {
+    const q = L.near(x, z, M_POUT + 1.4 + M_STAIR + 1); if (!q) continue;
+    const by = Math.round(q.y), ad = q.d, st = L.stationAt(q.s);
+    if (!st) {
+      if (ad > BED + 1.2) continue;
+      if (ad <= BED) { col[by - 1] = B.CONCRETE; col[by] = ad < BED - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; if (ad > BED - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; col[by + 7] = B.CONCRETE; }
+      else for (let y = by - 1; y <= by + 7; y++) col[y] = B.CONCRETE;
+      t = Math.max(t, by + 7); continue;
+    }
+    const mid = (st.s0 + st.s1) / 2, sdir = metroStair(L, st, q.sd > 0 ? 1 : -1), u = sdir ? sdir * (q.s - (mid - sdir * 8)) : -99, paint = METRO_PAINT[L.id] || B.PAINT_BLUE;
+    if (ad <= BED) { // sporen in de hal
+      col[by - 1] = B.CONCRETE; col[by] = ad < BED - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 7; y++) col[y] = 0; col[by + 8] = B.CONCRETE;
+    } else if (ad <= M_POUT + 0.4) { // zijperron
+      col[by - 1] = B.CONCRETE; col[by] = B.CONCRETE;
+      col[by + 1] = ad < M_PIN + 0.6 ? B.LINE_WHITE : ad < M_PIN + 1.2 ? B.LINE_YELLOW : B.TILE;
+      for (let y = by + 2; y <= by + 7; y++) col[y] = 0;
+      col[by + 8] = Math.abs(ad - (M_PIN + 2.2)) < 0.5 && Math.round(q.s) % 6 === 0 ? B.LAMP : B.PANEL_WHITE;
+      if (Math.abs(ad - (M_PIN + 2.2)) < 0.5 && Math.round(q.s) % 40 === 20) { col[by + 2] = B.POST; col[by + 3] = paint; col[by + 4] = paint; } // vertrekbord in de lijnkleur
+      if (Math.abs(ad - (M_POUT - 0.6)) < 0.5 && Math.round(q.s) % 14 === 7 && Math.abs(u + 1.5) > 4) col[by + 2] = B.DARK_PLANKS; // bank
+    } else if (ad <= M_POUT + 1.4) { // wand met een band in de lijnkleur en een doorgang naar de trap
+      for (let y = by - 1; y <= by + 8; y++) col[y] = y === by + 4 ? paint : y === by + 5 && Math.round(q.s) % 12 === 0 ? B.PAINT_WHITE : B.TILE;
+      if (u >= -3 && u < 0) for (let y = by + 2; y <= by + 5; y++) col[y] = 0;
+    } else if (ad <= M_POUT + 1.4 + M_STAIR) { // trap (helling 1 op 1,5, met roltrapband aan de wandkant) van het perron naar de straat
+      if (u < -3 || u > (top - by) * 1.5 + 3) { if (u >= -4 && u <= (top - by) * 1.5 + 4) for (let y = by - 1; y <= Math.min(top - 1, by + Math.max(0, u / 1.5) + 6); y++) if (!col[y] || y <= by + 1) col[y] = B.CONCRETE; continue; }
+      const fy = by + 1 + Math.max(0, Math.floor(u / 1.5)), lane = ad - (M_POUT + 1.4);
+      if (fy > top + 1) continue;
+      col[fy - 1] = B.CONCRETE; col[fy] = lane < 1.2 ? B.METAL : B.TILE;
+      for (let y = fy + 1; y <= fy + 4; y++) col[y] = 0;
+      if (fy + 5 < top) col[fy + 5] = B.CONCRETE;
+      else { for (let y = fy + 5; y <= top + 4; y++) col[y] = 0; col[Math.max(fy + 5, top + 4)] = Math.round(u) % 6 === 0 ? paint : B.GLASS; t = Math.max(t, Math.max(fy + 5, top + 4)); } // ingang met glazen luifel
+      t = Math.max(t, fy);
+    } else if (u >= -4 && u <= (top - by) * 1.5 + 4) { for (let y = by - 1; y <= Math.min(top - 1, by + Math.max(0, u / 1.5) + 6); y++) if (!col[y] || y <= by + 1) col[y] = B.CONCRETE; } // buitenwand van de trap
+    t = Math.max(t, by + 8);
+  }
+  return t;
+}
+function fillColumnSurface(x, z, col, slope, ctx, h) {
   treeKind = 0;
   const top = Math.round(G + h);
   col[0] = B.BEDROCK;
@@ -627,10 +705,10 @@ export function generateTile(tx, tz) {
   const lines = LINES.filter(L => { for (let i = 0; i < L.n; i += 6) if (L.x[i] > X0 - 60 && L.x[i] < X0 + T + 60 && L.z[i] > Z0 - 60 && L.z[i] < Z0 + T + 60) return true; return false; });
   const lmFit = new Map();
   const ctx = {
-    lines, lots: new Map(),
+    lines: lines.filter(L => !L.metro), metro: lines.filter(L => L.metro), lots: new Map(),
     bridgeOver: () => false,
     fitLandmark: (b) => { let f = lmFit.get(b.id); if (f === undefined) { let lo = 1e9, hi = -1e9; for (const [x, z] of [[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]]) { const hh = G + natural(x, z); lo = Math.min(lo, hh); hi = Math.max(hi, hh); } f = Math.round(Math.max(lo, Math.min(hi, G + natural((b.x0 + b.x1) / 2, b.z1 + 3)))); lmFit.set(b.id, f); } return f; },
-    noTree: (x, z) => { if (roadNear(x, z, 12)) return true; for (const L of lines) if (L.near(x, z, 12)) return true; return false; },
+    noTree: (x, z) => { if (roadNear(x, z, 12)) return true; for (const L of lines) if (!L.metro && L.near(x, z, 12)) return true; return false; },
   };
   const cols = new Array(T * T);
   const col = new Uint8Array(3200);
@@ -735,7 +813,7 @@ function tilePaths(X0, Z0, lines) {
 // zeeroutes (voorstel): rond het eiland op 1,6 en 3,2 km van de kust (berekend door tools/plan-green.mjs)
 function tileTunnels(X0, Z0, lines) {
   const out = [];
-  for (const L of lines) for (const [a, b] of L.tunnels) {
+  for (const L of lines) if (!L.metro) for (const [a, b] of L.tunnels) {
     const p = {}, q = {};
     for (let s = Math.max(a, 0); s < b; s += 16) {
       L.at(s, p); L.at(Math.min(b, s + 16), q);
@@ -804,7 +882,7 @@ export { COUNTRY, PROVINCES, AREAS, PLACE, CENTRAL, LAKE_DEF as LAKES, PEAKS, WR
 export function _columnAt(x, z, cache = new Map()) {
   const tx = Math.floor(x / T), tz = Math.floor(z / T), X0 = tx * T, Z0 = tz * T;
   const lines = LINES.filter(L => { for (let i = 0; i < L.n; i += 6) if (L.x[i] > X0 - 60 && L.x[i] < X0 + T + 60 && L.z[i] > Z0 - 60 && L.z[i] < Z0 + T + 60) return true; return false; });
-  const ctx = { lines, lots: cache, bridgeOver: () => false, fitLandmark: () => null, noTree: () => true };
+  const ctx = { lines: lines.filter(L => !L.metro), metro: lines.filter(L => L.metro), lots: cache, bridgeOver: () => false, fitLandmark: () => null, noTree: () => true };
   const col = new Uint8Array(3200), h = natural(x, z), sl = Math.max(Math.abs(natural(x + 1, z) - h), Math.abs(natural(x, z + 1) - h));
   const top = fillColumn(x, z, col, sl, ctx, h);
   return { col, top };

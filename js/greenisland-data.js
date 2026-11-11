@@ -172,12 +172,32 @@ export const SERVICES = [
   { id: 'GW', line: 'IC2', name: 'Goederentrein Westport–Munkbay', liv: 'G', stops: [], cars: ['loco', 'box', 'tank', 'box', 'flat', 'box', 'tank'], vmax: 25, h: 7200, freight: true, acc: 0.35, canon: false },
 ];
 
-// ---------- metro en tram (voorlopig: namen en frequenties M1–M3 en T1/T1s canon; de rest voorstel – nog niet gebouwd) ----------
+// ---------- metro (fase 4) ----------
+// Canon: tien lijnen met hun namen, de stationsnamen uit de lijst hieronder, M1–M3 elke 15 min van 06:30 tot 23:00.
+// Voorstel: de ligging van alle lijnen en stations, de extra stations, de diepte (twee niveaus: 12 m en 24 m onder straat,
+// zodat kruisende lijnen elkaar ongelijkvloers kruisen) en de frequenties van M4–M10.
 export const METRO_PLAN = {
   canonFrequency: { M1: [15, '06:30', '23:00'], M2: [15, '06:30', '23:00'], M3: [15, '06:30', '23:00'] },
   lines: ['M1 Noord-Zuid', 'M2 West-Oost', 'M3 Ringlijn', 'M4 Havenlijn', 'M5 Binnenstad', 'M6 Express', 'M7 Zuidwest', 'M8 Universiteit', 'M9 Buitenring', 'M10 Haven–Expo'],
   stations: ['Munkbay-Centraal', 'Munkbay-Noord', 'Munkbay-Zuid', 'Munkbay-West', 'Munkbay-Oost', 'Munkbay-Haven', 'Forum', 'Universiteitsplein', 'Munkbay-Airport', 'Cargo-Terminal', 'Expo Munkbay'],
 };
+const M = (name, color, deep, via, extra = {}) => ({ name, color, vmax: 22, rmin: 150, tun: 6, deep, maxGrade: 0.05, metro: true, canon: false, canonNote: 'naam canon, ligging voorstel', via: via.map(([n, x, z]) => n ? { name: n, x, z, len: 110 } : { wp: true, x, z }), ...extra });
+export const METRO_LINES = {
+  M1: M('M1 Noord-Zuid', '#e2231a', 12, [['Munkbay-Noord', 130600, 23300], ['Noordplein', 130600, 25400], ['Munkbay-Centraal', 130650, 27750], ['Zuidpoort', 130450, 30000], ['Munkbay-Zuid', 130250, 32300], ['Munkbay-Airport', 129800, 36300], ['Cargo-Terminal', 131400, 37200]]),
+  M2: M('M2 West-Oost', '#0072bc', 24, [['West Munkbay', 122900, 29250], ['Munkbay-West', 124300, 27850], ['Universiteitsplein', 126300, 27950], ['Central Park', 128200, 28800], ['Munkbay-Centraal', 130500, 27850], ['Forum', 131900, 27950], ['Old Town', 133200, 28500], ['Eastside', 135300, 27300]]),
+  M3: M('M3 Ringlijn', '#f7a600', 12, [['Munkbay-Oost', 135000, 24900], ['Noordoost', 133000, 24000], [null, 130600, 24050], ['Noordwest', 128300, 24400], ['Westpark', 126700, 26300], ['Universiteit-Zuid', 126900, 29500], ['Zuidring', 128800, 30900], [null, 130350, 31050], ['Zuidoost', 132700, 30900]]),
+  M4: M('M4 Havenlijn', '#00a651', 11, [['Forum', 132300, 27250], ['Havenkwartier', 133600, 29300], ['Munkbay-Haven', 135300, 29800]]),
+  M5: M('M5 Binnenstad', '#8dc63f', 12, [['Parkhuizen', 128300, 27200], ['Munkbay-Centraal', 129900, 27150], [null, 130650, 27100], ['Beurs', 132100, 26800]]),
+  M6: M('M6 Express', '#662d91', 24, [['Munkbay-West', 124300, 27100], ['Munkbay-Centraal', 130500, 26900], ['Munkbay-Oost', 134900, 25300]], { vmax: 28 }),
+  M7: M('M7 Zuidwest', '#ec008c', 24, [['Parkrand', 128300, 29600], ['Parkzuid', 127800, 30500], ['Zuidwest', 126500, 32000], ['Munkbay-Zuidwest', 125000, 33300]]),
+  M8: M('M8 Universiteit', '#00aeef', 12, [['Universiteitsplein', 125900, 28750], ['Campus Zuid', 125800, 30600], ['Hogeschool', 124200, 32000]]),
+  M9: M('M9 Buitenring', '#a0522d', 24, [['Westheuvel', 123000, 26000], ['Munkbay-Noordwest', 126500, 23200], ['Munkbay-Noord', 131600, 22600], ['Oosterpark', 134000, 22900], ['Munkbay-Oost', 136200, 24700]]),
+  M10: M('M10 Haven–Expo', '#808285', 9, [['Munkbay-Haven', 135500, 30300], ['Expo Munkbay', 137600, 28800]]),
+};
+export const METRO_SERVICES = Object.entries(METRO_LINES).map(([id, L]) => {
+  const canon = !!METRO_PLAN.canonFrequency[id];
+  return { id, line: id, name: L.name, liv: 'M' + id.slice(1), cars: ['emuCab', 'emuCab'], vmax: L.vmax, h: canon ? 900 : 600, acc: 1.1, hours: canon ? [6.5, 23] : [5.5, 0.5], canon, metro: true };
+});
 export const TRAM_PLAN = { lines: 15, canonFrequency: { T1: [15, '06:30', '23:00'], T1s: [15, '06:30', '23:00'] } };
 
 // ---------- extra plaatsen: deterministisch gegenereerd (voorstel), samen ongeveer 220 bewoonde plaatsen ----------

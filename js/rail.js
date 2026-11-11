@@ -505,6 +505,7 @@ export class AlpRail {
     for (const L of LINES) for (const [a, b] of L.tunnels) {
       for (let s = a; s < b; s += 8) {
         L.at(s, q); if (Math.abs(q.x - p.x) > 700 || Math.abs(q.z - p.z) > 700) continue;
+        if (L.stationAt(s) || L.stationAt(s + 8)) continue; // ondergrondse perronhal: geen tunnelwanden voor de perrons
         L.at(Math.min(b, s + 8), r);
         const w = L.single ? 2.35 : 4.8, hgt = 5.8;
         const nx = -q.tz, nz = q.tx, mx = -r.tz, mz = r.tx;
