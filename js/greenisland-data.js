@@ -107,6 +107,12 @@ export const MUNKBAY_AREAS = [
 ];
 export const MUNKBAY_CANON_AREAS = ['Munkbay Central', 'Munkbay-Noord', 'Munkbay-Zuid', 'Munkbay-West', 'Munkbay-Oost', 'Munkbay-Haven', 'Munkbay Old Town', 'Munkbay University', 'Munkbay Central Park', 'Eastside', 'Eastport Central', 'West Munkbay'];
 
+// ---------- extra wegen (voorstel): snelweg dwars door Munkbay, verhoogd boven de stad (geen gelijkvloerse kruisingen) ----------
+export const EXTRA_ROADS = [
+  { a: 'Munkbay West', b: 'Munkbay Oost', kind: 'A', name: 'A1 Munkbay-doorsteek', elevated: 13, cityX: [121500, 137000],
+    pts: [[114500, 25200], [118500, 25800], [122500, 25300], [126500, 25000], [130500, 25100], [134500, 25400], [138300, 26300], [140500, 27200]], canon: false },
+];
+
 // ---------- nationale instellingen (namen canon, plaats voorstel) ----------
 export const LANDMARKS = [
   { name: 'Nationaal Parlement van Greenisland', town: 'Munkbay', dx: 1600, dz: -700, w: 120, d: 70, floors: 5, kind: 'parliament', canon: true },

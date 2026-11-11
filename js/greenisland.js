@@ -5,6 +5,7 @@
 // gebouwen op hun eigen hoogte met fundering, rails op de ballast, geen trappen in wegen, tunnels en viaducten.
 import { B } from './blocks.js';
 import { hash, noise, placeTree } from './city.js';
+import { EXTRA_ROADS } from './greenisland-data.js';
 import { W as MW, L as ML, G, COUNTRY, PROVINCES, provinceAt, MUNKBAY_AREAS, LANDMARKS, WRECK, RAINFOREST, PEAKS, LAKES as LAKE_DEF, CENTRAL } from './greenisland-data.js';
 import { rawHeight, coastDist, lakeAt, riverAt, fbm, sstep, cliffAmount } from './greenisland-terrain.js';
 import { ALL_PLACES, PLACE } from './greenisland-places.js';
@@ -44,7 +45,7 @@ function urbanAt(x, z) {
 
 // ---------- wegen (nationaal net) met een vloeiend hoogteprofiel ----------
 const ROAD_HW = { A: 8, N: 4.2, L: 3.2 };
-export const ROADS = ROAD_ROUTES.map((r, i) => {
+export const ROADS = [...ROAD_ROUTES, ...EXTRA_ROADS].map((r, i) => {
   const pts = r.pts, xs = [], zs = [];
   for (let k = 0; k < pts.length - 1; k++) { const [ax, az] = pts[k], [bx, bz] = pts[k + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 8)); for (let q = 0; q < n; q++) { xs.push(ax + (bx - ax) * q / n); zs.push(az + (bz - az) * q / n); } }
   xs.push(pts[pts.length - 1][0]); zs.push(pts[pts.length - 1][1]);
@@ -58,10 +59,18 @@ export const ROADS = ROAD_ROUTES.map((r, i) => {
   for (let k = 0; k < n; k++) { let a = 0, c = 0; for (let j = Math.max(0, k - W2); j <= Math.min(n - 1, k + W2); j++) { a += g[j]; c++; } y[k] = a / c; }
   y[0] = g[0]; y[n - 1] = g[n - 1];
   for (let it = 0; it < 2; it++) { for (let k = 1; k < n; k++) { const d = s[k] - s[k - 1]; y[k] = Math.max(y[k - 1] - grade * d, Math.min(y[k - 1] + grade * d, y[k])); } for (let k = n - 2; k >= 0; k--) { const d = s[k + 1] - s[k]; y[k] = Math.max(y[k + 1] - grade * d, Math.min(y[k + 1] + grade * d, y[k])); } }
-  return { id: i, a: r.a, b: r.b, kind: r.kind, hw: ROAD_HW[r.kind], n, x: Float32Array.from(xs), z: Float32Array.from(zs), y, s, g };
+  // verhoogde snelweg in de stad (op pijlers boven straten en sporen), met opritten van hooguit 4 %
+  if (r.elevated) {
+    for (let k = 0; k < n; k++) if (xs[k] > r.cityX[0] && xs[k] < r.cityX[1]) y[k] = Math.max(y[k], g[k] + r.elevated);
+    for (let k = n - 2; k >= 0; k--) y[k] = Math.max(y[k], y[k + 1] - grade * (s[k + 1] - s[k]));
+    for (let k = 1; k < n; k++) y[k] = Math.max(y[k], y[k - 1] - grade * (s[k] - s[k - 1]));
+  }
+  // fietspaden: N-wegen aan beide kanten (één richting per kant), andere wegen één tweerichtingsfietspad rechts; niet op een brug
+  const bike = r.elevated ? 'none' : r.kind === 'N' ? 'both' : 'one';
+  return { id: i, a: r.a, b: r.b, kind: r.kind, name: r.name, hw: ROAD_HW[r.kind], bike, n, x: Float32Array.from(xs), z: Float32Array.from(zs), y, s, g };
 });
 const roadGrid = new Grid(64);
-for (const R of ROADS) for (let k = 0; k < R.n - 1; k++) { const m = R.hw + 40; roadGrid.add({ R, k }, Math.min(R.x[k], R.x[k + 1]) - m, Math.min(R.z[k], R.z[k + 1]) - m, Math.max(R.x[k], R.x[k + 1]) + m, Math.max(R.z[k], R.z[k + 1]) + m); }
+for (const R of ROADS) for (let k = 0; k < R.n - 1; k++) { const m = R.hw + 46; roadGrid.add({ R, k }, Math.min(R.x[k], R.x[k + 1]) - m, Math.min(R.z[k], R.z[k + 1]) - m, Math.max(R.x[k], R.x[k + 1]) + m, Math.max(R.z[k], R.z[k + 1]) + m); }
 function roadNear(x, z, reach = 40) {
   let best = null;
   for (const { R, k } of roadGrid.at(x, z)) {
@@ -97,7 +106,7 @@ function railShape(x, z, h) {
 // wegen: sleuf en talud (geen trappen), bruggen boven dalen en rivieren, tunnels door bergen
 function roadShape(x, z, h) {
   const q = roadNear(x, z, 40); if (!q) return h;
-  const R = q.R, hy = q.y - G - 1, bed = R.hw + 1.5;
+  const R = q.R, hy = q.y - G - 1, bed = R.hw + (R.bike === 'none' ? 1.5 : 5.2);
   if (hy - h > 6 && q.d <= bed + 6) return h; // brug: het terrein blijft eronder
   if (h - hy > 24) return h; // tunnel
   if (q.d <= bed) return hy;
@@ -175,7 +184,7 @@ function fitLot(b, cache) {
   f = (hi - lo > 8 || lo < G) ? null : Math.max(Math.round(lo), Math.min(Math.round(hi), hd));
   // niet op het spoor of een nationale weg
   if (f !== null) for (const L of LINES) if (L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
-  if (f !== null) { const q = roadNear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 10); if (q && q.d < Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + q.R.hw + 2) f = null; }
+  if (f !== null) { const q = roadNear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 10); if (q && q.d < Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + q.R.hw + (q.R.bike === 'none' ? 4 : 6)) f = null; }
   if (cache) cache.set(k, f);
   return f;
 }
@@ -288,19 +297,26 @@ function railColumnAll(x, z, col, top, ctx) {
   return Math.max(t, yh);
 }
 // nationale weg
+// fietspad naast de weg? (afstand tot de as en kant: + = rechts)
+function bikeBand(R, d, sd) {
+  if (R.bike === 'none') return null;
+  if (R.bike === 'both') { if (d > R.hw + 1 && d <= R.hw + 4.6) return { w: 3.6, c: d - R.hw - 1 }; return null; } // breed fietspad, één richting per kant
+  if (sd > R.hw + 1 && sd <= R.hw + 4.2) return { w: 3.2, c: sd - R.hw - 1, two: true }; // één fietspad rechts, voor beide richtingen
+  return null;
+}
 function roadColumn(x, z, col, top) {
-  const q = roadNear(x, z, 14); if (!q) return -1;
+  const q = roadNear(x, z, 16); if (!q) return -1;
   const R = q.R, hw = R.hw, ry = Math.round(q.y) - 1; // wegdek = bovenste blok op ry
-  if (q.d > hw + 1.6) return -1;
+  const bb = bikeBand(R, q.d, q.sd);
+  if (q.d > hw + 1.6 && !bb && !(R.bike !== 'none' && q.d <= hw + 5)) return -1;
   const high = ry - top, deep = top - ry;
   if (deep > 24 && q.d <= hw + 1.2) { // tunnel
     col[ry] = B.ASPHALT; for (let y = ry + 1; y <= ry + 6; y++) col[y] = 0; col[ry + 7] = B.CONCRETE; if (Math.round(q.s) % 20 === 0 && q.d > hw) col[ry + 5] = B.LAMP; return Math.max(top, ry + 7);
   }
-  if (high > 6) { // brug
-    if (Math.round(q.s) % 40 < 4 && q.d < hw - 1) for (let y = top + 1; y < ry - 1; y++) col[y] = B.CONCRETE;
-    col[ry - 1] = B.CONCRETE; col[ry] = q.d <= hw ? B.ASPHALT : B.CONCRETE;
-    if (q.d > hw) { col[ry + 1] = B.METAL; return ry + 1; }
-    return ry;
+  if (deep > 24) return -1;
+  if (high > 6) { // brug: het deel eronder (straat, gras, spoor) wordt gewoon gebouwd, het brugdek komt erbovenop
+    if (q.d > hw + 1.6) return -1;
+    return -2 - ry; // signaal voor fillColumn (zie bridgeDeck)
   }
   under(col, top, ry, B.GRAVEL);
   for (let y = top + 1; y < ry; y++) col[y] = B.GRAVEL;
@@ -311,8 +327,28 @@ function roadColumn(x, z, col, top) {
     if (R.kind === 'A' && lane < 0.6) { col[ry + 1] = B.METAL; return ry + 1; } // vangrail in het midden
     return ry;
   }
-  col[ry] = B.GRAVEL; // berm
-  if (R.kind !== 'L' && Math.round(q.s) % 50 === 25 && q.d > hw + 1) { for (let y = ry + 1; y <= ry + 5; y++) col[y] = B.POST; col[ry + 6] = B.LAMP; return ry + 6; }
+  if (bb) {
+    // fietspad: rood asfalt met witte randlijnen (tweerichtingspad: gestreepte middellijn)
+    col[ry] = bb.c < 0.35 || bb.c > bb.w - 0.35 ? B.LINE_WHITE : bb.two && Math.abs(bb.c - bb.w / 2) < 0.3 && Math.floor(q.s / 3) % 2 === 0 ? B.LINE_WHITE : B.BIKE_PATH;
+    return ry;
+  }
+  col[ry] = B.GRASS; // berm (gras tussen weg en fietspad)
+  if (R.kind !== 'L' && Math.round(q.s) % 50 === 25 && q.d > hw + 0.6 && q.d < hw + 1.2) { for (let y = ry + 1; y <= ry + 5; y++) col[y] = B.POST; col[ry + 6] = B.LAMP; return ry + 6; }
+  return ry;
+}
+// ligt er een brugdek (hoger dan 9 m boven deze kolom) van een weg boven?
+function deckAbove(x, z, t) { const q = roadNear(x, z, 16); if (!q || q.d > q.R.hw + 1.6) return -1; const ry = Math.round(q.y) - 1; return ry - t > 9 ? ry : -1; }
+// brugdek (bv. de verhoogde snelweg) boven een kolom die al gebouwd is
+function bridgeDeck(x, z, col, t, ry, overRail) {
+  const q = roadNear(x, z, 16), R = q.R, hw = R.hw;
+  if (!overRail && Math.round(q.s) % 40 < 4 && q.d < hw - 1 && Math.abs(q.sd) > 1.5) for (let y = t + 1; y < ry - 1; y++) col[y] = B.CONCRETE; // pijlers
+  for (let y = t + 1; y < ry - 2; y++) if (col[y] && col[y] !== B.CONCRETE) col[y] = 0; // niets in de weg onder het dek (boven het eigen dak)
+  col[ry - 2] = B.CONCRETE; col[ry - 1] = B.CONCRETE;
+  const lane = Math.abs(q.sd);
+  col[ry] = q.d > hw ? B.CONCRETE : R.kind === 'A' && lane < 0.6 ? B.METAL : (Math.abs(lane - 4) < 0.4 && Math.floor(q.s / 6) % 2 === 0) || lane > hw - 0.5 ? B.LINE_WHITE : B.ASPHALT;
+  if (q.d > hw) { col[ry + 1] = B.METAL; col[ry + 2] = B.GLASS; return ry + 2; } // geluidsscherm
+  if (lane < 0.6) { col[ry + 1] = B.METAL; return ry + 1; }
+  if (Math.round(q.s) % 50 === 25 && Math.abs(lane - hw + 0.3) < 0.5) { for (let y = ry + 1; y <= ry + 5; y++) col[y] = B.POST; col[ry + 6] = B.LAMP; return ry + 6; }
   return ry;
 }
 
@@ -451,6 +487,8 @@ function streetColumn(st, u, x, z, col, top) {
     return y;
   }
   void lane; void inner;
+  // fietspad (tweerichtingen) aan één kant van de bredere straten, naast de stoep
+  if (st.hw >= 5 && st.d < 4) { col[y] = Math.abs(st.d - 3.1) < 0.3 && Math.floor((st.alongX ? x : z) / 3) % 2 === 0 ? B.LINE_WHITE : B.BIKE_PATH; return y; }
   const mid = Math.abs(st.d - st.hw / 2);
   col[y] = mid < 0.5 && Math.floor((st.alongX ? x : z) / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
   if (st.avenue && st.hw > 6 && mid < 1.6) col[y] = B.METAL; // tramsporen in het midden van de laan
@@ -464,8 +502,14 @@ function fillColumn(x, z, col, slope, ctx, h) {
   for (let y = 1; y < top - 3; y++) col[y] = B.STONE;
   // spoor en wegen eerst (ook bruggen en viaducten over water); daaronder vult het water aan
   const water = (top <= G - 1) ? G - 1 : -1;
-  { const rc = railColumnAll(x, z, col, top, ctx); if (rc >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; return Math.max(rc, water); } }
-  { const rd = roadColumn(x, z, col, top); if (rd >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; return Math.max(rd, water); } }
+  { const rc = railColumnAll(x, z, col, top, ctx); if (rc >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; const t = Math.max(rc, water); const dk = deckAbove(x, z, t); return dk > 0 ? Math.max(t, bridgeDeck(x, z, col, t, dk, true)) : t; } }
+  let deckY = -1;
+  { const rd = roadColumn(x, z, col, top); if (rd >= 0) { if (water > 0) for (let y = Math.max(1, top + 1); y <= water; y++) if (!col[y]) col[y] = B.WATER; return Math.max(rd, water); } if (rd <= -2) deckY = -2 - rd; }
+  if (deckY > 0) { const t = fillColumnBelow(x, z, col, slope, ctx, h, top); return Math.max(t, bridgeDeck(x, z, col, Math.max(t, top), deckY)); }
+  return fillColumnBelow(x, z, col, slope, ctx, h, top);
+}
+// alles behalve spoor en wegen (ook onder een brug)
+function fillColumnBelow(x, z, col, slope, ctx, h, top) {
   // zee, rivieren, meren
   if (top <= G - 1) {
     for (let y = Math.max(1, top - 3); y < top; y++) col[y] = B.SAND;
