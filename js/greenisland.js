@@ -484,7 +484,7 @@ function buildingColumn(b, F, x, z, col, top) {
   // fundering tot op de grond; aan de hoge kant de helling weggraven
   for (let y = Math.max(1, Math.min(top, F) - 3); y < F; y++) col[y] = y <= top - 4 ? (col[y] || B.STONE) : B.ASHLAR;
   for (let y = F + 1; y <= top; y++) col[y] = 0;
-  col[F] = b.kind === 'palace' ? ((x + z) % 2 ? B.CHECKER : B.MARBLE) : b.kind === 'parliament' ? B.WOOL_RED : b.kind === 'tower' || b.landmark ? B.MARBLE : B.PLANKS;
+  col[F] = b.kind === 'palace' ? (Math.abs(x - (b.x0 + b.x1) / 2) < 2 ? B.WOOL_RED : (x + z) % 2 ? B.CHECKER : B.MARBLE) : b.kind === 'parliament' ? B.WOOL_RED : b.kind === 'tower' || b.landmark ? B.MARBLE : B.PLANKS;
   if (b.kind === 'lighthouse') {
     const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, d = Math.hypot(x - cx, z - cz);
     if (d > 3.6) return Math.max(F, top);
@@ -537,12 +537,59 @@ function buildingColumn(b, F, x, z, col, top) {
 }
 
 // ---------- binnenkant: kamers met tussendeuren, een gang in het midden, meubels en lampen ----------
+// begane grond van de landmarks: een eigen inrichting (null = gewone kamers)
+function specialHall(b, lx, lz, W, D, inLvl, fh) {
+  const top = inLvl === fh - 2, cx = W / 2, cz = D / 2;
+  if (lx <= 1 || lz <= 1 || lx >= W - 1 || lz >= D - 1) return null;
+  if (top) return (lx % 6 === 3 && lz % 6 === 3) ? B.LAMP : 0;
+  if (b.name.startsWith('GNMI')) { // weerkamer: werkplekken met schermen en een grote kaarttafel
+    if (Math.abs(lx - cx) < 5 && Math.abs(lz - cz) < 3) return inLvl === 0 ? B.GLASS_BLUE : 0;
+    if (lz % 5 === 2 && lx % 4 !== 0 && lx > 3 && lx < W - 3) return inLvl === 0 ? B.PLANKS : inLvl === 1 ? B.PANEL_DARK : 0;
+    if (lz % 5 === 3 && lx % 4 === 2 && inLvl === 0) return B.WOOL_RED;
+    if (lx === W - 2 && inLvl >= 1 && inLvl <= 2) return B.PANEL_DARK; // schermenwand
+    return 0;
+  }
+  if (b.name.startsWith('Nationale Bank')) { // loketten en een kluis met goud
+    if (lz === Math.floor(D * 0.4) && lx > 3 && lx < W - 3) return inLvl === 0 ? B.MARBLE : inLvl === 1 && lx % 4 ? B.GLASS : 0;
+    if (lx > W - 12 && lz > D - 12) { const wall = lx === W - 12 || lz === D - 12; if (wall) return inLvl < 2 && lx === W - 12 && lz === D - 6 ? (inLvl === 0 ? B.DOOR : B.DOOR_TOP) : B.METAL; return inLvl === 0 && (lx + lz) % 2 ? B.PAINT_YELLOW : 0; }
+    if (lz < 5 && lx % 7 === 3 && inLvl === 0) return B.DARK_PLANKS;
+    return 0;
+  }
+  if (b.kind === 'palace') { // rode loper naar de troon, feesttafel
+    if (Math.abs(lx - cx) < 2 && lz > D - 5) return inLvl <= 1 ? B.PAINT_YELLOW : 0; // troon
+    if (Math.abs(lx - cx) < 2 && inLvl === 0) return 0; // loper (de vloer is rood)
+    if (Math.abs(lz - cz) < 1.5 && lx > 6 && lx < W / 2 - 4 && inLvl === 0) return B.PLANKS;
+    if (Math.abs(Math.abs(lz - cz) - 2) < 0.5 && lx > 6 && lx < W / 2 - 4 && lx % 2 === 0 && inLvl === 0) return B.WOOL_RED;
+    if (lx === W - 3 && lz % 6 === 0 && inLvl <= 3) return B.BOOKSHELF;
+    return 0;
+  }
+  if (b.kind === 'university') { // collegezaal: oplopende banken naar het bord
+    if (lx === 2 && lz > 4 && lz < D - 4 && inLvl >= 1 && inLvl <= 2) return B.PANEL_DARK;
+    const row = Math.floor((lx - 6) / 2); if (lx >= 6 && lz > 3 && lz < D - 3 && row >= 0) { const hgt = Math.min(fh - 3, Math.floor(row / 3)); if (inLvl < hgt) return B.PLANKS; if (inLvl === hgt && (lx - 6) % 2 === 0) return B.DARK_PLANKS; }
+    return 0;
+  }
+  if (b.kind === 'hospital') { // inkomhal met balie en wachtbanken
+    if (Math.abs(lz - cz) < 1 && Math.abs(lx - cx) < 8 && inLvl === 0) return B.PAINT_WHITE;
+    if (lz % 4 === 1 && lz < cz - 3 && lx % 3 !== 0 && inLvl === 0) return B.PAINT_BLUE;
+    return 0;
+  }
+  if (b.name.startsWith('GreenAir')) { // inkomhal met een vliegtuigmodel en een balie
+    if (Math.abs(lz - cz) < 0.6 && Math.abs(lx - cx) < 9 && inLvl === 2) return B.PAINT_WHITE; // romp
+    if (Math.abs(lx - cx) < 0.6 && Math.abs(lz - cz) < 7 && inLvl === 2) return B.PAINT_WHITE; // vleugels
+    if (lx === Math.round(cx + 8) && Math.abs(lz - cz) < 0.6 && inLvl === 3) return B.PAINT_GREEN; // staart
+    if (lz === D - 4 && Math.abs(lx - cx) < 6 && inLvl === 0) return B.PAINT_GREEN;
+    return 0;
+  }
+  return null;
+}
 function interior(b, x, z, fl, inLvl, fh) {
   const lx = x - b.x0, lz = z - b.z0, W = b.x1 - b.x0, D = b.z1 - b.z0;
   if (lx === 2 && lz === 2 && b.floors > 1) return 0; // trap (ladder wordt later gezet)
   const big = b.kind === 'tower' || b.kind === 'office' || b.kind === 'hospital' || b.kind === 'campus' || b.kind === 'university' || b.kind === 'apartment' || b.landmark;
   const RS = big ? 8 : 6, midZ = Math.floor(D / 2), corridor = D >= 12 && Math.abs(lz - midZ) <= 1;
   const top = inLvl === fh - 2; // net onder het plafond
+  // bijzondere zalen op de begane grond van belangrijke gebouwen
+  if (fl === 0 && b.landmark) { const sp = specialHall(b, lx, lz, W, D, inLvl, fh); if (sp !== null) return sp; }
   // grote zalen: geen tussenmuren
   const hall = b.kind === 'warehouse' || b.kind === 'factory' || b.kind === 'showroom' || b.kind === 'parliament' || (b.kind === 'shop' && fl === 0) || (b.kind === 'palace' && fl === 0) || b.kind === 'lighthouse';
   // tussenmuren (dwars) met een deur in elke kamer, behalve in de gang
