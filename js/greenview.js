@@ -1,7 +1,8 @@
 // Greenisland in de verte: het landschap van het hele eiland (145 × 50 km) en de zee eromheen, in stukken van 4 km
 // (fijn dichtbij, grof ver weg), stap voor stap opgebouwd. Zelfde opbouw als js/mountainview.js (Alpen).
 import * as THREE from 'three';
-import { natural, farColor, MW, ML } from './greenisland.js';
+import { natural, farColor, MW, ML, LIFTS } from './greenisland.js';
+import { LiftView } from './lift-view.js';
 
 function stubLift() {
   const g = new THREE.Group(), cab = new THREE.Group(); cab.visible = false;
@@ -54,8 +55,8 @@ export class MountainView {
       uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 5000 }, fogFar: { value: 70000 }, day: { value: 1 }, nearCut: { value: 200 }, sunColor: { value: new THREE.Vector3(1, 1, 1) } },
     });
     this.chunks = new Map(); this.jobs = [];
-    // (nog) geen kabelbanen in Greenisland: lege objecten met dezelfde vorm als in de Alpen
-    this.gondolas = stubLift(); this.lifts = stubLift();
+    // geen oude kabelbaan (zoals in de Alpen); wel de kabelbanen van Silverpine
+    this.gondolas = stubLift(); this.lifts = new LiftView(LIFTS);
   }
   // ---------- het landschap in stukken van 4 km (fijn dichtbij, grof ver weg) ----------
   static CH = 4000;

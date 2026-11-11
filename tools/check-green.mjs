@@ -21,6 +21,13 @@ for (const L of LINES) if (L.tram) for (let s = 10; s < L.len - 10; s += 20) for
   for (let y = by + 1; y <= by + 5 && !bad; y++) if (c[y] && c[y] !== B.LAMP) bad = `blok ${c[y]} boven het spoor`;
   if (bad) { out.tram++; if (fails.length < 40) fails.push(`${L.id} bij s=${Math.round(s)} (${Math.round(x)},${Math.round(z)}): ${bad}`); }
 }
+// kabelbanen: stationsvloer op de juiste hoogte en vrij erboven, masten tot aan de kabel
+out.liftSt = 0; out.liftBad = 0;
+for (const L of A.LIFTS) for (const [u, y] of [[0, L.ya], [L.len, L.yb]]) for (const v of [-(L.stW - 2), 0, L.stW - 2]) {
+  const x = L.ax + L.ux * u - L.uz * v, z = L.az + L.uz * u + L.ux * v, { col: c } = col(x, z);
+  out.liftSt++;
+  if (![B.TILE, B.LINE_YELLOW].includes(c[y]) || c[y + 1] || c[y + 2]) { out.liftBad++; fails.push(`${L.name}: station op u=${u} v=${v} niet begaanbaar (blok ${c[y]}, erboven ${c[y + 1]})`); }
+}
 // bussen: beide rijstroken liggen op de weg of straat en de ruimte erboven is vrij
 out.busN = 0; out.bus = 0;
 const ROADBED = new Set([B.ASPHALT, B.LINE_WHITE, B.BUS_LANE, B.METAL, B.CONCRETE, B.COBBLE, B.SIDEWALK, B.BIKE_PATH, B.GRASS, B.LINE_YELLOW]);
@@ -107,6 +114,7 @@ for (const R of ROADS.slice(0, 120)) {
   }
 }
 console.log(`metrostations (perronkanten) ${out.metroSt} · trap niet tot op straat ${out.metroBad} · zonder eigen trap ${out.metroNoStair || 0}`);
+console.log(`kabelbaanstations (meetpunten) ${out.liftSt} · niet begaanbaar ${out.liftBad}`);
 console.log(`buspunten ${out.busN} · niet op de weg of niet vrij ${out.bus}`);
 console.log(`trampunten ${out.tramN} · niet vrij of niet in de straat ${out.tram}`);
 console.log(`spoorpunten ${out.railN} · zonder spoorbed ${out.rail} · niet vrij ${out.clear} · te steil ${out.grade} · perronfouten ${out.plat}`);

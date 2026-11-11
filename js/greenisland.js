@@ -12,6 +12,7 @@ import { ALL_PLACES, PLACE } from './greenisland-places.js';
 import { ROADS as ROAD_ROUTES, SEA as SEA_ROUTES } from './greenisland-routes.js';
 import { LINES, LINE, STATIONS_ALL, TRACK, BED, trackOffset } from './green-net.js';
 import { RLine } from './rline.js';
+import { buildLifts, liftColumn, liftUV } from './lifts.js';
 import { CITY_BUS } from './greenisland-buses.js';
 
 export { MW, ML, G, LINES, LINE, STATIONS_ALL, TRACK, trackOffset, ALL_PLACES };
@@ -123,6 +124,23 @@ export function natural(x, z) {
   return railShape(x, z, h);
 }
 export const surfaceAt = natural;
+
+// ---------- kabelbanen in Silverpine (Silverpine canon; de banen zelf zijn een voorstel) ----------
+const LIFT_DEF = (() => {
+  const t = PLACE.Silverpine, pk = PEAKS.find(p => p.name === 'Silverpine Horn');
+  const dir = (an) => [Math.cos(an), Math.sin(an)];
+  const toPk = Math.atan2(pk.z - t.z, pk.x - t.x), dp = Math.hypot(pk.x - t.x, pk.z - t.z);
+  const from = (an, off) => [Math.round(t.x + dir(an)[0] * off), Math.round(t.z + dir(an)[1] * off)];
+  return [
+    { name: 'Silverpine Horn-Kabelbaan', kind: 'cable', a: from(toPk, 560), b: [Math.round(t.x + dir(toPk)[0] * dp * 0.8), Math.round(t.z + dir(toPk)[1] * dp * 0.8)], top: 'Bergstation Silverpine Horn' },
+    { name: 'Zilvergrat-Gondelbaan', kind: 'gondola', a: from(9 / 16 * Math.PI * 2, 520), b: from(9 / 16 * Math.PI * 2, 2500), top: 'Zilvergrat' },
+    { name: 'Silverpine-Stoeltjeslift', kind: 'chair', a: from(3 / 16 * Math.PI * 2, 520), b: from(3 / 16 * Math.PI * 2, 1700), top: 'Skihut Silverpine' },
+  ];
+})();
+export const LIFTS = buildLifts(LIFT_DEF, G, natural);
+const liftGrid = new Grid(512);
+for (const L of LIFTS) liftGrid.add(L, Math.min(L.ax, L.bx) - 60, Math.min(L.az, L.bz) - 60, Math.max(L.ax, L.bx) + 60, Math.max(L.az, L.bz) + 60);
+function nearLift(x, z, pad) { for (const L of liftGrid.at(x, z)) { const [u, v] = liftUV(L, x, z); if (u > -L.stL - pad && u < L.len + L.stL + pad && Math.abs(v) < (Math.abs(u) < L.stL + pad || Math.abs(u - L.len) < L.stL + pad ? L.stW : L.track + 2) + pad) return L; } return null; }
 export const heightAt = (x, z) => G + natural(x, z);
 export const groundAt = (x, z) => Math.round(G + natural(x, z));
 
@@ -196,7 +214,8 @@ function fitLot(b, cache) {
   // niet op het spoor of een nationale weg
   if (f !== null) for (const L of LINES) if (!L.metro && !L.tram && L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
   if (f !== null) { const q = roadNear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 10); if (q && q.d < Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + q.R.hw + (q.R.bike === 'none' ? 4 : 6)) f = null; }
-  if (f !== null && metroExitIn(b)) f = null; // metrotrap: de uitgang komt op een vrij pleintje
+  if (f !== null && metroExitIn(b)) f = null;
+  if (f !== null && (nearLift(b.x0, b.z0, 8) || nearLift(b.x1, b.z1, 8) || nearLift((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, 8 + Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2))) f = null; // niet onder een kabelbaan // metrotrap: de uitgang komt op een vrij pleintje
   if (cache) cache.set(k, f);
   return f;
 }
@@ -659,6 +678,8 @@ function fillColumnBelow(x, z, col, slope, ctx, h, top) {
   if (lk && top < lk.level) { for (let y = top + 1; y <= lk.level; y++) col[y] = B.WATER; col[top] = B.SAND; return lk.level; }
   const rv = riverAt(x, z);
   if (rv) { const wl = Math.max(top + 1, top + 2); col[top] = B.GRAVEL; for (let y = top + 1; y <= wl; y++) col[y] = B.WATER; if (ctx.bridgeOver(x, z)) return wl; return wl; }
+  // kabelbanen: stations en masten
+  { const lc = liftColumn(liftGrid, x, z, col, top); if (lc >= 0) return lc; }
   // landmarks
   for (const b of bldGrid.at(x, z)) if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) { const F = ctx.fitLandmark(b); if (F !== null) return buildingColumn(b, F, x, z, col, top); }
   // luchthaven: banen, taxibanen, terminal
@@ -766,7 +787,7 @@ export function generateTile(tx, tz) {
     lines: lines.filter(L => !L.metro && !L.tram), metro: lines.filter(L => L.metro), lots: new Map(),
     bridgeOver: () => false,
     fitLandmark: (b) => { let f = lmFit.get(b.id); if (f === undefined) { let lo = 1e9, hi = -1e9; for (const [x, z] of [[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]]) { const hh = G + natural(x, z); lo = Math.min(lo, hh); hi = Math.max(hi, hh); } f = Math.round(Math.max(lo, Math.min(hi, G + natural((b.x0 + b.x1) / 2, b.z1 + 3)))); lmFit.set(b.id, f); } return f; },
-    noTree: (x, z) => { if (roadNear(x, z, 12)) return true; for (const L of lines) if (!L.metro && !L.tram && L.near(x, z, 12)) return true; return false; },
+    noTree: (x, z) => { if (roadNear(x, z, 12) || nearLift(x, z, 6)) return true; for (const L of lines) if (!L.metro && !L.tram && L.near(x, z, 12)) return true; return false; },
   };
   const cols = new Array(T * T);
   const col = new Uint8Array(3200);
@@ -913,6 +934,7 @@ export function zoneName(x, z) {
   if (m < 0) return Math.hypot(x - WRECK.x, z - WRECK.z - 1600) < 300 ? WRECK.name : 'Noordzee';
   const pv = PROVINCES.find(p => p.id === provinceAt(x, z)).name;
   for (const L of LINES) { const q = L.near(x, z, 12); if (q) { const st = L.stationAt(q.s); if (st) return `Station ${st.name} · ${L.name}`; return `${L.name}${q.kind === 1 ? ' · tunnel' : q.kind === 2 ? ' · viaduct' : ''} · ${pv}`; } }
+  for (const L of liftGrid.at(x, z)) { const [u, v] = liftUV(L, x, z); if (Math.abs(v) < L.stW + 2 && (Math.abs(u) < L.stL + 2 || Math.abs(u - L.len) < L.stL + 2)) return `${L.name} · ${Math.abs(u) < L.stL + 2 ? 'dalstation' : L.top}`; }
   if (inAirport(x, z)) return AIRPORT.name;
   for (const b of bldGrid.at(x, z)) if (x >= b.x0 - 2 && x <= b.x1 + 2 && z >= b.z0 - 2 && z <= b.z1 + 2) return b.name;
   const a = areaAt(x, z); if (a) return `${a.name} · Munkbay`;
