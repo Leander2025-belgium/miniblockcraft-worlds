@@ -10,11 +10,40 @@ let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffs
 export let RUNS = [];
 export function useNet(net) {
   NET = net;
-  ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML, SERVICES } = net);
+  ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML } = net);
+  SERVICES = applyOverrides(net.SERVICES, loadOverrides());
   if (net.liveries) Object.assign(LIVERY, net.liveries);
   if (!net._runs) { speedLimits(); net._runs = buildTimetable(); }
   RUNS = net._runs;
 }
+// ---------- OV-beheer: eigen dienstregeling (frequentie, uren, aan/uit), bewaard op dit toestel ----------
+const ovKey = () => 'blokstad-ov-' + (NET && NET.id || 'net');
+export function loadOverrides() { try { return JSON.parse(localStorage.getItem(ovKey()) || '{}') || {}; } catch { return {}; } }
+function saveOverrides(o) { try { localStorage.setItem(ovKey(), JSON.stringify(o)); } catch { /* geen opslag */ } }
+function applyOverrides(list, o) { return list.map(sv => o[sv.id] ? { ...sv, ...o[sv.id], base: sv } : sv).filter(sv => !sv.off); }
+// de dienstregeling opnieuw opbouwen na een wijziging (de treinen die nu rijden worden opnieuw ingezet)
+export function rebuildTimetable(overrides) {
+  saveOverrides(overrides);
+  SERVICES = applyOverrides(NET.SERVICES, overrides);
+  NET._runs = buildTimetable(); RUNS = NET._runs;
+}
+// ---------- vertragingen: per rit vast (zelfde voor iedereen op dezelfde dag), meer bij slecht weer ----------
+let delayFactor = 1, delayCause = null;
+export function setDelayWeather(kind) { delayFactor = kind === 'storm' ? 2.6 : kind === 'snow' ? 2.2 : kind === 'rain' ? 1.3 : 1; delayCause = kind === 'storm' ? 'onweer' : kind === 'snow' ? 'sneeuw en gladheid' : kind === 'rain' ? 'regen' : null; }
+const CAUSES = ['drukte bij het in- en uitstappen', 'wachten op een aansluiting', 'seinstoring', 'later vertrokken uit de remise', 'werken aan het spoor', 'een defecte deur'];
+function rideHash(a, b, c) { let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(c, 1442695041)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const svNum = (id) => { let h = 7; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0; return h; };
+// vertraging in seconden van rit k (enkelsporige lijnen en internationale treinen rijden altijd op tijd)
+export function delayOf(r, k) {
+  if (r.pr.L.single || r.sv.international) return 0;
+  const day = Math.floor((Date.now() / 1000 - new Date().getTimezoneOffset() * 60) / P);
+  const u = rideHash(svNum(r.sv.id), r.dir * 1000 + k, day);
+  const p = Math.min(0.6, 0.18 * delayFactor);
+  if (u > p) return 0;
+  const cap = Math.floor(r.h * 0.45 / 60) * 60; // nooit tot bij de volgende rit op hetzelfde spoor
+  return Math.min(cap, Math.round((60 + (u / p) * 360 * Math.min(1.5, delayFactor)) / 60) * 60); // 1 tot 9 minuten
+}
+export function delayReason(r, k) { if (delayCause) return delayCause; return CAUSES[Math.floor(rideHash(svNum(r.sv.id), k, 99) * CAUSES.length)]; }
 
 const KMH = 3.6, P = 86400; // de dienstregeling herhaalt zich elke dag (diensten kunnen een begin- en einduur hebben)
 const GAP = 0.6; // tussen twee rijtuigen
@@ -237,10 +266,11 @@ function activeTrains(now) {
     const n = P / r.h;
     for (let k = 0; k < n; k++) {
       if (!inHours(r.sv, r.off + k * r.h)) continue;
-      let t = now - (r.off + k * r.h); t = ((t % P) + P) % P; if (t > P - 130) t -= P;
+      const dl = delayOf(r, k);
+      let t = now - (r.off + k * r.h) - dl; t = ((t % P) + P) % P; if (t > P - 130 - dl) t -= P;
       if (t < -120 || t > r.pr.T + 60) continue;
       const [x, v] = posAt(r.pr, t);
-      out.push({ id: `${r.sv.id}${r.dir > 0 ? 'a' : 'b'}${k}`, run: r, k, t, x, v: t < 0 || t > r.pr.T ? 0 : v });
+      out.push({ id: `${r.sv.id}${r.dir > 0 ? 'a' : 'b'}${k}`, run: r, k, t, x, v: t < 0 || t > r.pr.T ? 0 : v, delay: dl });
     }
   }
   return out;
@@ -253,7 +283,9 @@ export function departures(name, now, n = 8) {
     for (let k = 0; k < P / r.h; k++) {
       if (!inHours(r.sv, r.off + k * r.h)) continue;
       let dt = (r.off + k * r.h + st.dep) - now; dt = ((dt % P) + P) % P;
-      out.push({ in: dt, run: r, st, dest: r.pr.last.name, at: now + dt });
+      const dl = delayOf(r, k);
+      if (dt > P - dl) dt -= P; // vertrekt nog (te laat)
+      out.push({ in: dt, run: r, st, dest: r.pr.last.name, at: now + dt, k, delay: dl });
     }
   }
   return out.sort((a, b) => a.in - b.in).slice(0, n);
@@ -407,6 +439,7 @@ export class AlpRail {
     const g = this.g, p = g.player.pos;
     this.t += dt;
     const now = railClock();
+    setDelayWeather(g.curWeather);
     const act = activeTrains(now);
     this.active = act;
     const seen = new Set();
@@ -819,16 +852,81 @@ export class AlpRail {
     // speler
     const pp = this.g.player.pos; this.g.drawArrow?.(ctx, pp.x * k, pp.z * k, 10);
   }
+  bindPanel(box) {
+    for (const b of box.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { this.tab = b.dataset.tab; this.renderPanel(); });
+    for (const b of box.querySelectorAll('[data-kind]')) b.addEventListener('click', () => { this.ovKind = b.dataset.kind; this.renderPanel(); });
+    const save = box.querySelector('#ov-save'), reset = box.querySelector('#ov-reset');
+    if (save) save.addEventListener('click', () => {
+      const o = loadOverrides();
+      for (const row of box.querySelectorAll('tr[data-sv]')) {
+        const id = row.dataset.sv, base = NET.SERVICES.find(q => q.id === id); if (!base) continue;
+        const h = Math.round(+row.querySelector('.ov-h').value * 60), a = +row.querySelector('.ov-a').value, b = +row.querySelector('.ov-b').value, on = row.querySelector('.ov-on').checked;
+        const ch = {}; if (h !== base.h) ch.h = h;
+        const bh = base.hours || [0, 24]; if (a !== bh[0] || b !== bh[1]) ch.hours = a === 0 && b === 24 ? undefined : [a, b];
+        if (!on) ch.off = true;
+        if (Object.keys(ch).length) o[id] = ch; else delete o[id];
+      }
+      rebuildTimetable(o); this.resetTrains(); this.g.toast('🗓 Nieuwe dienstregeling ingevoerd'); this.renderPanel();
+    });
+    if (reset) reset.addEventListener('click', () => { rebuildTimetable({}); this.resetTrains(); this.g.toast('🗓 Standaard dienstregeling hersteld'); this.renderPanel(); });
+  }
+  resetTrains() { for (const tr of this.trains.values()) { if (this.g.aboard && this.g.aboard.train === tr) continue; this.dropTrain(tr); } for (const [id, tr] of [...this.trains]) if (!(this.g.aboard && this.g.aboard.train === tr)) this.trains.delete(id); }
+  ovPanel(tab, now, esc) {
+    const CAR_NAMES = { iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
+    const kindOf = (sv) => sv.bus ? 'bus' : sv.tram ? 'tram' : sv.metro ? 'metro' : 'trein';
+    const kinds = [...new Set(NET.SERVICES.map(kindOf))], kind = kinds.includes(this.ovKind) ? this.ovKind : kinds[0];
+    const filt = kinds.length > 1 ? `<div class="row" style="gap:4px;margin:0 0 6px">${kinds.map(k => `<button class="btn${k === kind ? ' primary' : ''}" data-kind="${k}">${{ trein: '🚆 Trein', metro: 'Ⓜ Metro', tram: '🚋 Tram', bus: '🚌 Bus' }[k]}</button>`).join('')}</div>` : '';
+    const mm = (h) => `${String(Math.floor(h) % 24).padStart(2, '0')}:${String(Math.round((h % 1) * 60)).padStart(2, '0')}`;
+    if (tab === 'plan') {
+      const o = loadOverrides();
+      const opts = (v, list, f) => list.map(x => `<option value="${x}"${Math.abs(x - v) < 1e-6 ? ' selected' : ''}>${f(x)}</option>`).join('');
+      let h = filt + '<div class="small muted">Pas per dienst de frequentie, de uren en aan/uit aan. Canon-diensten zijn gemarkeerd; een wijziging is dan een afwijking van de canon (wordt alleen op dit toestel bewaard).</div><div style="max-height:52vh;overflow:auto"><table class="small" style="width:100%"><tr><th align="left">Dienst</th><th>Elke</th><th>Van</th><th>Tot</th><th>Aan</th></tr>';
+      for (const base of NET.SERVICES.filter(sv => kindOf(sv) === kind)) {
+        const cur = { ...base, ...(o[base.id] || {}) }, hr = cur.hours || [0, 24], mins = cur.h / 60;
+        const freqs = [...new Set([5, 7.5, 10, 12, 15, 20, 30, 60, 120, 240, 1440, mins])].sort((a, b) => a - b);
+        const hours = [...new Set([...Array.from({ length: 49 }, (_, i) => i / 2), hr[0], hr[1]])].sort((a, b) => a - b);
+        h += `<tr data-sv="${esc(base.id)}"><td><span style="color:${LINE[base.line].color}">■</span> ${esc(base.name)}${base.canon ? ' <span class="muted">(canon)</span>' : ''}${o[base.id] ? ' <b style="color:#fbbf24">aangepast</b>' : ''}</td>`
+          + `<td><select class="ov-h">${opts(mins, freqs, x => x >= 1440 ? '1× per dag' : x >= 60 ? `${x / 60} u` : `${x} min`)}</select></td>`
+          + `<td><select class="ov-a">${opts(hr[0], hours.filter(x => x < 24), mm)}</select></td><td><select class="ov-b">${opts(hr[1], hours.filter(x => x > 0), mm)}</select></td>`
+          + `<td><input type="checkbox" class="ov-on"${cur.off ? '' : ' checked'}></td></tr>`;
+      }
+      return h + '</table></div><div class="row" style="margin-top:6px"><button class="btn primary" id="ov-save">✔ Opslaan en invoeren</button><button class="btn" id="ov-reset">↺ Standaard herstellen</button></div><p class="help">Nieuwe ritten worden zonder botsingen ingepland; is een lijn te druk, dan rijdt een dienst minder vaak dan gevraagd.</p>';
+    }
+    if (tab === 'delay') {
+      const act = (this.active || activeTrains(now)).filter(a => a.delay > 0 && kindOf(a.run.sv) === kind);
+      let h = filt + `<div class="small">${delayCause ? `⚠ Weer: ${esc(delayCause)} – meer vertragingen dan normaal.` : 'Normale dienst.'} Nu ${act.length} ritten met vertraging.</div><div style="max-height:52vh;overflow:auto"><table class="small" style="width:100%"><tr><th align="left">Rit</th><th align="left">Richting</th><th>Vertraging</th><th align="left">Oorzaak</th></tr>`;
+      for (const a of act.sort((p, q) => q.delay - p.delay).slice(0, 60)) h += `<tr><td><span style="color:${a.run.pr.L.color}">■</span> ${esc(a.run.sv.name)}</td><td>${esc(a.run.pr.last.name)}</td><td align="center"><b style="color:#f87171">+${Math.round(a.delay / 60)} min</b></td><td>${esc(delayReason(a.run, a.k))}</td></tr>`;
+      return h + '</table></div>';
+    }
+    // depot: benodigde treinstellen per dienst (omlooptijd / interval), nu onderweg en in de remise
+    const act = this.active || activeTrains(now), running = new Map();
+    for (const a of act) if (a.t >= 0 && a.t <= a.run.pr.T) running.set(a.run.sv.id, (running.get(a.run.sv.id) || 0) + 1);
+    let h = filt + '<div style="max-height:52vh;overflow:auto"><table class="small" style="width:100%"><tr><th align="left">Dienst</th><th align="left">Remise</th><th>Stellen</th><th>Onderweg</th><th>In de remise</th><th align="left">Materieel</th></tr>';
+    let tot = 0, totRun = 0;
+    for (const sv of SERVICES.filter(q => kindOf(q) === kind)) {
+      const rs = RUNS.filter(r => r.sv === sv); if (!rs.length) continue;
+      const cycle = rs.reduce((a, r) => a + r.pr.T + 300, 0), need = Math.max(1, Math.ceil(cycle / Math.min(...rs.map(r => r.h))));
+      const on = running.get(sv.id) || 0, depot = rs[0].pr.L.stations[0].name;
+      tot += need; totRun += Math.min(on, need);
+      const cars = Object.entries(sv.cars.reduce((m, c) => (m[c] = (m[c] || 0) + 1, m), {})).map(([c, n]) => `${n}× ${CAR_NAMES[c] || c}`).join(', ');
+      h += `<tr><td><span style="color:${rs[0].pr.L.color}">■</span> ${esc(sv.name)}</td><td>${esc(depot)}</td><td align="center">${need}</td><td align="center">${on}</td><td align="center">${Math.max(0, need - on)}</td><td>${esc(cars)}</td></tr>`;
+    }
+    return h + `</table></div><div class="small" style="margin-top:6px">Totaal (${kind}): <b>${tot}</b> stellen nodig, <b>${totRun}</b> nu onderweg, <b>${Math.max(0, tot - totRun)}</b> in de remises (incl. reserve bij nacht en daluren).</div>`;
+  }
   renderPanel() {
     const box = document.getElementById('rail-panel'); if (!box) return;
     const now = railClock(), here = this.nearestStation();
-    const esc = (t) => String(t).replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[m]);
-    let html = '';
+    const esc = (t) => String(t).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[m]);
+    const tab = this.tab || 'station';
+    let html = `<div class="row ov-tabs" style="gap:4px;margin:0 0 6px">${[['station', '🚉 Station'], ['plan', '🗓 Dienstregeling'], ['delay', '⏱ Vertragingen'], ['depot', '🏭 Depot']].map(([k, t]) => `<button class="btn${k === tab ? ' primary' : ''}" data-tab="${k}">${t}</button>`).join('')}</div>`;
+    box.parentElement?.classList.toggle('ov-wide', tab !== 'station'); // OV-beheer: tabellen over de volle breedte
+    const ttl = document.getElementById('rail-title'); if (ttl) ttl.textContent = NET.title || (NET.id === 'alpen' ? '🚆 Spoorkaart Alpen' : '🚆 Spoorkaart');
+    if (tab !== 'station') { box.innerHTML = html + this.ovPanel(tab, now, esc); this.bindPanel(box); return; }
     if (this.sel) {
       const st = STATIONS_ALL.find(q => q.name === this.sel);
       html += `<h3 style="margin:4px 0">🚉 ${esc(st.name)}</h3><div class="small muted">${st.lines.map(id => `<span style="color:${LINE[id].color}">■</span> ${esc(LINE[id].name)}`).join(' · ')}</div>`;
       html += '<table class="small" style="width:100%;margin-top:6px"><tr><th align="left">Vertrek</th><th align="left">Trein</th><th align="left">Naar</th><th align="left">Spoor</th></tr>';
-      for (const d of departures(st.name, now, 8)) html += `<tr><td>${hhmm(d.at)}</td><td><span style="color:${d.run.pr.L.color}">■</span> ${esc(d.run.sv.name)} <span class="muted">rit ${ritNr(d)}</span></td><td>${esc(d.dest)}</td><td>${d.run.sv.platform?.[st.name] ?? ''}</td></tr>`;
+      for (const d of departures(st.name, now, 8)) html += `<tr><td>${hhmm(d.at)}${d.delay ? ` <b style="color:#f87171">+${Math.round(d.delay / 60)}</b>` : ''}</td><td><span style="color:${d.run.pr.L.color}">■</span> ${esc(d.run.sv.name)} <span class="muted">rit ${ritNr(d)}</span></td><td>${esc(d.dest)}</td><td>${d.run.sv.platform?.[st.name] ?? ''}</td></tr>`;
       html += '</table>';
       if (here && here.name !== st.name) {
         const r = plan(here.name, st.name, now);
@@ -839,7 +937,7 @@ export class AlpRail {
       html += `<div class="row" style="margin-top:8px"><button class="btn" id="rail-tp">🧭 Naar dit station</button></div>`;
     } else if (this.tpTo) html += `<div class="row"><button class="btn" id="rail-tp">✈ Hierheen vliegen</button></div>`;
     html += '<p class="help">Tik op een station voor vertrektijden en een reisplanner vanaf het dichtste station. Gekleurde blokjes zijn treinen die nu rijden. Gestippeld = tunnel.</p>';
-    box.innerHTML = html;
+    box.innerHTML = html; this.bindPanel(box);
     document.getElementById('rail-tp')?.addEventListener('click', () => {
       const g = this.g, p = g.player;
       g.aboard = null; if (g.drive) g.leaveVehicle?.();

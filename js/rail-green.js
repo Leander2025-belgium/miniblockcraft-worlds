@@ -20,7 +20,7 @@ const metroLiv = Object.fromEntries(Object.keys(METRO_LINES).map(id => ['M' + id
 import { B } from './blocks.js';
 
 export const NET = {
-  id: 'greenisland', LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS: [], CROSSINGS: [], groundAt, MW, ML, SERVICES,
+  id: 'greenisland', title: '🚆 OV-kaart Greenisland (trein, metro, tram, bus)', LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS: [], CROSSINGS: [], groundAt, MW, ML, SERVICES,
   liveries: { AX: [B.PAINT_GREEN, B.PAINT_WHITE], GS: [B.PAINT_WHITE, B.PAINT_GREEN], GI: [B.PAINT_GREEN, B.PAINT_YELLOW], GV: [B.PAINT_GREEN, B.PAINT_ORANGE], GR: [B.PAINT_WHITE, B.PAINT_BLUE], GB: [B.PAINT_RED, B.PAINT_WHITE], ...metroLiv, TR: [B.PAINT_WHITE, B.PAINT_GREEN], TS: [B.PAINT_GREEN, B.PAINT_YELLOW], BC: [B.PAINT_GREEN, B.PAINT_WHITE], BR: [B.PAINT_YELLOW, B.PAINT_GREEN], BX: [B.PAINT_BLUE, B.PAINT_WHITE], BM: [B.PAINT_RED, B.PAINT_WHITE], BN: [B.PAINT_BLACK, B.PAINT_YELLOW] },
   mapImage: './assets/greenisland-map.jpg',
   mapLabels: [...PEAKS.map(p => [`▲ ${p.name} ${p.h}`, p.x, p.z]), ...AREAS.filter(a => a.kind === 'airport').map(a => ['✈ Munkbay Airport', a.x, a.z, '#dfe'])],

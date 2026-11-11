@@ -159,6 +159,7 @@
   .rail-card { max-width: min(1100px, calc(100vw - 24px)); }
   .rail-wrap { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 12px; align-items: start; }
   #rail-panel { max-height: 70vh; overflow: auto; }
+  .rail-wrap.ov-wide { grid-template-columns: 1fr; } .rail-wrap.ov-wide #railmap { display: none; }
   #rail-panel table td, #rail-panel table th { padding: 1px 4px; }
   @media (max-width: 720px) { .rail-wrap { grid-template-columns: 1fr; } #rail-panel { max-height: none; } }
   #bigmap { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 8px; cursor: crosshair; display: block; }
@@ -557,7 +558,7 @@
   </div>
   <div class="ov" id="ov-rail" hidden>
     <div class="card map-card rail-card">
-      <h2>🚆 Spoorkaart Alpen</h2>
+      <h2 id="rail-title">🚆 Spoorkaart Alpen</h2>
       <div class="rail-wrap"><canvas id="railmap"></canvas><div id="rail-panel"></div></div>
       <div class="row"><button class="btn primary" id="rail-close">Terug naar het spel</button><button class="btn" id="rail-plain">🗺 Gewone kaart</button></div>
     </div>
