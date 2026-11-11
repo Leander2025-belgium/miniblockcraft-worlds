@@ -1216,6 +1216,7 @@ export class Game {
     this.drawArrow(ctx, W / 2, W / 2, 7);
   }
   drawArrow(ctx, x, y, r) {
+    if (!this.player) return;
     const a = -this.player.yaw;
     ctx.save(); ctx.translate(x, y); ctx.rotate(a);
     ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.7, r); ctx.lineTo(0, r * 0.5); ctx.lineTo(-r * 0.7, r); ctx.closePath();
@@ -1779,6 +1780,7 @@ export class Game {
     ui.canvas.addEventListener('mousemove', (e) => {
       if (!document.pointerLockElement) return;
       const s = 0.0022 * this.settings.sens;
+      if (!this.player) return;
       this.player.yaw -= e.movementX * s;
       this.player.pitch = Math.max(-1.55, Math.min(1.55, this.player.pitch - e.movementY * s));
     });
@@ -1829,10 +1831,10 @@ export class Game {
     ui.touch.move.addEventListener('pointercancel', endMove);
     let lookId = null, lx = 0, ly = 0;
     ui.touch.look.addEventListener('pointerdown', (e) => {
-      lookId = e.pointerId; lx = e.clientX; ly = e.clientY; ui.touch.look.setPointerCapture(e.pointerId);
+      lookId = e.pointerId; lx = e.clientX; ly = e.clientY; try { ui.touch.look.setPointerCapture(e.pointerId); } catch { /* geen actieve aanraking */ }
     });
     ui.touch.look.addEventListener('pointermove', (e) => {
-      if (e.pointerId !== lookId) return;
+      if (e.pointerId !== lookId || !this.player) return; // (nog) geen wereld geladen
       const s = 0.005 * this.settings.sens;
       this.player.yaw -= (e.clientX - lx) * s;
       this.player.pitch = Math.max(-1.55, Math.min(1.55, this.player.pitch - (e.clientY - ly) * s));

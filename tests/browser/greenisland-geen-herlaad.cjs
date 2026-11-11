@@ -19,6 +19,12 @@ const fs = require('fs');
   await p.evaluate(() => { const g = window.blokGame(); g.touch = true; g.paused = false; window.__marker = 42; });
   await p.waitForTimeout(8000);
   const na1 = await p.evaluate(() => window.__marker === 42);
+  // terug-gebaar van Safari (veeg vanaf de linkerrand): twee keer terug in de geschiedenis
+  await p.evaluate(() => history.back()); await p.waitForTimeout(1500);
+  await p.evaluate(() => history.back()); await p.waitForTimeout(1500);
+  const terug = await p.evaluate(() => ({ zelfdePagina: window.__marker === 42, speelt: !!window.blokGame().running, menuVerborgen: document.getElementById('menu').hidden }));
+  // aanraken (rondkijken) terwijl er geen speler is mag geen fout geven
+  await p.evaluate(() => { const g = window.blokGame(), pl = g.player; g.player = undefined; const el = g.ui.touch.look; el.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 7, clientX: 10, clientY: 10, bubbles: true })); el.dispatchEvent(new PointerEvent('pointermove', { pointerId: 7, clientX: 40, clientY: 20, bubbles: true })); try { g.drawArrow(document.createElement('canvas').getContext('2d'), 5, 5, 5); } catch (e) { window.__err = e.message; } g.player = pl; });
   // grafische context kwijt en terug
   const r = await p.evaluate(async () => {
     const g = window.blokGame(), c = g.ui.canvas, gl = c.getContext('webgl2') || c.getContext('webgl'), ext = gl && gl.getExtension('WEBGL_lose_context');
@@ -32,7 +38,7 @@ const fs = require('fs');
   const r3 = await p.evaluate(async () => { const c = window.blokGame().ui.canvas, gl = c.getContext('webgl2') || c.getContext('webgl'), ext = gl.getExtension('WEBGL_lose_context'); ext.loseContext(); await new Promise(r => setTimeout(r, 12000)); return { knop: !document.getElementById('ctx-lost').hidden, zelfdePagina: window.__marker === 42 }; });
   na2.zonderHerstel = r3;
   if (process.env.SHOT) await p.screenshot({ path: process.env.SHOT });
-  console.log('geen-herlaad:', JSON.stringify({ oudereVersieGeenHerlaad: na1, context: r, ...na2, paginaLaadbeurten: loads }));
+  console.log('geen-herlaad:', JSON.stringify({ oudereVersieGeenHerlaad: na1, terugGebaar: terug, context: r, ...na2, paginaLaadbeurten: loads }));
   console.log('fouten:', errs.length ? errs.join(' | ') : 'geen');
   await b.close();
 })();

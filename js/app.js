@@ -783,7 +783,20 @@ setInterval(() => { if (!game || !game.running || document.hidden) return; try {
 setInterval(() => { if (game && game.running && !document.hidden) try { sessionStorage.setItem('blokstad-alive', String(Date.now())); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ } }, 3000);
 
 // welke wereld open stond (blijft bewaard als de browser de pagina op de achtergrond herlaadt)
-function setInGame(v) { try { v ? sessionStorage.setItem('blokstad-ingame', JSON.stringify(v)) : sessionStorage.removeItem('blokstad-ingame'); } catch { /* geen opslag */ } }
+function setInGame(v) { if (v) setTimeout(trapHistory, 0); try { v ? sessionStorage.setItem('blokstad-ingame', JSON.stringify(v)) : sessionStorage.removeItem('blokstad-ingame'); } catch { /* geen opslag */ } }
+// Safari (iPhone): het veeggebaar vanaf de linkerrand (daar zit de joystick) gaat een pagina terug en laadt de
+// game opnieuw. Daarom zet de game in een wereld een eigen stap in de geschiedenis: 'terug' blijft dan binnen
+// de pagina, de game vangt hem op en je blijft gewoon spelen.
+let historyTrap = false;
+function trapHistory() {
+  if (historyTrap) return;
+  try { history.pushState({ blokstad: 'spel' }, ''); historyTrap = true; } catch { /* niet ondersteund */ }
+}
+window.addEventListener('popstate', () => {
+  if (!historyTrap) return;
+  historyTrap = false;
+  if (game && game.running) { diag('terug-gebaar opgevangen (in het spel gebleven)'); trapHistory(); game.toast?.('↩ Terug-gebaar genegeerd: gebruik ☰ om de wereld te verlaten'); }
+});
 // dezelfde wereld staat nog klaar in het geheugen?
 function resumeSuspended(id) {
   if (!game || !game.suspended || !game.meta || game.meta.id !== id) return false;
@@ -1045,7 +1058,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16f';
+const APP_VERSION = '2026-11-16g';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
@@ -1079,7 +1092,7 @@ refreshList().then(() => {
   // was de pagina tijdens het spelen weggevallen zonder dat ze netjes werd afgesloten? (de browser had geheugen nodig)
   // dan zuiniger verder: kijkafstand en verre gebouwen een stap lager, en het zeggen
   let crashed = false;
-  try { const alive = +sessionStorage.getItem('blokstad-alive') || 0; crashed = !!(ing && ing.id && alive && sessionStorage.getItem('blokstad-clean') !== '1' && Date.now() - alive < 120000); sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ }
+  try { const alive = +sessionStorage.getItem('blokstad-alive') || 0; const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0]?.type; crashed = !!(ing && ing.id && alive && nav !== 'back_forward' && sessionStorage.getItem('blokstad-clean') !== '1' && Date.now() - alive < 120000); /* terug/vooruit in de geschiedenis is geen crash */ sessionStorage.removeItem('blokstad-clean'); } catch { /* geen opslag */ }
   diag('pagina geladen', { herstart: !!(ing && ing.id), crash: crashed, versie: APP_VERSION, navigatie: performance.getEntriesByType && performance.getEntriesByType('navigation')[0]?.type });
   if (crashed) {
     try {
