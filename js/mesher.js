@@ -9,7 +9,8 @@ for (const b of [B.GRASS, B.DIRT, B.SAND, B.GRAVEL, B.SNOW, B.STONE, B.ASPHALT, 
   B.BALLAST, B.FLOWERS, B.MOSSY_STONE, B.GRANITE, B.CLAY, B.TILE]) if (b != null) SMOOTH[b] = 1;
 // wat boven een vloeiend oppervlak mag staan (bomen)
 export const OVER = new Uint8Array(256);
-for (const b of [B.AIR, B.LOG, B.LEAVES, B.SPRUCE, B.PINE_LEAVES, B.BIRCH_LOG, B.BIRCH_LEAVES, B.WATER]) if (b != null) OVER[b] = 1;
+// (ook palen, hagen en paaltjes: anders blijft de grond eronder een trede van een blok hoog)
+for (const b of [B.AIR, B.LOG, B.LEAVES, B.SPRUCE, B.PINE_LEAVES, B.BIRCH_LOG, B.BIRCH_LEAVES, B.WATER, B.POST, B.HEDGE]) if (b != null) OVER[b] = 1;
 const AO_LEVEL = [0.45, 0.65, 0.82, 1.0];
 // schaduw per richting: index a*2 + (s>0?0:1)
 const SHADE = [0.82, 0.82, 1.0, 0.55, 0.68, 0.68];

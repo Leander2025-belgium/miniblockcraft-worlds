@@ -887,11 +887,14 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
     let baseG = Infinity;
     if (grp) { const pp = proj([grp.lat, grp.lon]); baseG = gyAt(Math.floor(pp[0]), Math.floor(pp[1])); }
     else {
+      // grond onder de hele contour: op een helling niet het allerlaagste punt (dan zit het gebouw half in de grond)
+      // maar het laagste kwart; de lage kant krijgt een stenen sokkel, de hoge kant wordt een kelder/souterrain
+      const hs = [];
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
         if (!mask[(z - z0) * bw + (x - x0)]) continue;
-        const v = (x >= 0 && z >= 0 && x < size && z < size) ? gy[z * size + x] : gyAt(x, z);
-        if (v < baseG) baseG = v;
+        hs.push((x >= 0 && z >= 0 && x < size && z < size) ? gy[z * size + x] : gyAt(x, z));
       }
+      if (hs.length) { hs.sort((a, b) => a - b); baseG = hs[0]; if (hs[hs.length - 1] - hs[0] > 2) baseG = hs[Math.floor(hs.length * 0.25)]; }
     }
     if (!Number.isFinite(baseG)) baseG = G;
     const top = baseG + Math.max(1, Math.round(hTot + (bd.hm.explicit ? 0 : roofH)));
@@ -1287,7 +1290,13 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   }
   for (const [x, z, name, uy, under] of railStops) pathsOut.push({ type: under ? 'metrostop' : 'railstop', name, pts: new Float32Array([x, z, under ? uy : surfY(x, z) + 1]) });
   for (const [x, z] of busStops) pathsOut.push({ type: 'busstop', pts: new Float32Array([x, z, surfY(x, z)]) });
-  return { vox, H, ground: G, buildings: count, paths: pathsOut, tunnels: tunnelSegs };
+  // grondhoogte net naast de tegel (uit dezelfde hoogtekaart): de vloeiende grond loopt naadloos door over tegelgrenzen
+  let edge = null;
+  if (elev) {
+    edge = new Int16Array(4 * size);
+    for (let i = 0; i < size; i++) { edge[i] = gyAt(-1, i); edge[size + i] = gyAt(size, i); edge[2 * size + i] = gyAt(i, -1); edge[3 * size + i] = gyAt(i, size); }
+  }
+  return { vox, H, ground: G, buildings: count, paths: pathsOut, tunnels: tunnelSegs, edge };
 }
 
 // Bovenaanzicht (RGBA) van een voxelvolume
@@ -1342,23 +1351,30 @@ export function subsetOSM(osm, s, w, n, e) {
 // eenvoudige versie per tegel (verre gebouwen + minikaart): per vak van 8 m de hoogte en kleur
 export function computeLod(vox, T, H) {
   const c8 = 8, n = T / c8;
-  const h = new Int16Array(n * n), c = new Uint8Array(n * n * 3);
+  // h = hoogste punt (gebouwen), g = grondhoogte (laagste vijfde van de kolommen: straten, pleinen, tuinen)
+  const h = new Int16Array(n * n), g = new Int16Array(n * n), c = new Uint8Array(n * n * 3), gc = new Uint8Array(n * n * 3);
+  const tops = new Int16Array(c8 * c8), topB = new Uint8Array(c8 * c8);
   for (let cz = 0; cz < n; cz++) for (let cx = 0; cx < n; cx++) {
     let best = 0, bestB = 0, sumY = 0, cnt = 0;
     for (let z = cz * c8; z < cz * c8 + c8; z++) for (let x = cx * c8; x < cx * c8 + c8; x++) {
       const base = (z * T + x) * H;
       let y = H - 1;
       while (y > 0 && !vox[base + y]) y--;
+      tops[cnt] = y; topB[cnt] = vox[base + y];
       sumY += y; cnt++;
       if (y > best) { best = y; bestB = vox[base + y]; }
     }
     const i = cz * n + cx;
     const avg = sumY / cnt;
     h[i] = Math.round(best - avg > 30 ? avg + (best - avg) * 0.5 : best);
-    const col = BLOCKS[bestB] ? BLOCKS[bestB].color : [90, 90, 90];
+    // grond: de kolom op het eerste vijfde van de gesorteerde hoogtes
+    let k = 0; const order = Array.from(tops.keys()).sort((a, b) => tops[a] - tops[b]); k = order[Math.floor(cnt * 0.2)];
+    g[i] = tops[k];
+    const col = BLOCKS[bestB] ? BLOCKS[bestB].color : [90, 90, 90], gcol = BLOCKS[topB[k]] ? BLOCKS[topB[k]].color : [90, 110, 80];
     c[i * 3] = col[0]; c[i * 3 + 1] = col[1]; c[i * 3 + 2] = col[2];
+    gc[i * 3] = gcol[0]; gc[i * 3 + 1] = gcol[1]; gc[i * 3 + 2] = gcol[2];
   }
-  return { n, h, c };
+  return { n, h, c, g, gc };
 }
 
 // kant-en-klare tegel (voorbereid bestand): 'BT1' + H + json(paden) + RLE

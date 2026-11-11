@@ -102,6 +102,7 @@ export class FarView {
   }
   build(tx, tz, lod) {
     if (this.spec.smoothLod) return this.buildSmooth(tx, tz, lod);
+    if (lod.g) return this.buildCity(tx, tz, lod);
     const n = lod.n, s = this.T / n, G = this.G;
     const pos = [], col = [], side = [], idx = [];
     // buiten de tegel: geen hoge muur tot zeeniveau, alleen een korte rand (de buurtegel tekent zijn eigen kant)
@@ -144,6 +145,49 @@ export class FarView {
     g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
     g.setIndex(idx);
     g.computeBoundingSphere();
+    const free = function () { this.array = null; };
+    for (const a of Object.values(g.attributes)) a.onUpload(free);
+    g.index.onUpload(free);
+    return g;
+  }
+  // stad met hoogteverschillen: de grond als glad oppervlak (geen trappen van een blok), gebouwen als blokken erop
+  buildCity(tx, tz, lod) {
+    const n = lod.n, s = this.T / n, pos = [], col = [], side = [], idx = [];
+    const cl = (v) => Math.max(0, Math.min(n - 1, v));
+    const Gd = (x, z) => lod.g[cl(z) * n + cl(x)] + 1, Hh = (x, z) => lod.h[cl(z) * n + cl(x)];
+    const X0 = tx * this.T, Z0 = tz * this.T;
+    // grond
+    for (let z = 0; z <= n; z++) for (let x = 0; x <= n; x++) {
+      const h = (Gd(x - 1, z - 1) + Gd(x, z - 1) + Gd(x - 1, z) + Gd(x, z)) / 4;
+      pos.push(X0 + x * s, h, Z0 + z * s); side.push(0);
+      for (let k = 0; k < 3; k++) col.push((lod.gc[(cl(z - 1) * n + cl(x - 1)) * 3 + k] + lod.gc[(cl(z) * n + cl(x)) * 3 + k] + lod.gc[(cl(z) * n + cl(x - 1)) * 3 + k] + lod.gc[(cl(z - 1) * n + cl(x)) * 3 + k]) / 4 / 255 * 0.9);
+    }
+    const V = (x, z) => z * (n + 1) + x;
+    for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) idx.push(V(x, z), V(x, z + 1), V(x + 1, z + 1), V(x, z), V(x + 1, z + 1), V(x + 1, z));
+    const quad = (a, b, c, d, rgb, shade, isSide) => {
+      const o = pos.length / 3;
+      for (const v of [a, b, c, d]) { pos.push(v[0], v[1], v[2]); col.push(rgb[0] * shade, rgb[1] * shade, rgb[2] * shade); side.push(isSide); }
+      idx.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    };
+    // gebouwen: hoger dan 3 m boven de grond van het vak
+    const bld = (x, z) => x >= 0 && z >= 0 && x < n && z < n && Hh(x, z) > lod.g[z * n + x] + 3;
+    for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
+      if (!bld(x, z)) continue;
+      const i = z * n + x, h = lod.h[i], g0 = lod.g[i] + 1, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
+      const x0 = X0 + x * s, x1 = x0 + s, z0 = Z0 + z * s, z1 = z0 + s, y1 = h + 1;
+      quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
+      const sideRgb = rgb.map(v => v * 0.85 + 0.08);
+      const yb = (nx, nz) => Math.max(g0 - 1, bld(nx, nz) ? Hh(nx, nz) + 1 : g0 - 1);
+      if (yb(x - 1, z) < y1) quad([x0, yb(x - 1, z), z0], [x0, yb(x - 1, z), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, 1);
+      if (yb(x + 1, z) < y1) quad([x1, yb(x + 1, z), z1], [x1, yb(x + 1, z), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, 1);
+      if (yb(x, z - 1) < y1) quad([x1, yb(x, z - 1), z0], [x0, yb(x, z - 1), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, 1);
+      if (yb(x, z + 1) < y1) quad([x0, yb(x, z + 1), z1], [x1, yb(x, z + 1), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setAttribute('side', new THREE.Float32BufferAttribute(side, 1));
+    g.setIndex(idx); g.computeBoundingSphere();
     const free = function () { this.array = null; };
     for (const a of Object.values(g.attributes)) a.onUpload(free);
     g.index.onUpload(free);

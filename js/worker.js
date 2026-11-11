@@ -14,7 +14,7 @@ const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateT
 const genCache = new Map();
 function generatorFor(id) { if (!GENERATORS[id]) return Promise.resolve(generateTile); let p = genCache.get(id); if (!p) genCache.set(id, p = GENERATORS[id]()); return p; }
 // verre blokken: hoogtes in absolute meters (tegels in de bergen beginnen hoger)
-function lodFor(vox, T, H, y0) { const l = computeLod(vox, T, H); if (y0) for (let i = 0; i < l.h.length; i++) l.h[i] += y0; return l; }
+function lodFor(vox, T, H, y0) { const l = computeLod(vox, T, H); if (y0) for (let i = 0; i < l.h.length; i++) { l.h[i] += y0; l.g[i] += y0; } return l; }
 
 // ---------- hoogtes ----------
 const elevMem = new Map();
@@ -286,10 +286,10 @@ async function cityTileInner(m) {
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
   const elev = await superElev(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
   const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
-  const rle = rleEncode(r.vox), tunnels = r.tunnels && r.tunnels.length ? r.tunnels : null;
-  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels });
+  const rle = rleEncode(r.vox), tunnels = r.tunnels && r.tunnels.length ? r.tunnels : null, edge = r.edge || null;
+  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels, edge });
   await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { rle, fresh: r.vox, H: r.H, y0: 0, edge: null, paths: r.paths, tunnels, from: superWasDownloaded.has(sk) ? 'net' : 'gen' };
+  return { rle, fresh: r.vox, H: r.H, y0: 0, edge, paths: r.paths, tunnels, from: superWasDownloaded.has(sk) ? 'net' : 'gen' };
 }
 // Elke ontvanger krijgt zijn EIGEN voxelbuffer: de eerste mag de verse buffer hebben,
 // alle andere krijgen een nieuwe kopie uit de (nooit overgedragen) RLE-gegevens.
