@@ -82,17 +82,19 @@ function build() {
 export const NET = build();
 export const LINES = NET.lines;
 export const LINE = Object.fromEntries(LINES.map(L => [L.id, L]));
-export const STATIONS_ALL = (() => {
+export function stationsOf(lines) {
   const m = new Map();
-  for (const L of LINES) for (const st of L.stations) {
+  for (const L of lines) for (const st of L.stations) {
     const p = L.at(st.s);
     let e = m.get(st.name);
     if (!e) m.set(st.name, e = { name: st.name, x: p.x, z: p.z, y: st.y ?? p.y, lines: [], stops: [], intl: !!st.intl });
     e.lines.push(L.id); e.stops.push({ line: L.id, s: st.s });
   }
   return [...m.values()];
-})();
+}
+export const STATIONS_ALL = stationsOf(LINES);
 export function trackOffset(L, s) {
+  if (L.trackAt) return L.trackAt(s); // bussen: midden van de rijstrook
   if (L.single) { let k = 0; for (const st of L.stations) { const a = Math.max(0, Math.min(1, (s - (st.s0 - 90)) / 60)), b = 1 - Math.max(0, Math.min(1, (s - (st.s1 + 30)) / 60)); k = Math.max(k, Math.min(a, b)); } return TRACK * k * k * (3 - 2 * k); }
   return TRACK;
 }

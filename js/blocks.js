@@ -14,7 +14,7 @@ export const B = {
   BIRCH_LOG: 55, BIRCH_LEAVES: 56, MOSSY_STONE: 57, DARK_PLANKS: 58, MARBLE: 59, GRANITE: 60, ICE: 61, PAINT_YELLOW: 62,
   WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
   DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79, ESCALATOR: 80,
-  DOOR: 81, DOOR_TOP: 82, DOOR_GLASS: 83, BIKE_PATH: 84,
+  DOOR: 81, DOOR_TOP: 82, DOOR_GLASS: 83, BIKE_PATH: 84, BUS_LANE: 85,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -105,6 +105,7 @@ export const BLOCKS = [
   { id: 82, name: 'Deur (bovenkant)', color: [120, 78, 44], tex: ['planks', 'door_high', 'planks'], passable: true },
   { id: 83, name: 'Glazen deur', color: [170, 210, 230], tex: ['glass', 'door_glass', 'glass'], transparent: true, passable: true },
   { id: 84, name: 'Fietspad (rood asfalt)', color: [150, 62, 50], tex: ['bike_path', 'asphalt', 'asphalt'] },
+  { id: 85, name: 'Busbaan', color: [112, 40, 44], tex: ['bus_lane', 'asphalt', 'asphalt'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;

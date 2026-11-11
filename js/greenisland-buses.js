@@ -1,0 +1,2 @@
+// Gemaakt door tools/plan-bus.mjs (stadsbuslijnen van Munkbay: straat, begin en einde; voorstel).
+export const CITY_BUS = [{"bx":-18,"a":28668,"b":33000,"street":"Rozenstraat"},{"bx":-14,"a":28628,"b":32816,"street":"Tulpenstraat"},{"bx":-9,"a":27532,"b":32664,"street":"Molenstraat"},{"bx":-6,"a":27532,"b":32552,"street":"Kerkstraat"},{"bx":-3,"a":27532,"b":32320,"street":"Schoolstraat"},{"bx":31,"a":28044,"b":33000,"street":"Marktstraat"},{"bx":35,"a":27896,"b":33000,"street":"Torenstraat"},{"bx":38,"a":27920,"b":33000,"street":"Poortstraat"}];

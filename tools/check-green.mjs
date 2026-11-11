@@ -21,6 +21,19 @@ for (const L of LINES) if (L.tram) for (let s = 10; s < L.len - 10; s += 20) for
   for (let y = by + 1; y <= by + 5 && !bad; y++) if (c[y] && c[y] !== B.LAMP) bad = `blok ${c[y]} boven het spoor`;
   if (bad) { out.tram++; if (fails.length < 40) fails.push(`${L.id} bij s=${Math.round(s)} (${Math.round(x)},${Math.round(z)}): ${bad}`); }
 }
+// bussen: beide rijstroken liggen op de weg of straat en de ruimte erboven is vrij
+out.busN = 0; out.bus = 0;
+const ROADBED = new Set([B.ASPHALT, B.LINE_WHITE, B.BUS_LANE, B.METAL, B.CONCRETE, B.COBBLE, B.SIDEWALK, B.BIKE_PATH, B.GRASS, B.LINE_YELLOW]);
+for (const L of A.BUS_LINES) for (let s = 10; s < L.len - 10; s += 40) for (const side of [1, -1]) {
+  const p = L.at(s), off = L.trackAt(s) * side, x = p.x - p.tz * off, z = p.z + p.tx * off, { col: c } = col(x, z), by = Math.round(p.y);
+  if (LINES.some(L2 => !L2.metro && L2.near(x, z, 8))) continue; // overweg of perron: daar ligt het spoor
+  out.busN++;
+  // het wegdek mag door afronding 1 blok hoger of lager liggen dan de bus (de bus volgt het vloeiende wegprofiel)
+  let sy = [by, by - 1, by + 1].find(y => ROADBED.has(c[y]) && !c[y + 1]);
+  let bad = sy === undefined ? `blok ${c[by]} op de rijstrook (y ${by})` : '';
+  for (let y = (sy ?? by) + 1; y <= (sy ?? by) + 4 && !bad; y++) if (c[y] && c[y] !== B.LAMP) bad = `blok ${c[y]} boven de rijstrook`;
+  if (bad) { out.bus++; if (fails.length < 40) fails.push(`${L.id} bij s=${Math.round(s)} (${Math.round(x)},${Math.round(z)}): ${bad}`); }
+}
 for (const L of LINES) if (!L.tram) {
   for (let i = 25; i < L.n; i += 5) { const g = Math.abs(L.y[i] - L.y[i - 25]) / (L.s[i] - L.s[i - 25]); if (g > L.maxGrade * 1.08) { out.grade++; if (fails.length < 30) fails.push(`${L.id} helling ${(g * 100).toFixed(1)} % bij s=${Math.round(L.s[i])}`); } }
   const p = {};
@@ -94,6 +107,7 @@ for (const R of ROADS.slice(0, 120)) {
   }
 }
 console.log(`metrostations (perronkanten) ${out.metroSt} · trap niet tot op straat ${out.metroBad} · zonder eigen trap ${out.metroNoStair || 0}`);
+console.log(`buspunten ${out.busN} · niet op de weg of niet vrij ${out.bus}`);
 console.log(`trampunten ${out.tramN} · niet vrij of niet in de straat ${out.tram}`);
 console.log(`spoorpunten ${out.railN} · zonder spoorbed ${out.rail} · niet vrij ${out.clear} · te steil ${out.grade} · perronfouten ${out.plat}`);
 console.log(`gebouwkolommen ${out.bldCols} · zwevende vloeren ${out.bld} · naden >2 blokken ${out.seam}/${out.seamN} · wegtreden >1 blok ${out.road}/${out.roadN}`);

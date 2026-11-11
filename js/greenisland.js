@@ -11,6 +11,8 @@ import { rawHeight, coastDist, lakeAt, riverAt, fbm, sstep, cliffAmount } from '
 import { ALL_PLACES, PLACE } from './greenisland-places.js';
 import { ROADS as ROAD_ROUTES, SEA as SEA_ROUTES } from './greenisland-routes.js';
 import { LINES, LINE, STATIONS_ALL, TRACK, BED, trackOffset } from './green-net.js';
+import { RLine } from './rline.js';
+import { CITY_BUS } from './greenisland-buses.js';
 
 export { MW, ML, G, LINES, LINE, STATIONS_ALL, TRACK, trackOffset, ALL_PLACES };
 export const T = 128;
@@ -564,9 +566,11 @@ function streetColumn(st, u, x, z, col, top) {
     return y;
   }
   const mid = hw / 2;
-  col[y] = Math.abs(d + 0.5 - mid) < 0.5 && Math.floor(along / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
+  const busLane = !st.alongX && u.p === MUNK && BUS_BX.has(st.bx); // straat met een stadsbuslijn: busbanen
+  col[y] = Math.abs(d + 0.5 - mid) < 0.5 && Math.floor(along / 4) % 2 === 0 ? B.LINE_WHITE : busLane ? B.BUS_LANE : B.ASPHALT;
   return y;
 }
+const BUS_BX = new Set(CITY_BUS.map(r => r.bx));
 const TRAM_LINES = LINES.filter(L => L.tram);
 function tramZone(col, y, d, t1, t2, along) {
   col[y] = t1 === 1 || t2 === 1 ? B.METAL : t1 < 1 || t2 < 1 ? B.COBBLE : B.GRASS;
@@ -578,6 +582,7 @@ const deepTunnels = [];
 function fillColumn(x, z, col, slope, ctx, h) {
   deepTunnels.length = 0;
   let t = fillColumnSurface(x, z, col, slope, ctx, h);
+  if (busStopGrid().at(x, z).length) t = busShelter(x, z, col, t, Math.round(G + h));
   for (const [L, q, bed] of deepTunnels) {
     const by = Math.round(q.y), ad = q.d;
     if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; }
@@ -837,7 +842,7 @@ function tilePaths(X0, Z0, lines) {
     if (Math.hypot(X0 + T / 2 - p.x, Z0 + T / 2 - p.z) > p.r + 100) continue;
     const g = gridFor(p);
     // per rasterlijn: twee rijstroken (de breedte hangt af van laan of straat), stoepen aan beide kanten
-    const lanePaths = (along, fixed, isX) => {
+    const lanePaths = (along, fixed, isX, busOnly = false) => {
       const plus = [], minus = [], w1 = [], w2 = [], avn = [];
       for (let a = along[0]; a <= along[1]; a += 8) {
         const px = isX ? fixed + 1 : a, pz = isX ? a : fixed + 1, u = urbanAt(px, pz);
@@ -848,9 +853,10 @@ function tilePaths(X0, Z0, lines) {
       }
       // lanen: hoofdwegen in de stad (daar rijden ook de stadsbussen)
       const major = avn.filter(Boolean).length > avn.length / 2;
-      clipPush(major ? 'carM' : 'car', plus); clipPush(major ? 'carM' : 'car', minus.reverse()); clipPush('walk', w1); clipPush('walk', w2);
+      if (!busOnly) { clipPush(major ? 'carM' : 'car', plus); clipPush(major ? 'carM' : 'car', minus.reverse()); } // busbanen: daar rijden alleen de stadsbussen
+      clipPush('walk', w1); clipPush('walk', w2);
     };
-    for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) lanePaths([Z0 - 4, Z0 + T + 4], g.ox + gx * g.B, true);
+    for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) lanePaths([Z0 - 4, Z0 + T + 4], g.ox + gx * g.B, true, p === MUNK && BUS_BX.has(gx));
     for (let gz = Math.ceil((Z0 - g.oz) / g.B); g.oz + gz * g.B < Z0 + T; gz++) lanePaths([X0 - 4, X0 + T + 4], g.oz + gz * g.B, false);
     // bushalte en tramhalte in het centrum
     if (p.x >= X0 && p.x < X0 + T && p.z >= Z0 && p.z < Z0 + T) out.push({ type: 'busstop', name: p.name, pts: new Float32Array([p.x - X0 + 6, p.z - Z0 + 6, groundAt(p.x + 6, p.z + 6)]) });
@@ -969,3 +975,155 @@ export function _tramSpot(x, z) {
   return { y, p: u.p };
 }
 export { gridFor as _gridFor, areaAt as _areaAt };
+
+// ---------- bussen (fase 5): echte buslijnen met haltes en een dienstregeling ----------
+// Streek-, snel- en bergbussen rijden over het nationale wegennet (kortste route), stadsbussen en de luchthavenshuttle
+// over de straten van Munkbay. Lijnnummers, routes, haltes en frequenties zijn een voorstel (geen canon).
+const BUS_REGIONAL = [
+  { id: 'X10', kind: 'express', from: 'Munkbay', to: 'Viridonia', h: 1800 },
+  { id: 'X20', kind: 'express', from: 'Westport', to: 'Rainforest City', h: 3600 },
+  { id: 'R31', kind: 'regional', from: 'Munkbay', to: 'Easthaven', h: 1800 },
+  { id: 'R32', kind: 'regional', from: 'Munkbay', to: 'Southbay', h: 3600 },
+  { id: 'R41', kind: 'regional', from: 'Riverside', to: 'Northfield', h: 3600 },
+  { id: 'R42', kind: 'regional', from: 'Westport', to: 'Northcliff', h: 3600 },
+  { id: 'R43', kind: 'regional', from: 'Greenport', to: 'Southbay', h: 3600 },
+  { id: 'R44', kind: 'regional', from: 'Black Point', to: 'Northcliff', h: 3600 },
+  { id: 'B60', kind: 'mountain', from: 'Viridonia', to: 'Silverpine', h: 3600 },
+];
+const BUS_COLOR = { city: '#2a9d4b', express: '#1f6fd1', regional: '#e3b712', mountain: '#c0392b', airport: '#13a6a6', night: '#333a48' };
+function roadPath(from, to, kind) {
+  // Dijkstra over de wegen (knopen = plaatsnamen); snelbussen verkiezen snelwegen
+  const adj = new Map(), add = (a, e) => { let l = adj.get(a); if (!l) adj.set(a, l = []); l.push(e); };
+  for (const R of ROADS) { if (R.name) continue; const w = R.s[R.n - 1] * (kind === 'express' && R.kind === 'A' ? 0.6 : kind === 'express' && R.kind === 'L' ? 1.4 : 1); add(R.a, { R, to: R.b, w, fwd: true }); add(R.b, { R, to: R.a, w, fwd: false }); }
+  const dist = new Map([[from, 0]]), prev = new Map(), todo = new Set([from]);
+  while (todo.size) {
+    let u = null; for (const v of todo) if (u === null || dist.get(v) < dist.get(u)) u = v;
+    todo.delete(u); if (u === to) break;
+    for (const e of adj.get(u) || []) { const d = dist.get(u) + e.w; if (d < (dist.get(e.to) ?? 1e18)) { dist.set(e.to, d); prev.set(e.to, { from: u, e }); todo.add(e.to); } }
+  }
+  if (!prev.has(to)) return null;
+  const segs = []; for (let v = to; v !== from; v = prev.get(v).from) segs.unshift(prev.get(v).e);
+  const pts = [], lane = [], ys = [];
+  for (const { R, fwd } of segs) {
+    const off = R.kind === 'A' ? 5.5 : R.hw / 2;
+    for (let j = 0; j < R.n; j += 2) { const k = fwd ? j : R.n - 1 - j; if (pts.length && Math.hypot(R.x[k] - pts[pts.length - 1][0], R.z[k] - pts[pts.length - 1][1]) < 4) continue; pts.push([R.x[k], R.z[k]]); lane.push(off); ys.push(R.y[k] - 1); }
+  }
+  return { pts, lane, ys, via: segs.map(e => e.to) };
+}
+function busLineFrom(id, name, kind, pts, ys, lane, stops) {
+  const plan = { name, color: BUS_COLOR[kind], vmax: kind === 'express' ? 25 : kind === 'city' || kind === 'airport' || kind === 'night' ? 13 : 19, rmin: 20, bus: true, canon: false, via: stops.map(st => ({ name: st.name, x: st.x, z: st.z, len: st.len || 30 })) };
+  const L = new RLine(id, plan, pts, () => 0, null);
+  L.bus = kind; L.metro = false; L.tram = false; L.international = null;
+  // hoogte en rijstrook: van het dichtste punt van het tracé
+  const near = new Grid(64); pts.forEach((p, i) => near.add(i, p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1));
+  const idxAt = (x, z) => { let b = 0, bd = 1e18; for (let r = 0; r <= 1; r++) for (const dz of [-64, 0, 64]) for (const dx of [-64, 0, 64]) for (const i of near.at(x + dx, z + dz)) { const d = (pts[i][0] - x) ** 2 + (pts[i][1] - z) ** 2; if (d < bd) { bd = d; b = i; } } return b; };
+  const laneArr = new Float32Array(L.n);
+  for (let i = 0; i < L.n; i++) { const k = idxAt(L.x[i], L.z[i]); laneArr[i] = lane[k]; if (kind === 'city') { L.y[i] = ys[k]; continue; } const q = roadNear(L.x[i], L.z[i], 12); L.y[i] = q ? q.y - 1 : ys[k]; } // precies het wegdek
+  L.track = undefined; L.trackAt = (s) => laneArr[L.idx(s)];
+  L.findStations();
+  for (const st of L.stations) st.y = Math.round(L.at(st.s).y);
+  L.kind.fill(0); L.tunnels = []; L.viaducts = [];
+  L.buildGrid();
+  return L;
+}
+function stopsAlong(pts, minGap) {
+  // haltes: in elke plaats waar de route doorheen komt (benoemde plaatsen: busstation)
+  const cand = [];
+  let s = 0; const S = [0]; for (let i = 1; i < pts.length; i++) S.push(s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const best = new Map();
+  for (let i = 0; i < pts.length; i++) for (const p of placeGrid.at(pts[i][0], pts[i][1])) { const d = Math.hypot(pts[i][0] - p.x, pts[i][1] - p.z); const b = best.get(p); if (!b || d < b.d) best.set(p, { d, i }); }
+  for (const [p, { d: bd, i: bi }] of best) {
+    if (bd > Math.max(160, p.r * 0.6)) continue;
+    cand.push({ s: S[bi], i: bi, name: p.named ? `${p.name} Busstation` : p.name, x: pts[bi][0], z: pts[bi][1], named: p.named, len: p.named ? 40 : 30 });
+  }
+  cand.sort((a, b) => a.s - b.s);
+  const out = [];
+  for (const c of cand) { if (out.length && c.s - out[out.length - 1].s < minGap) { if (c.named && !out[out.length - 1].named) out[out.length - 1] = c; continue; } out.push(c); }
+  return out;
+}
+// stadsbussen: over de gewone straten (12 m) van Munkbay, rechte lijnen (zelfde controles als de tram)
+const CROSS_NAMES = ['Lindeplein', 'Eikhof', 'Beukenhof', 'Rozenplein', 'Marktplein', 'Kerkplein', 'Stadhuisplein', 'Schoolplein', 'Molenplein', 'Visserskaai', 'Brouwershof', 'Smidsplein', 'Torenplein', 'Poortplein', 'Ankerplein', 'Bloemenhof', 'Zonneplein', 'Maanhof', 'Sterrenplein', 'Valkenhof', 'Vossenhof', 'Reigerplein', 'Zwanenhof', 'Meeuwenplein', 'Kievitshof', 'Leeuwerikplein', 'Wrenhof', 'Hazelhof', 'Esdoornplein', 'Kastanjehof'];
+function busSpot(x, z) {
+  const u = urbanAt(x, z); if (!u || u.p !== MUNK || u.dens <= 0.12) return null;
+  if (coastDist(x, z) < 40 || riverAt(x, z) || lakeAt(x, z) || inAirport(x, z)) return null;
+  const st = streetAt(x, z, u); if (!st.street) return null;
+  for (const b of bldGrid.at(x, z)) if (x >= b.x0 - 3 && x <= b.x1 + 3 && z >= b.z0 - 3 && z <= b.z1 + 3) return null;
+  const y = Math.round(G + natural(x, z));
+  for (const L of LINES) if (!L.metro && !L.tram) { const q = L.near(x, z, 16); if (q && (q.kind !== 1 || q.y > y - 12) && (q.kind !== 2 || q.y < y + 9)) return null; }
+  if (roadNear(x, z, 14)) return null;
+  return y;
+}
+function cityRun(bx, z0, z1) {
+  const g = gridFor(MUNK), x = g.ox + bx * g.B + 6, ys = [];
+  let best = null, cur = null;
+  for (let z = z0; z <= z1; z += 4) {
+    const y = busSpot(x - 2, z) !== null && busSpot(x + 2, z) !== null ? busSpot(x, z) : null;
+    const ok = y !== null && (!cur || (Math.abs(y - cur.ys[cur.ys.length - 1]) <= 1 && (cur.ys.length < 10 || Math.abs(y - cur.ys[cur.ys.length - 10]) <= 3)));
+    if (!ok) { if (cur && (!best || cur.b - cur.a > best.b - best.a)) best = cur; cur = null; if (y === null) continue; }
+    if (!cur) cur = { x, a: z, b: z, ys: [] };
+    cur.b = z; cur.ys.push(y);
+  }
+  if (cur && (!best || cur.b - cur.a > best.b - best.a)) best = cur;
+  return best;
+}
+export function _cityBusRun(bx, z0, z1) { return cityRun(bx, z0, z1); }
+export const BUS_LINES = (() => {
+  const out = [];
+  for (const b of BUS_REGIONAL) {
+    const r = roadPath(b.from, b.to, b.kind); if (!r) continue;
+    const stops = stopsAlong(r.pts, 900);
+    if (stops.length < 2) continue;
+    // begin en einde: precies aan de eerste en laatste halte
+    const i0 = stops[0].i, i1 = stops[stops.length - 1].i;
+    const pts = r.pts.slice(Math.max(0, i0 - 3), i1 + 4), ys = r.ys.slice(Math.max(0, i0 - 3), i1 + 4), lane = r.lane.slice(Math.max(0, i0 - 3), i1 + 4);
+    const name = `${b.id} ${b.from} – ${b.to}${b.kind === 'express' ? ' Express' : b.kind === 'mountain' ? ' Bergbus' : ''}`;
+    const L = busLineFrom(b.id, name, b.kind, pts, ys, lane, stops);
+    L.busH = b.h; out.push(L);
+  }
+  // stadslijnen: rechte straten noord-zuid, gekozen door tools/plan-bus.mjs (greenisland-buses.js)
+  const g = gridFor(MUNK);
+  CITY_BUS.forEach((r, n) => {
+    const id = 'B' + (n + 1), x = g.ox + r.bx * g.B + 6, stops = [];
+    for (let j = Math.ceil((r.a + 30 - g.oz - 66) / g.B); g.oz + j * g.B + 66 <= r.b - 30; j += 3) { const c = Math.floor(j / 3); stops.push({ name: `${r.street} / ${CROSS_NAMES[((c % CROSS_NAMES.length) + CROSS_NAMES.length) % CROSS_NAMES.length]}`, x, z: g.oz + j * g.B + 66 }); }
+    if (stops.length < 2) return;
+    const z0 = stops[0].z - 25, z1 = stops[stops.length - 1].z + 25, pts = [], ys = [], lane = [];
+    for (let z = z0; z <= z1; z += 8) { pts.push([x, z]); ys.push(Math.round(G + natural(x, z))); lane.push(2); }
+    const L = busLineFrom(id, r.airport ? `${id} Airport Shuttle` : `${id} Munkbay ${r.street}`, r.airport ? 'airport' : 'city', pts, ys, lane, stops);
+    L.busH = 600; L.airport = !!r.airport; out.push(L);
+  });
+  return out;
+})();
+
+// bushaltes: wachthuisje aan beide kanten van de weg (streek: voorbij het fietspad, stad: op de stoep); busstations met een lange luifel
+let _busStops = null;
+function busStopGrid() {
+  if (_busStops) return _busStops;
+  _busStops = new Grid(64);
+  for (const L of BUS_LINES) for (const st of L.stations) {
+    const p = L.at(st.s), city = L.bus === 'city', hwR = city ? 0 : (roadNear(p.x, p.z, 20)?.R.hw ?? 4);
+    const big = st.name.endsWith('Busstation'), half = big ? 11 : 5, c0 = city ? 4.2 : hwR + 5, c1 = c0 + 2.2;
+    for (const side of [1, -1]) {
+      const e = { x: p.x, z: p.z, tx: p.tx, tz: p.tz, side, half, c0, c1, big, color: city ? B.GLASS_GREEN : L.bus === 'express' ? B.PAINT_BLUE : L.bus === 'mountain' ? B.PAINT_RED : B.PAINT_YELLOW };
+      const cx = p.x - p.tz * (c0 + 1) * side, cz = p.z + p.tx * (c0 + 1) * side;
+      _busStops.add(e, cx - half - 3, cz - half - 3, cx + half + 3, cz + half + 3);
+    }
+  }
+  return _busStops;
+}
+function busShelter(x, z, col, t, top) {
+  for (const e of busStopGrid().at(x, z)) {
+    const dx = x + 0.5 - e.x, dz = z + 0.5 - e.z, a = dx * e.tx + dz * e.tz, c = (-dx * e.tz + dz * e.tx) * e.side;
+    if (Math.abs(a) > e.half + 0.5 || c < e.c0 || c > e.c1) continue;
+    if (t > top + 1) continue; // daar staat al iets (gebouw, boom): geen wachthuisje
+    const y = top;
+    col[y] = col[y] === B.ASPHALT || col[y] === B.LINE_WHITE ? col[y] : B.SIDEWALK;
+    for (let k = y + 1; k <= y + 3; k++) col[k] = 0;
+    if (Math.abs(a) > e.half - 0.5) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = e.color; return Math.max(t, y + 3); } // haltepaal
+    if (c > e.c1 - 0.6) { col[y + 1] = B.GLASS; col[y + 2] = B.GLASS; } // achterwand
+    else if (Math.abs(a) % 4 < 2) col[y + 1] = B.DARK_PLANKS; // bank
+    col[y + 3] = e.big ? B.METAL : e.color === B.GLASS_GREEN ? B.GLASS_GREEN : B.GLASS;
+    return Math.max(t, y + 3);
+  }
+  return t;
+}
+export const _roadQ = (x, z) => roadNear(x, z, 30);
