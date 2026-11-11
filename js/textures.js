@@ -176,6 +176,11 @@ function roofPainter(base) {
 }
 painters.roof_red = roofPainter([168, 60, 44]);
 painters.roof_dark = roofPainter([70, 72, 80]);
+// deuren (16×16): houten deur met panelen, klink en een raampje bovenaan; glazen deur met metalen kader
+painters.bike_path = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 22; px(x, y, 150 + n, 62 + n * 0.5, 50 + n * 0.4); } };
+painters.door_low = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 10, frame = x < 2 || x > 13, panel = (x === 4 || x === 11 || y === 3 || y === 13) && x > 3 && x < 12 && y > 2 && y < 14, knob = x === 12 && (y === 2 || y === 3); if (knob) px(x, y, 210, 180, 60); else if (frame) px(x, y, 70 + n, 46 + n, 28 + n); else px(x, y, (panel ? 96 : 122) + n, (panel ? 62 : 80) + n, (panel ? 34 : 46) + n); } };
+painters.door_high = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const n = (r() - 0.5) * 10, frame = x < 2 || x > 13 || y < 2, win = x > 4 && x < 11 && y > 4 && y < 12; if (frame) px(x, y, 70 + n, 46 + n, 28 + n); else if (win) px(x, y, 150, 190, 210); else px(x, y, 122 + n, 80 + n, 46 + n); } };
+painters.door_glass = (px, r) => { for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) { const frame = x < 2 || x > 13 || y < 1 || y > 14, bar = y === 8 && x > 8; if (frame || bar) px(x, y, 90, 96, 104); else px(x, y, 170 + (r() - 0.5) * 6, 210, 228, 110); } };
 painters.glass = (px, r) => {
   for (let y = 0; y < TILE; y++) for (let x = 0; x < TILE; x++) {
     const frame = x === 0 || y === 0 || x === 15 || y === 15;

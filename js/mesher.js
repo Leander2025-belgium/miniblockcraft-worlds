@@ -6,7 +6,7 @@ export const CS = 16;
 // vloeiend terrein: bovenkanten van deze blokken worden schuine vlakken (stapjes van 1 blok verdwijnen)
 export const SMOOTH = new Uint8Array(256);
 for (const b of [B.GRASS, B.DIRT, B.SAND, B.GRAVEL, B.SNOW, B.STONE, B.ASPHALT, B.LINE_WHITE, B.LINE_YELLOW, B.SIDEWALK, B.COBBLE,
-  B.BALLAST, B.FLOWERS, B.MOSSY_STONE, B.GRANITE, B.CLAY, B.TILE]) if (b != null) SMOOTH[b] = 1;
+  B.BALLAST, B.FLOWERS, B.MOSSY_STONE, B.GRANITE, B.CLAY, B.TILE, B.BIKE_PATH]) if (b != null) SMOOTH[b] = 1;
 // wat boven een vloeiend oppervlak mag staan (bomen)
 export const OVER = new Uint8Array(256);
 // (ook palen, hagen en paaltjes: anders blijft de grond eronder een trede van een blok hoog)

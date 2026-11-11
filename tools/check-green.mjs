@@ -33,7 +33,9 @@ for (const L of LINES) {
 }
 // gebouwen en naden in echte tegels
 const spots = { 'Munkbay Central': [130700, 27900], 'Munkbay CBD': [130200, 27200], 'Old Town': [133100, 28400], 'Munkbay-Noord': [130800, 22900], Westport: [9600, 27600], Viridonia: [70100, 28600], Silverpine: [81500, 20500], Riverside: [111500, 22100], dorp: [A.ALL_PLACES[40].x, A.ALL_PLACES[40].z], gehucht: [A.ALL_PLACES[200].x, A.ALL_PLACES[200].z] };
-const ground = (r, x, z) => { const base = (z * T + x) * r.H; for (let y = 1; y < r.H; y++) { const b = r.vox[base + y]; if (!b || b === B.WATER) return r.y0 + y - 1; } return r.y0 + r.H - 1; };
+// grondhoogte aan de rand: alleen natuurlijke grond, wegen en stoepen (in gebouwen staan muren en meubels)
+const NAT = new Set([B.GRASS, B.DIRT, B.SAND, B.STONE, B.GRAVEL, B.FLOWERS, B.SNOW, B.COBBLE, B.SIDEWALK, B.ASPHALT, B.LINE_WHITE]);
+const ground = (r, x, z) => { const base = (z * T + x) * r.H; for (let y = 1; y < r.H; y++) { const b = r.vox[base + y]; if (!b || b === B.WATER) return NAT.has(r.vox[base + y - 1]) ? r.y0 + y - 1 : null; } return null; };
 for (const [name, [x, z]] of Object.entries(spots)) {
   const tx = Math.floor(x / T), tz = Math.floor(z / T), r = A.generateTile(tx, tz), nb = A.generateTile(tx + 1, tz);
   let bad = 0;
@@ -45,7 +47,7 @@ for (const [name, [x, z]] of Object.entries(spots)) {
   }
   out.bld += bad; out.bldCols += T * T;
   if (bad) fails.push(`${name}: ${bad} kolommen met lucht onder een vloer`);
-  for (let zz = 0; zz < T; zz += 2) { out.seamN++; if (Math.abs(ground(r, T - 1, zz) - ground(nb, 0, zz)) > 2) out.seam++; }
+  for (let zz = 0; zz < T; zz += 2) { const a = ground(r, T - 1, zz), c = ground(nb, 0, zz); if (a === null || c === null) continue; out.seamN++; if (Math.abs(a - c) > 2) out.seam++; }
 }
 // wegen: hoogte van het wegdek langs de as (om de 2 m), geen treden > 1 blok
 for (const R of ROADS.slice(0, 120)) {

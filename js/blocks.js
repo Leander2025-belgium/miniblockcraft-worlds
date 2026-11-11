@@ -14,6 +14,7 @@ export const B = {
   BIRCH_LOG: 55, BIRCH_LEAVES: 56, MOSSY_STONE: 57, DARK_PLANKS: 58, MARBLE: 59, GRANITE: 60, ICE: 61, PAINT_YELLOW: 62,
   WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
   DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79, ESCALATOR: 80,
+  DOOR: 81, DOOR_TOP: 82, DOOR_GLASS: 83, BIKE_PATH: 84,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -99,6 +100,11 @@ export const BLOCKS = [
   { id: 78, name: 'Basalt', color: [52, 52, 58], tex: ['basalt'] },
   { id: 79, name: 'Klei', color: [150, 140, 128], tex: ['clay'] },
   { id: 80, name: 'Roltrap (voert je mee omhoog)', color: [96, 98, 104], tex: ['escalator', 'metal', 'metal'] },
+  // deuren: je kan er gewoon doorheen lopen (onderste helft met klink, bovenste helft met raampje; glazen deur)
+  { id: 81, name: 'Deur', color: [120, 78, 44], tex: ['planks', 'door_low', 'planks'], passable: true },
+  { id: 82, name: 'Deur (bovenkant)', color: [120, 78, 44], tex: ['planks', 'door_high', 'planks'], passable: true },
+  { id: 83, name: 'Glazen deur', color: [170, 210, 230], tex: ['glass', 'door_glass', 'glass'], transparent: true, passable: true },
+  { id: 84, name: 'Fietspad (rood asfalt)', color: [150, 62, 50], tex: ['bike_path', 'asphalt', 'asphalt'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
@@ -112,7 +118,7 @@ for (const b of BLOCKS) {
   if (b.id === 0) continue;
   if (b.transparent) IS_TRANSPARENT[b.id] = 1;
   if (b.cutout) IS_CUTOUT[b.id] = 1;
-  if (!b.liquid && !b.climb) IS_SOLID[b.id] = 1;
+  if (!b.liquid && !b.climb && !b.passable) IS_SOLID[b.id] = 1;
   if (!b.transparent && !b.cutout) IS_OPAQUE[b.id] = 1;
 }
 

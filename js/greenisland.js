@@ -340,7 +340,7 @@ function buildingColumn(b, F, x, z, col, top) {
   // fundering tot op de grond; aan de hoge kant de helling weggraven
   for (let y = Math.max(1, Math.min(top, F) - 3); y < F; y++) col[y] = y <= top - 4 ? (col[y] || B.STONE) : B.ASHLAR;
   for (let y = F + 1; y <= top; y++) col[y] = 0;
-  col[F] = b.kind === 'tower' || b.landmark ? B.MARBLE : B.PLANKS;
+  col[F] = b.kind === 'palace' ? ((x + z) % 2 ? B.CHECKER : B.MARBLE) : b.kind === 'parliament' ? B.WOOL_RED : b.kind === 'tower' || b.landmark ? B.MARBLE : B.PLANKS;
   if (b.kind === 'lighthouse') {
     const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, d = Math.hypot(x - cx, z - cz);
     if (d > 3.6) return Math.max(F, top);
@@ -351,15 +351,21 @@ function buildingColumn(b, F, x, z, col, top) {
   }
   const face = b.face, mid = Math.round((b.x0 + b.x1) / 2);
   const onFace = (face === 'z0' && z === b.z0) || (face === 'z1' && z === b.z1);
-  const door = onFace && Math.abs(x - mid) <= (b.kind === 'tower' || b.landmark ? 2 : 0);
+  const door = onFace && Math.abs(x - mid) <= (b.kind === 'tower' || b.landmark ? 2 : b.kind === 'shop' || b.kind === 'apartment' ? 1 : 0);
   const along = z === b.z0 || z === b.z1 ? x - b.x0 : z - b.z0;
   // torens: inspringende top
   let top2 = wallTop;
   if (b.kind === 'tower' && b.floors > 25) { const inset = Math.min(x - b.x0, b.x1 - x, z - b.z0, b.z1 - z); if (inset < 3) top2 = F + Math.floor(b.floors * 0.75) * fh; }
+  const glassDoor = b.kind === 'tower' || b.kind === 'shop' || b.kind === 'office' || b.kind === 'hospital' || b.kind === 'campus' || b.kind === 'university' || b.landmark;
   for (let y = F + 1; y < top2; y++) {
     const lvl = y - F - 1, inLvl = lvl % fh, fl = Math.floor(lvl / fh);
-    if (!wall) { if (inLvl === fh - 1 && y + 1 < top2) col[y + 1] = b.kind === 'tower' ? B.CONCRETE : B.PLANKS; continue; }
-    if (door && fl === 0 && inLvl < 2) { col[y] = 0; continue; }
+    if (!wall) {
+      if (inLvl === fh - 1 && y + 1 < top2) col[y + 1] = b.kind === 'tower' ? B.CONCRETE : B.PLANKS; // verdiepingsvloer
+      const it = interior(b, x, z, fl, inLvl, fh); if (it) col[y] = it;
+      continue;
+    }
+    if (door && fl === 0 && inLvl < 2) { col[y] = glassDoor ? B.DOOR_GLASS : inLvl === 0 ? B.DOOR : B.DOOR_TOP; continue; }
+    if (door && fl === 0 && inLvl === 2) { col[y] = B.PANEL_DARK; continue; } // deurkader
     const corner = (x === b.x0 || x === b.x1) && (z === b.z0 || z === b.z1);
     if (b.kind === 'tower') { col[y] = corner || along % 4 === 0 ? B.PANEL_DARK : inLvl === fh - 1 ? B.PANEL_DARK : (fl === 0 ? B.GLASS : gf); continue; }
     if (corner) { col[y] = b.style === 'berg' ? B.LOG : fl === 0 ? gf : uf; continue; }
@@ -384,6 +390,53 @@ function buildingColumn(b, F, x, z, col, top) {
   // binnen: trap (ladder) en wat meubels
   if (inCore && x - b.x0 === 2 && z - b.z0 === 2 && b.floors > 1) for (let y = F + 1; y < top2; y++) col[y] = B.LADDER;
   return Math.max(t, top);
+}
+
+// ---------- binnenkant: kamers met tussendeuren, een gang in het midden, meubels en lampen ----------
+function interior(b, x, z, fl, inLvl, fh) {
+  const lx = x - b.x0, lz = z - b.z0, W = b.x1 - b.x0, D = b.z1 - b.z0;
+  if (lx === 2 && lz === 2 && b.floors > 1) return 0; // trap (ladder wordt later gezet)
+  const big = b.kind === 'tower' || b.kind === 'office' || b.kind === 'hospital' || b.kind === 'campus' || b.kind === 'university' || b.kind === 'apartment' || b.landmark;
+  const RS = big ? 8 : 6, midZ = Math.floor(D / 2), corridor = D >= 12 && Math.abs(lz - midZ) <= 1;
+  const top = inLvl === fh - 2; // net onder het plafond
+  // grote zalen: geen tussenmuren
+  const hall = b.kind === 'warehouse' || b.kind === 'factory' || b.kind === 'parliament' || (b.kind === 'shop' && fl === 0) || (b.kind === 'palace' && fl === 0) || b.kind === 'lighthouse';
+  // tussenmuren (dwars) met een deur in elke kamer, behalve in de gang
+  if (!hall && !corridor && lx % RS === 0 && lx > 1 && lx < W - 1) {
+    const dz = ((lz % RS) + RS) % RS;
+    if (dz === 3 && inLvl < 2) return inLvl === 0 ? B.DOOR : B.DOOR_TOP;
+    return inLvl === fh - 1 ? 0 : (b.kind === 'tower' ? B.PANEL_WHITE : B.PLASTER);
+  }
+  // muur tussen de kamers en de gang, met een deur per kamer
+  if (!hall && D >= 12 && Math.abs(lz - midZ) === 2) {
+    if (((lx % RS) + RS) % RS === Math.floor(RS / 2) && inLvl < 2) return inLvl === 0 ? B.DOOR : B.DOOR_TOP;
+    return inLvl === fh - 1 ? 0 : B.PLASTER;
+  }
+  const rx = ((lx % RS) + RS) % RS, rz = ((lz % RS) + RS) % RS;
+  // lampen aan het plafond
+  if (top && rx === Math.floor(RS / 2) && rz === Math.floor(RS / 2) && !corridor) return B.LAMP;
+  if (corridor) return top && lx % 5 === 0 ? B.LAMP : 0;
+  if (inLvl !== 0) { if (inLvl === 1 && rx === 1 && rz === 1 && !big) return B.BOOKSHELF; return 0; }
+  // meubels op de vloer
+  switch (b.kind) {
+    case 'house': case 'chalet': case 'villa': case 'old':
+      if (fl === 0) { if (rx === 3 && rz === 3) return B.PLANKS; if ((rx === 2 || rx === 4) && rz === 3) return B.DARK_PLANKS; if (rx === 1 && rz === 4) return B.METAL; if (rx === 4 && rz === 1) return B.WOOL_RED; }
+      else { if (rx >= 2 && rx <= 3 && rz === 4) return B.WOOL_RED; if (rx === 4 && rz === 2) return B.CRATE; }
+      return rx === 1 && rz === 1 ? B.BOOKSHELF : 0;
+    case 'apartment':
+      if (rx >= 2 && rx <= 3 && rz === 5) return B.WOOL_RED; if (rx === 5 && rz === 2) return B.PLANKS; if (rx === 1 && rz === 2) return B.METAL; return 0;
+    case 'shop':
+      if (fl === 0) { if (lz > 3 && lz < D - 3 && lx % 4 === 2) return lz % 2 ? B.BOOKSHELF : B.CRATE; if (lz === 2 && lx > W / 2) return B.PLANKS; return 0; }
+      return rx === 3 && rz === 3 ? B.PLANKS : 0;
+    case 'tower': case 'office': case 'campus': case 'university':
+      if (rx % 3 === 1 && rz % 3 === 1) return B.PLANKS; if (rx % 3 === 1 && rz % 3 === 2) return B.DARK_PLANKS; return 0;
+    case 'hospital':
+      if (rx >= 2 && rx <= 3 && rz === 2) return B.PAINT_WHITE; if (rx === 5 && rz === 2) return B.METAL; return 0;
+    case 'parliament': { const cx = W / 2, cz = D / 2, r = Math.hypot(lx - cx, lz - cz); if (fl === 0 && Math.round(r) % 3 === 0 && r > 6 && r < 28) return B.WOOL_RED; if (fl === 0 && r < 3) return B.PLANKS; return 0; }
+    case 'palace': return fl === 0 ? (lx % 2 === lz % 2 ? 0 : 0) : (rx === 3 && rz === 3 ? B.PLANKS : 0);
+    case 'warehouse': case 'factory': return (lx % 6 < 3 && lz % 8 < 5 && lx > 2 && lz > 2) ? B.CRATE : 0;
+    default: return 0;
+  }
 }
 
 // straten in de bebouwde kom
