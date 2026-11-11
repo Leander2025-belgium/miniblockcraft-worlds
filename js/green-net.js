@@ -5,6 +5,7 @@ import { RLine, TRACK, BED } from './rline.js';
 import { rawHeight, coastDist } from './greenisland-terrain.js';
 import { LINE_PLAN, METRO_LINES, G, CENTRAL } from './greenisland-data.js';
 import { RAIL } from './greenisland-routes.js';
+import { TRAMS } from './greenisland-trams.js';
 
 // grond voor het hellingsprofiel: onder zee diep (het spoor duikt in een tunnel), op land de echte grond
 // (internationale lijnen en de AX1 rijden onder de stad door: 'deep' meter onder de grond)
@@ -30,13 +31,24 @@ function metroWay(plan) {
   return q;
 }
 function build() {
-  const lines = [];
+  const lines = [], trams = [];
   for (const [id, plan] of [...Object.entries(LINE_PLAN), ...Object.entries(METRO_LINES)]) {
     const L = new RLine(id, plan, plan.metro ? metroWay(plan) : RAIL[id], groundFor(plan), coverFor(plan));
     L.metro = !!plan.metro;
     L.international = plan.international || null;
     L.findStations();
     lines.push(L);
+  }
+  // trams: rijden op straatniveau over de lanen (hoogte rechtstreeks van de straat, geen tunnels of viaducten)
+  for (const [id, t] of Object.entries(TRAMS)) {
+    const plan = { name: t.name, color: t.color, vmax: 14, rmin: 25, tram: true, canon: false, canonNote: 'lijnnummer canon, ligging voorstel', via: t.stops.map(st => ({ name: st.name, x: st.x, z: st.z, len: 50 })) };
+    const L = new RLine(id, plan, t.pts, () => 0, null);
+    L.tram = true; L.metro = false; L.international = null;
+    L.findStations();
+    for (let i = 0; i < L.n; i++) { const f = L.s[i] / 8, k = Math.min(t.ys.length - 2, Math.floor(f)); L.y[i] = Math.round(t.ys[k] + (t.ys[k + 1] - t.ys[k]) * (f - k)); }
+    for (const st of L.stations) st.y = Math.round(L.at(st.s).y);
+    L.kind.fill(0); L.tunnels = []; L.viaducts = [];
+    trams.push(L);
   }
   // Munkbay Central ligt op straatniveau (ook voor de lijnen die daarna onder de stad duiken)
   const levels = new Map([['Munkbay Central', Math.round(G + rawHeight(CENTRAL.x, CENTRAL.z) + 0.5)]]);
@@ -64,7 +76,8 @@ function build() {
   for (const c of need) { const ya = c.a.at(c.sa).y; if (c.b.metro) { const yb = c.b.at(c.sb).y, cov = c.b.cover[c.b.idx(c.sb)], okU = ya - 10.5 >= 5, okO = cov - (ya + 10.5) >= 9; c.under = okU && okO ? yb < ya : !okO; } c.y = c.under ? ya - 10.5 : ya + 10.5; /* de metro gaat over een diepere lijn heen, nooit onder zeeniveau */ c.b.anchors.push({ s: c.sb, y: c.y }); }
   const touched = new Set(need.map(c => c.b));
   for (const L of touched) { L.profile(levels); L.buildGrid(); }
-  return { lines, crossings, levels };
+  for (const L of trams) L.buildGrid();
+  return { lines: [...lines, ...trams], crossings, levels };
 }
 export const NET = build();
 export const LINES = NET.lines;

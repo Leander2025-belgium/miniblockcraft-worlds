@@ -199,6 +199,18 @@ export const METRO_SERVICES = Object.entries(METRO_LINES).map(([id, L]) => {
   return { id, line: id, name: L.name, liv: 'M' + id.slice(1), cars: ['emuCab', 'emuCab'], vmax: L.vmax, h: canon ? 900 : 600, acc: 1.1, hours: canon ? [6.5, 23] : [5.5, 0.5], canon, metro: true };
 });
 export const TRAM_PLAN = { lines: 15, canonFrequency: { T1: [15, '06:30', '23:00'], T1s: [15, '06:30', '23:00'] } };
+// tramdiensten: de lijnen zelf staan in greenisland-trams.js (gepland door tools/plan-tram.mjs).
+// T1 en T1s (canon): elke 15 min van 06:30 tot 23:00; T1s stopt niet aan elke halte (voorstel: om de andere halte).
+// T2–T15: elke 10 min van 05:30 tot 00:30 (voorstel).
+export function tramServices(TRAMS) {
+  const out = [];
+  for (const [id, t] of Object.entries(TRAMS)) {
+    const canon = id === 'T1';
+    out.push({ id, line: id, name: t.name, liv: 'TR', cars: ['tram', 'tram'], vmax: 14, h: canon ? 900 : 600, acc: 1.0, hours: canon ? [6.5, 23] : [5.5, 0.5], canon, tram: true });
+    if (id === 'T1') out.push({ id: 'T1s', line: 'T1', name: 'T1s ' + t.avenue + ' (snel)', liv: 'TS', stops: t.stops.filter((s, i) => i % 2 === 0 || i === t.stops.length - 1).map(s => s.name), cars: ['tram', 'tram'], vmax: 14, h: 900, acc: 1.0, hours: [6.5, 23], canon: true, tram: true });
+  }
+  return out;
+}
 
 // ---------- extra plaatsen: deterministisch gegenereerd (voorstel), samen ongeveer 220 bewoonde plaatsen ----------
 const PRE = ['Groen', 'Oost', 'West', 'Zuid', 'Noord', 'Hoog', 'Laag', 'Berk', 'Eik', 'Linde', 'Wilg', 'Zand', 'Duin', 'Klif', 'Meer', 'Beek', 'Brug', 'Molen', 'Kerk', 'Ross', 'Ash', 'Elm', 'Fern', 'Glen', 'Kings', 'Mill', 'Oak', 'Rose', 'Stone', 'Brook', 'Marsh', 'Moor', 'Pine', 'Silver', 'Gold', 'Red', 'Black', 'White', 'Ember', 'Lark', 'Wren', 'Hazel', 'Heide', 'Veen', 'Vos', 'Ree', 'Valk', 'Zon', 'Maan', 'Ster'];

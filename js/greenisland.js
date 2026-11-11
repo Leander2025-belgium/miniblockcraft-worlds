@@ -83,7 +83,7 @@ function roadNear(x, z, reach = 40) {
 
 // ---------- spoor: dalen, sleuven en dijken (zoals in de Alpen) ----------
 const railGrid = new Grid(256);
-for (const L of LINES) if (!L.metro) for (let i = 0; i + 10 < L.n; i += 10) { const R = Math.min(400, L.tun / 0.7) + BED + 40; railGrid.add({ L, i, j: i + 10 }, Math.min(L.x[i], L.x[i + 10]) - R, Math.min(L.z[i], L.z[i + 10]) - R, Math.max(L.x[i], L.x[i + 10]) + R, Math.max(L.z[i], L.z[i + 10]) + R); }
+for (const L of LINES) if (!L.metro && !L.tram) for (let i = 0; i + 10 < L.n; i += 10) { const R = Math.min(400, L.tun / 0.7) + BED + 40; railGrid.add({ L, i, j: i + 10 }, Math.min(L.x[i], L.x[i + 10]) - R, Math.min(L.z[i], L.z[i + 10]) - R, Math.max(L.x[i], L.x[i + 10]) + R, Math.max(L.z[i], L.z[i + 10]) + R); }
 function railShape(x, z, h) {
   const list = railGrid.at(x, z); if (!list.length) return h;
   const seen = new Map();
@@ -130,14 +130,23 @@ function gridFor(p) {
   const B0 = p.kind === 'capital' ? 120 : p.kind === 'city' ? 110 : p.kind === 'town' ? 95 : 80;
   return { B: B0, ox: p.x - B0 / 2, oz: p.z - B0 / 2 };
 }
+// straatprofielen (breedte van gevel tot gevel):
+//  laan (22 m): stoep | fietspad (2 richtingen) | rijstrook | tram (2 sporen, middenberm) | rijstrook | stoep
+//  straat in een stad (12 m) of dorp (9 m): stoep | rijstrook | rijstrook | stoep
+const AVENUE_W = 22;
+function streetWidth(av, u) { return av && u.dens > 0.45 ? AVENUE_W : u.p.kind === 'village' || u.p.kind === 'hamlet' ? 9 : 12; }
+// afstand vanaf de blokrand tot het midden van de rijstroken (+ = met de rasterrichting mee, - = tegen)
+export function streetLanes(hw) { return hw === AVENUE_W ? [5.6, 17.9] : hw === 9 ? [3.2, 5.8] : [4, 8]; }
+export const TRAM_CENTER = 11.5; // as van de tramsporen in een laan (sporen op 9 en 14)
 function streetAt(x, z, u) {
   const g = gridFor(u.p), lx = x - g.ox, lz = z - g.oz, bx = Math.floor(lx / g.B), bz = Math.floor(lz / g.B), fx = lx - bx * g.B, fz = lz - bz * g.B;
   const avX = ((bx % 4) + 4) % 4 === 0, avZ = ((bz % 4) + 4) % 4 === 0;
-  const hwX = avX && u.dens > 0.45 ? 9 : 5, hwZ = avZ && u.dens > 0.45 ? 9 : 5; // halve breedte incl. stoep
+  const hwX = streetWidth(avX, u), hwZ = streetWidth(avZ, u); // volle breedte incl. stoepen
   const inX = fx < hwX, inZ = fz < hwZ; // straat langs de westrand (x) of noordrand (z) van het blok
   if (inX || inZ) {
-    const d = inX ? fx : fz, hw = inX ? hwX : hwZ;
-    return { street: true, d, hw, avenue: inX ? avX : avZ, alongX: !inX, bx, bz, g };
+    const useX = inX && !(inZ && hwZ === AVENUE_W && hwX !== AVENUE_W); // op een kruispunt gaat de laan voor (tramsporen lopen door)
+    const d = useX ? fx : fz, hw = useX ? hwX : hwZ;
+    return { street: true, d, hw, avenue: useX ? avX : avZ, alongX: !useX, bx, bz, g };
   }
   return { street: false, bx, bz, fx, fz, g, hwX, hwZ };
 }
@@ -183,7 +192,7 @@ function fitLot(b, cache) {
   const hd = Math.round(G + natural(fx, fz));
   f = (hi - lo > 8 || lo < G) ? null : Math.max(Math.round(lo), Math.min(Math.round(hi), hd));
   // niet op het spoor of een nationale weg
-  if (f !== null) for (const L of LINES) if (!L.metro && L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
+  if (f !== null) for (const L of LINES) if (!L.metro && !L.tram && L.near((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + BED + 4)) { f = null; break; }
   if (f !== null) { const q = roadNear((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + 10); if (q && q.d < Math.max(b.x1 - b.x0, b.z1 - b.z0) / 2 + q.R.hw + (q.R.bike === 'none' ? 4 : 6)) f = null; }
   if (f !== null && metroExitIn(b)) f = null; // metrotrap: de uitgang komt op een vrij pleintje
   if (cache) cache.set(k, f);
@@ -259,6 +268,7 @@ function railColumn(x, z, col, top, ctx, only) {
   const bed = L.single && !two ? 2.6 : BED, st = L.stationAt(q.s), kind = q.kind;
   if (kind === 1) {
     if (ad > bed + 1.2) return -1;
+    if (top - by >= 13) { deepTunnels.push([L, q, bed]); return -1; } // diepe tunnel: eerst straat en gebouwen erboven, daarna uitgraven
     if (top <= by + 7) { if (ad <= bed) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad < bed - 0.7 ? B.BALLAST : B.GRAVEL; col[by - 1] = B.STONE; return by; } for (let y = by + 1; y <= Math.max(top, by + 9); y++) col[y] = B.CONCRETE; return Math.max(top, by + 9); }
     if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8); }
     for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8);
@@ -343,6 +353,7 @@ function roadColumn(x, z, col, top) {
   const R = q.R, hw = R.hw, ry = Math.round(q.y) - 1; // wegdek = bovenste blok op ry
   const bb = bikeBand(R, q.d, q.sd);
   if (q.d > hw + 1.6 && !bb && !(R.bike !== 'none' && q.d <= hw + 5)) return -1;
+  if (q.d > hw) { const u = urbanAt(x, z); if (u && u.dens > 0.12 && streetAt(x, z, u).street) return -1; } // in de stad: de straat (met stoep en tramsporen) gaat voor op berm en fietspad
   const high = ry - top, deep = top - ry;
   if (deep > 24 && q.d <= hw + 1.2) { // tunnel
     col[ry] = B.ASPHALT; for (let y = ry + 1; y <= ry + 6; y++) col[y] = 0; col[ry + 7] = B.CONCRETE; if (Math.round(q.s) % 20 === 0 && q.d > hw) col[ry + 5] = B.LAMP; return Math.max(top, ry + 7);
@@ -511,26 +522,68 @@ function interior(b, x, z, fl, inLvl, fh) {
 
 // straten in de bebouwde kom
 function streetColumn(st, u, x, z, col, top) {
-  const y = top;
+  const y = top, d = st.d, hw = st.hw, along = st.alongX ? x : z;
   for (let k = Math.max(1, y - 3); k < y; k++) col[k] = B.GRAVEL;
   for (let k = y + 1; k <= y + 4; k++) col[k] = 0;
-  const lane = st.hw - st.d, inner = st.hw - (st.avenue && st.hw > 6 ? 3 : 2.2); // stoep aan beide kanten
-  if (st.d < 2.2 || st.d > st.hw - 2.2) {
-    col[y] = u.p.kind === 'capital' || u.p.kind === 'city' ? B.SIDEWALK : B.COBBLE;
-    if (st.d > st.hw - 1 && ((st.alongX ? x : z) % 24 === 12)) { for (let k = y + 1; k <= y + 4; k++) col[k] = B.POST; col[y + 5] = B.LAMP; return y + 5; }
+  // tramsporen (ook dwars over kruispunten), precies op de hoogte van de tramlijn
+  if (hw >= 12) for (const L of TRAM_LINES) {
+    const q = L.near(x, z, 5); if (!q || q.d > 4.6) continue;
+    const ty = Math.round(q.y), t = Math.abs(Math.abs(q.sd) - 2.5);
+    if (ty !== y) { for (let k = Math.max(1, ty - 3); k < ty; k++) col[k] = B.GRAVEL; for (let k = ty + 1; k <= Math.max(y, ty) + 4; k++) col[k] = 0; }
+    col[ty] = Math.abs(t - 1) < 0.3 ? B.METAL : t < 0.8 ? B.COBBLE : hw === AVENUE_W && st.alongX === (Math.abs(L.x[1] - L.x[0]) > Math.abs(L.z[1] - L.z[0])) ? B.GRASS : B.ASPHALT;
+    if (Math.abs(q.sd) < 0.6 && hw === AVENUE_W && Math.round(q.s) % 30 === 15) { for (let k = ty + 1; k <= ty + 3; k++) col[k] = B.POST; col[ty + 4] = B.METAL; return ty + 4; } // bovenleidingmast
+    return ty;
+  }
+  const walkB = u.p.kind === 'capital' || u.p.kind === 'city' ? B.SIDEWALK : B.COBBLE;
+  const sw = hw === AVENUE_W ? 2.2 : hw === 9 ? 1.5 : 2;
+  if (d < sw || d >= hw - sw) { // stoepen met lantaarnpalen
+    col[y] = walkB;
+    if (hw === AVENUE_W) for (const L of TRAM_LINES) { // tramhalte: wachthuisje met bank, dak en haltepaal in de lijnkleur
+      const q = L.near(x, z, 12); if (!q || q.d < 8) continue;
+      const stp = L.stationAt(q.s); if (!stp) continue;
+      const o = q.s - stp.s; if (Math.abs(o) > 6) continue;
+      if (Math.abs(o) > 5) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = B.PAINT_GREEN; return y + 3; }
+      const back = d < 1 || d >= hw - 1;
+      if (back) { col[y + 1] = B.GLASS; col[y + 2] = B.GLASS; }
+      else if (Math.abs(o) < 3) col[y + 1] = B.DARK_PLANKS;
+      col[y + 3] = B.GLASS_GREEN; return y + 3;
+    }
+    if (d >= hw - 1 && along % 24 === 12) { for (let k = y + 1; k <= y + 4; k++) col[k] = B.POST; col[y + 5] = B.LAMP; return y + 5; }
     return y;
   }
-  void lane; void inner;
-  // fietspad (tweerichtingen) aan één kant van de bredere straten, naast de stoep
-  if (st.hw >= 5 && st.d < 4) { col[y] = Math.abs(st.d - 3.1) < 0.3 && Math.floor((st.alongX ? x : z) / 3) % 2 === 0 ? B.LINE_WHITE : B.BIKE_PATH; return y; }
-  const mid = Math.abs(st.d - st.hw / 2);
-  col[y] = mid < 0.5 && Math.floor((st.alongX ? x : z) / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
-  if (st.avenue && st.hw > 6 && mid < 1.6) col[y] = B.METAL; // tramsporen in het midden van de laan
+  if (hw === AVENUE_W) {
+    if (d < 4.2) { col[y] = Math.abs(d - 3.2) < 0.5 && Math.floor(along / 3) % 2 === 0 ? B.LINE_WHITE : B.BIKE_PATH; return y; } // fietspad
+    if (d >= 7 && d < 16) { // tramzone: twee sporen, gras tussen de sporen en in de middenberm
+      const t1 = Math.abs(d - 9), t2 = Math.abs(d - 14);
+      // rijdt hier een tramlijn? dan ligt de tramzone precies op de hoogte van de lijn (geen zwevende trams)
+      let ty = y; for (const L of TRAM_LINES) { const q = L.near(x, z, 7); if (q) { ty = Math.round(q.y); break; } }
+      if (ty !== y) { for (let k = Math.max(1, ty - 3); k < ty; k++) col[k] = B.GRAVEL; for (let k = ty + 1; k <= Math.max(y, ty) + 4; k++) col[k] = 0; }
+      return tramZone(col, ty, d, t1, t2, along);
+    }
+    col[y] = (d === 7 - 1 || d === 16) && Math.floor(along / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
+    return y;
+  }
+  const mid = hw / 2;
+  col[y] = Math.abs(d + 0.5 - mid) < 0.5 && Math.floor(along / 4) % 2 === 0 ? B.LINE_WHITE : B.ASPHALT;
+  return y;
+}
+const TRAM_LINES = LINES.filter(L => L.tram);
+function tramZone(col, y, d, t1, t2, along) {
+  col[y] = t1 === 1 || t2 === 1 ? B.METAL : t1 < 1 || t2 < 1 ? B.COBBLE : B.GRASS;
+  if (d === 11 && along % 30 === 15) { col[y + 1] = B.POST; col[y + 2] = B.POST; col[y + 3] = B.POST; col[y + 4] = B.METAL; return y + 4; } // bovenleidingmast
   return y;
 }
 
+const deepTunnels = [];
 function fillColumn(x, z, col, slope, ctx, h) {
-  const t = fillColumnSurface(x, z, col, slope, ctx, h);
+  deepTunnels.length = 0;
+  let t = fillColumnSurface(x, z, col, slope, ctx, h);
+  for (const [L, q, bed] of deepTunnels) {
+    const by = Math.round(q.y), ad = q.d;
+    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; }
+    else for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE;
+    t = Math.max(t, by + 8);
+  }
   return ctx.metro && ctx.metro.length ? metroCarve(x, z, col, t, Math.round(G + h), ctx) : t;
 }
 // ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------
@@ -705,10 +758,10 @@ export function generateTile(tx, tz) {
   const lines = LINES.filter(L => { for (let i = 0; i < L.n; i += 6) if (L.x[i] > X0 - 60 && L.x[i] < X0 + T + 60 && L.z[i] > Z0 - 60 && L.z[i] < Z0 + T + 60) return true; return false; });
   const lmFit = new Map();
   const ctx = {
-    lines: lines.filter(L => !L.metro), metro: lines.filter(L => L.metro), lots: new Map(),
+    lines: lines.filter(L => !L.metro && !L.tram), metro: lines.filter(L => L.metro), lots: new Map(),
     bridgeOver: () => false,
     fitLandmark: (b) => { let f = lmFit.get(b.id); if (f === undefined) { let lo = 1e9, hi = -1e9; for (const [x, z] of [[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]]) { const hh = G + natural(x, z); lo = Math.min(lo, hh); hi = Math.max(hi, hh); } f = Math.round(Math.max(lo, Math.min(hi, G + natural((b.x0 + b.x1) / 2, b.z1 + 3)))); lmFit.set(b.id, f); } return f; },
-    noTree: (x, z) => { if (roadNear(x, z, 12)) return true; for (const L of lines) if (!L.metro && L.near(x, z, 12)) return true; return false; },
+    noTree: (x, z) => { if (roadNear(x, z, 12)) return true; for (const L of lines) if (!L.metro && !L.tram && L.near(x, z, 12)) return true; return false; },
   };
   const cols = new Array(T * T);
   const col = new Uint8Array(3200);
@@ -783,8 +836,22 @@ function tilePaths(X0, Z0, lines) {
   for (const p of placeGrid.at(X0 + T / 2, Z0 + T / 2)) {
     if (Math.hypot(X0 + T / 2 - p.x, Z0 + T / 2 - p.z) > p.r + 100) continue;
     const g = gridFor(p);
-    for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) { const x = g.ox + gx * g.B + 2.5, pts = []; for (let z = Z0 - 4; z <= Z0 + T + 4; z += 8) { const u = urbanAt(x, z); pts.push(u && u.dens > 0.12 ? [x, z, Math.round(G + natural(x, z))] : [1e9, 1e9, 0]); } clipPush('car', pts); clipPush('walk', pts.map(q => [q[0] - 1.6, q[1], q[2]])); }
-    for (let gz = Math.ceil((Z0 - g.oz) / g.B); g.oz + gz * g.B < Z0 + T; gz++) { const z = g.oz + gz * g.B + 2.5, pts = []; for (let x = X0 - 4; x <= X0 + T + 4; x += 8) { const u = urbanAt(x, z); pts.push(u && u.dens > 0.12 ? [x, z, Math.round(G + natural(x, z))] : [1e9, 1e9, 0]); } clipPush('car', pts); clipPush('walk', pts.map(q => [q[0], q[1] - 1.6, q[2]])); }
+    // per rasterlijn: twee rijstroken (de breedte hangt af van laan of straat), stoepen aan beide kanten
+    const lanePaths = (along, fixed, isX) => {
+      const plus = [], minus = [], w1 = [], w2 = [], avn = [];
+      for (let a = along[0]; a <= along[1]; a += 8) {
+        const px = isX ? fixed + 1 : a, pz = isX ? a : fixed + 1, u = urbanAt(px, pz);
+        if (!u || u.dens <= 0.12) { for (const r of [plus, minus, w1, w2]) r.push([1e9, 1e9, 0]); avn.push(false); continue; }
+        const st = streetAt(px, pz, u), hw = st.street ? st.hw : 12, [l1, l2] = streetLanes(hw);
+        const P = (o) => { const x = isX ? fixed + o : a, z = isX ? a : fixed + o; return [x, z, Math.round(G + natural(x, z))]; };
+        plus.push(P(isX ? l1 : l2)); minus.push(P(isX ? l2 : l1)); // rechts rijden w1.push(P(1)); w2.push(P(hw - 1)); avn.push(hw === AVENUE_W);
+      }
+      // lanen: hoofdwegen in de stad (daar rijden ook de stadsbussen)
+      const major = avn.filter(Boolean).length > avn.length / 2;
+      clipPush(major ? 'carM' : 'car', plus); clipPush(major ? 'carM' : 'car', minus.reverse()); clipPush('walk', w1); clipPush('walk', w2);
+    };
+    for (let gx = Math.ceil((X0 - g.ox) / g.B); g.ox + gx * g.B < X0 + T; gx++) lanePaths([Z0 - 4, Z0 + T + 4], g.ox + gx * g.B, true);
+    for (let gz = Math.ceil((Z0 - g.oz) / g.B); g.oz + gz * g.B < Z0 + T; gz++) lanePaths([X0 - 4, X0 + T + 4], g.oz + gz * g.B, false);
     // bushalte en tramhalte in het centrum
     if (p.x >= X0 && p.x < X0 + T && p.z >= Z0 && p.z < Z0 + T) out.push({ type: 'busstop', name: p.name, pts: new Float32Array([p.x - X0 + 6, p.z - Z0 + 6, groundAt(p.x + 6, p.z + 6)]) });
   }
@@ -813,7 +880,7 @@ function tilePaths(X0, Z0, lines) {
 // zeeroutes (voorstel): rond het eiland op 1,6 en 3,2 km van de kust (berekend door tools/plan-green.mjs)
 function tileTunnels(X0, Z0, lines) {
   const out = [];
-  for (const L of lines) if (!L.metro) for (const [a, b] of L.tunnels) {
+  for (const L of lines) if (!L.metro && !L.tram) for (const [a, b] of L.tunnels) {
     const p = {}, q = {};
     for (let s = Math.max(a, 0); s < b; s += 16) {
       L.at(s, p); L.at(Math.min(b, s + 16), q);
@@ -882,8 +949,23 @@ export { COUNTRY, PROVINCES, AREAS, PLACE, CENTRAL, LAKE_DEF as LAKES, PEAKS, WR
 export function _columnAt(x, z, cache = new Map()) {
   const tx = Math.floor(x / T), tz = Math.floor(z / T), X0 = tx * T, Z0 = tz * T;
   const lines = LINES.filter(L => { for (let i = 0; i < L.n; i += 6) if (L.x[i] > X0 - 60 && L.x[i] < X0 + T + 60 && L.z[i] > Z0 - 60 && L.z[i] < Z0 + T + 60) return true; return false; });
-  const ctx = { lines: lines.filter(L => !L.metro), metro: lines.filter(L => L.metro), lots: cache, bridgeOver: () => false, fitLandmark: () => null, noTree: () => true };
+  const ctx = { lines: lines.filter(L => !L.metro && !L.tram), metro: lines.filter(L => L.metro), lots: cache, bridgeOver: () => false, fitLandmark: () => null, noTree: () => true };
   const col = new Uint8Array(3200), h = natural(x, z), sl = Math.max(Math.abs(natural(x + 1, z) - h), Math.abs(natural(x, z + 1) - h));
   const top = fillColumn(x, z, col, sl, ctx, h);
   return { col, top };
 }
+
+// voor tools/plan-tram.mjs: kan hier een tram over de laan rijden? (laan in de stad, geen water, landmark, luchthaven of spoor op straatniveau)
+export function _tramSpot(x, z) {
+  const u = urbanAt(x, z); if (!u || u.dens <= 0.45 || u.p.kind !== 'capital') return null;
+  const area = areaAt(x, z); if (area && (area.kind === 'beach' || area.kind === 'airport')) return null;
+  if (coastDist(x, z) < 40 || riverAt(x, z) || lakeAt(x, z) || inAirport(x, z)) return null;
+  const st = streetAt(x, z, u); if (!st.street) return null;
+  { const gg = gridFor(u.p), bx = Math.floor((x - gg.ox) / gg.B), bz = Math.floor((z - gg.oz) / gg.B), fx = x - gg.ox - bx * gg.B, fz = z - gg.oz - bz * gg.B;
+    const onX = ((bx % 4) + 4) % 4 === 0 && fx < AVENUE_W, onZ = ((bz % 4) + 4) % 4 === 0 && fz < AVENUE_W; if (!onX && !onZ) return null; } // in een laan (ook op een kruispunt met een zijstraat)
+  for (const b of bldGrid.at(x, z)) if (x >= b.x0 - 3 && x <= b.x1 + 3 && z >= b.z0 - 3 && z <= b.z1 + 3) return null;
+  const y = Math.round(G + natural(x, z));
+  for (const L of LINES) if (!L.metro && !L.tram) { const q = L.near(x, z, 16); if (q && (q.kind !== 1 || q.y > y - 12) && (q.kind !== 2 || q.y < y + 9)) return null; }
+  return { y, p: u.p };
+}
+export { gridFor as _gridFor, areaAt as _areaAt };

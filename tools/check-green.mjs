@@ -10,7 +10,18 @@ const { LINES, trackOffset, ROADS } = A;
 const T = 128, fails = [], out = { rail: 0, railN: 0, clear: 0, grade: 0, plat: 0, bld: 0, bldCols: 0, road: 0, roadN: 0, seam: 0, seamN: 0 };
 const BED = new Set([B.BALLAST, B.CONCRETE, B.ASPHALT, B.GRAVEL, B.STONE]);
 const cache = new Map(), col = (x, z) => A._columnAt(Math.floor(x), Math.floor(z), cache);
-for (const L of LINES) {
+// trams: beide sporen liggen in de straat (rails of bedding) en de ruimte erboven is vrij
+out.tramN = 0; out.tram = 0;
+const TRAMBED = new Set([B.METAL, B.COBBLE, B.ASPHALT, B.LINE_WHITE, B.SIDEWALK, B.BIKE_PATH, B.GRASS]);
+for (const L of LINES) if (L.tram) for (let s = 10; s < L.len - 10; s += 20) for (const side of [1, -1]) {
+  const p = L.at(s), x = p.x - p.tz * 2.5 * side, z = p.z + p.tx * 2.5 * side, { col: c } = col(x, z), by = Math.round(p.y);
+  if (LINES.some(L2 => L2.tram && L2 !== L && L2.near(x, z, 6))) continue; // kruising van twee tramlijnen: hoogte mag 1 blok verschillen
+  out.tramN++;
+  let bad = !TRAMBED.has(c[by]) ? `blok ${c[by]} op het spoor` : '';
+  for (let y = by + 1; y <= by + 5 && !bad; y++) if (c[y] && c[y] !== B.LAMP) bad = `blok ${c[y]} boven het spoor`;
+  if (bad) { out.tram++; if (fails.length < 40) fails.push(`${L.id} bij s=${Math.round(s)} (${Math.round(x)},${Math.round(z)}): ${bad}`); }
+}
+for (const L of LINES) if (!L.tram) {
   for (let i = 25; i < L.n; i += 5) { const g = Math.abs(L.y[i] - L.y[i - 25]) / (L.s[i] - L.s[i - 25]); if (g > L.maxGrade * 1.08) { out.grade++; if (fails.length < 30) fails.push(`${L.id} helling ${(g * 100).toFixed(1)} % bij s=${Math.round(L.s[i])}`); } }
   const p = {};
   for (let s = 20; s < L.len - 20; s += 25) {
@@ -83,6 +94,7 @@ for (const R of ROADS.slice(0, 120)) {
   }
 }
 console.log(`metrostations (perronkanten) ${out.metroSt} · trap niet tot op straat ${out.metroBad} · zonder eigen trap ${out.metroNoStair || 0}`);
+console.log(`trampunten ${out.tramN} · niet vrij of niet in de straat ${out.tram}`);
 console.log(`spoorpunten ${out.railN} · zonder spoorbed ${out.rail} · niet vrij ${out.clear} · te steil ${out.grade} · perronfouten ${out.plat}`);
 console.log(`gebouwkolommen ${out.bldCols} · zwevende vloeren ${out.bld} · naden >2 blokken ${out.seam}/${out.seamN} · wegtreden >1 blok ${out.road}/${out.roadN}`);
 for (const f of fails.slice(0, 40)) console.log('  ' + f);

@@ -25,7 +25,7 @@ const LIVERY = {
   S1: [B.PAINT_WHITE, B.PAINT_BLUE], ICE: [B.PAINT_WHITE, B.PAINT_RED], PE: [B.PAINT_ORANGE, B.PAINT_WHITE], ZB: [B.PAINT_RED, B.PAINT_WHITE],
   ME: [B.PAINT_GREEN, B.PAINT_WHITE], G: [B.BRICK_DARK, B.PAINT_BLACK],
 };
-const CAR_LEN = { loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, box: 15, tank: 14, flat: 15 };
+const CAR_LEN = { loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, box: 15, tank: 14, flat: 15 };
 function design(type, liv) {
   const L = CAR_LEN[type], W = 4, H = 6, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
   const set = (x, y, z, b) => { if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) vox[(z * size + x) * H + y] = b; };
@@ -56,7 +56,7 @@ function design(type, liv) {
   for (const z of [0, L - 1]) { for (let x = 0; x < W; x++) for (let y = 2; y <= 4; y++) set(x, y, z, c1); set(1, 2, z, 0); set(2, 2, z, 0); set(1, 3, z, 0); set(2, 3, z, 0); }
   // deuren (geel, dicht tijdens de rit; in- en uitstappen met J)
   for (const z of [2, L - 3]) { for (const x of [0, W - 1]) { set(x, 2, z, B.PAINT_YELLOW); set(x, 3, z, B.GLASS_GREEN); } doors.push(z); }
-  const cabFront = type === 'loco' || type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'rackLoco';
+  const cabFront = type === 'loco' || type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'rackLoco' || type === 'tram';
   if (cabFront) {
     // cabine vooraan: lessenaar, frontruit, stoel van de machinist
     const zf = L - 1;
@@ -72,7 +72,7 @@ function design(type, liv) {
     box(1, 2, 3, 2, 4, L - 5, B.METAL); for (let z = 4; z < L - 5; z += 3) set(0, 3, z, B.METAL), set(W - 1, 3, z, B.METAL);
     set(1, 2, 0, B.PANEL_DARK); set(2, 2, 0, 0);
   }
-  if (type === 'coach1' || type === 'coach2' || type === 'emuCab' || type === 'emuMid' || type === 'ice' || type === 'iceHead' || type === 'panorama' || type === 'rack') {
+  if (type === 'coach1' || type === 'coach2' || type === 'emuCab' || type === 'emuMid' || type === 'ice' || type === 'iceHead' || type === 'panorama' || type === 'rack' || type === 'tram') {
     const z0 = 4, z1 = cabFront ? L - 5 : L - 4;
     for (let z = z0; z <= z1; z++) {
       if ((z - z0) % 2 === 0) { set(1, 2, z, type === 'coach1' ? B.WOOL_RED : type === 'panorama' ? B.PAINT_ORANGE : B.PAINT_BLUE); seats.push([1.5, 3, z + 0.5]); }
@@ -375,7 +375,7 @@ export class AlpRail {
       const grp = new THREE.Group(); grp.rotation.order = 'YXZ';
       for (const [geo, mat] of d.geos) { const m = new THREE.Mesh(geo, mat); m.position.set(-d.W / 2, 0, -d.L / 2); m.layers.enable(1); if (mat === this.g.matTrans) m.renderOrder = 1; grp.add(m); }
       this.group.add(grp);
-      const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack');
+      const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'tram');
       tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip });
     }
     return tr;
