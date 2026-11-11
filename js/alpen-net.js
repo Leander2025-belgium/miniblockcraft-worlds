@@ -152,7 +152,7 @@ export class RLine {
     };
     runs(1, 80, 0); runs(2, 24, 0);
     // stations nooit in een tunnel
-    for (const st of this.stations) if (!st.old) for (let i = this.idx(st.s0 - 20); i <= this.idx(st.s1 + 20); i++) if (k[i] === 1) k[i] = 0;
+    for (const st of this.stations) if (!st.old) { const m = this.single ? 100 : 20; for (let i = this.idx(st.s0 - m); i <= this.idx(st.s1 + m); i++) if (k[i] === 1) k[i] = 0; }
     // tunnels: korte open stukken tussen twee tunnels dicht
     for (let i = 0; i < n;) {
       if (k[i] !== 0) { i++; continue; }

@@ -432,6 +432,24 @@ function treeSpot(x, z, s, p) { const cx = Math.floor(x / s), cz = Math.floor(z 
 
 // spoor: één kolom (geeft de bovenste y terug, of -1 als het spoor hier niets doet)
 function railColumn(x, z, col, top, ctx) {
+  const t = railColumn1(x, z, col, top, ctx);
+  // ongelijkvloerse kruising: ook het spoor dat onder (of boven) de dichtste lijn doorloopt in deze kolom leggen
+  let n = 0, lines = null;
+  for (const L of ctx.lines) { const r = L.near(x, z, 7); if (r && r.d <= (L.single ? 2.6 : BED) && r.kind !== 3) { n++; (lines || (lines = [])).push([L, r]); } }
+  if (n < 2) return t;
+  lines.sort((a, b) => a[1].y - b[1].y);
+  const [Lo, ql] = lines[0], [, qh] = lines[lines.length - 1], yl = Math.round(ql.y), yh = Math.round(qh.y);
+  if (yh - yl < 6 || ql.kind === 1) return t;
+  for (let y = Math.max(1, yl - 3); y < yl; y++) if (!col[y]) col[y] = B.STONE;
+  col[yl] = ql.d < (Lo.single ? 2 : BED - 0.7) ? B.BALLAST : B.GRAVEL;
+  for (let y = yl + 1; y <= Math.min(yl + 6, yh - 4); y++) col[y] = 0;
+  // brugdek van het bovenste spoor
+  const [Lh] = lines[lines.length - 1];
+  col[yh - 2] = B.CONCRETE; col[yh - 1] = B.CONCRETE; col[yh] = qh.d < (Lh.single ? 2 : BED - 0.7) ? B.BALLAST : B.CONCRETE;
+  for (let y = yh + 1; y <= yh + 5; y++) if (col[y] !== B.LAMP) col[y] = 0;
+  return Math.max(t, yh);
+}
+function railColumn1(x, z, col, top, ctx) {
   let q = null;
   for (const L of ctx.lines) { const r = L.near(x, z, 40); if (r && (!q || r.d < q.d)) { r.line = L; q = r; } }
   if (!q) return -1;
@@ -440,7 +458,9 @@ function railColumn(x, z, col, top, ctx) {
   const single = L.single;
   const st = L.stationAt(q.s);
   // aantal sporen hier (tandradbanen hebben in de stations een kruisingsspoor)
-  const two = !single || (st && q.s > st.s0 - 30 && q.s < st.s1 + 30);
+  // (het kruisingsspoor buigt al 90 m voor het perron af, zie trackOffset)
+  let two = !single;
+  if (single) for (const st2 of L.stations) if (q.s > st2.s0 - 95 && q.s < st2.s1 + 95) two = true;
   const bed = single && !two ? 2.6 : BED;
   // Hauptbahnhof apart
   if (ctx.hbf) { const h = hbfColumn(x, z, col, top); if (h >= 0) return h; }
@@ -946,8 +966,10 @@ function tilePaths(X0, Z0, lines) {
       for (let s = s0; s <= s1 + 0.01; s += 4) {
         L.at(Math.min(s, s1), p);
         if (p.kind === 3) { pts.push([1e9, 1e9, 0]); continue; } // oud spoor tekent de oude tegel zelf
-        const off = trackOffset(L, s) * side;
-        pts.push([p.x - p.tz * off, p.z + p.tx * off, Math.round(p.y)]);
+        const off = trackOffset(L, s) * side, px = p.x - p.tz * off, pz = p.z + p.tx * off;
+        // hoogte zoals de kolom eronder gebouwd wordt (zelfde afronding: rails liggen altijd op de ballast)
+        const q = L.near(Math.floor(px), Math.floor(pz), 40);
+        pts.push([px, pz, Math.round(q ? q.y : p.y)]);
       }
       clipPush('train', pts);
     }
@@ -1074,3 +1096,21 @@ export function mapOverlay(S) {
   return out;
 }
 export const NET_INFO = NET;
+
+// ---------- voor de automatische controles (tools/check-alpen-rail.mjs): één kolom zoals in de tegel ----------
+const testCtx = new Map();
+export function _columnAt(x, z) {
+  const tx = Math.floor(x / T), tz = Math.floor(z / T), k = tx * 1000 + tz;
+  let ctx = testCtx.get(k);
+  if (!ctx) {
+    const X0 = tx * T, Z0 = tz * T;
+    const lines = LINES.filter(L => { for (let i = 0; i < L.n; i += 6) if (L.x[i] > X0 - 60 && L.x[i] < X0 + T + 60 && L.z[i] > Z0 - 60 && L.z[i] < Z0 + T + 60) return true; return false; });
+    ctx = { lines, hbf: Math.abs(X0 + T / 2 - HBF.x) < 400 && Math.abs(Z0 + T / 2 - HBF.z) < 200, concave: () => 0, noTree: () => true };
+    testCtx.set(k, ctx); if (testCtx.size > 200) testCtx.delete(testCtx.keys().next().value);
+  }
+  const col = new Uint8Array(6200);
+  if (inOld(x, z)) { const top = O.fillColumn(x - OX, z - OZ, col, 0); return { col, top }; }
+  const h = surfaceAt(x, z), sl = Math.max(Math.abs(surfaceAt(x + 1, z) - h), Math.abs(surfaceAt(x, z + 1) - h));
+  const top = fillColumnNew(x, z, col, sl, ctx, h);
+  return { col, top };
+}
