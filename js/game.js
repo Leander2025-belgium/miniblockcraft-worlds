@@ -1748,6 +1748,8 @@ export class Game {
         if (this.invOpen) this.closeInventory(); else if (this.active()) this.openInventory();
         return;
       }
+      // kaart (M) ook vanuit het pauzemenu of 'Klik om te spelen' (muis vrij op een laptop)
+      if (e.code === 'KeyM' && !e.repeat && !this.active() && !this.invOpen) { e.preventDefault(); this.openMap(); return; }
       if (!this.active()) return;
       this.keys.add(e.code);
       if (this.drive && !e.repeat && this.drive.key(e.code)) { e.preventDefault(); return; }
@@ -1886,6 +1888,7 @@ export class Game {
     }
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));
     ui.minimap?.addEventListener('click', () => this.openMap());
+    document.getElementById('btn-map')?.addEventListener('click', () => this.openMap());
     ui.btnMapClose?.addEventListener('click', () => { this.invOpen = false; this.resume(); });
     ui.root.classList.toggle('is-touch', this.touch);
   }

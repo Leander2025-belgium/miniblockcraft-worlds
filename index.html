@@ -142,6 +142,8 @@
   #loading.minor { top: auto; bottom: 92px; font-size: 12px; font-weight: 500; padding: 4px 10px; background: rgba(0,0,0,.4); }
   #toast { right: 14px; top: 12px; background: rgba(0,0,0,.6); padding: 6px 12px; border-radius: 8px; font-size: 14px; }
   .ov { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,12,18,.62); z-index: 20; padding: 16px; }
+  /* minikaart klikbaar boven het pauzemenu en 'Klik om te spelen' (op een laptop zit de muis anders vast) */
+  #game:has(#ov-pause:not([hidden])) #minimap, #game:has(#ov-start:not([hidden])) #minimap { z-index: 21; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; width: min(460px, 100%); max-height: 100%; overflow: auto; }
   .card h2 { margin: 0 0 10px; font-size: 20px; }
   .card .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -465,7 +467,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-16g</p>
+    <p class="help" id="app-version">Versie 2026-11-16h</p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
   </aside>
 </div>
@@ -601,6 +603,7 @@
         <button class="btn" id="btn-save">Opslaan</button>
         <button class="btn" id="btn-exit">Opslaan & terug naar kaart</button>
         <button class="btn" id="btn-photo">📷 Fotomodus</button>
+        <button class="btn" id="btn-map">🗺 Kaart (M)</button>
         <button class="btn" id="btn-gnmi" hidden>🌦 GNMI-weer</button>
         <button class="btn" id="btn-vc" hidden>💰 ViridCoin &amp; Zenvo</button>
         <button class="btn" id="btn-diag">🩺 Diagnose</button>
@@ -694,6 +697,6 @@
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
-<script type="module" src="./js/app.js?v=2026-11-16g"></script>
+<script type="module" src="./js/app.js?v=2026-11-16h"></script>
 </body>
 </html>
