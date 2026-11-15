@@ -1466,6 +1466,12 @@ export class Game {
       }
     }
     if (p.pos.y < -10 && !this.tiled) this.spawn();
+    // grote echte kaart (heel België): na een sprong of teleport kan de pas geladen tegel hoger liggen dan de speler
+    // (heuvels, Ardennen): dan boven op de grond zetten in plaats van vast in de grond
+    if (this.tiled && this.meta && this.meta.map && this.meta.map.bigWorld && !this.drive && !this.aboard) {
+      const fx = Math.floor(p.pos.x), fz = Math.floor(p.pos.z);
+      if (this.world.tileAt(fx, fz) && this.collides(p.pos.x, p.pos.y, p.pos.z)) { p.pos.y = this.world.columnTop(fx, fz) + 1.05; p.vel.set(0, 0, 0); }
+    }
 
     // muis ingedrukt houden = herhalen
     this.actionTimer = (this.actionTimer || 0) - dt;

@@ -2,7 +2,7 @@
 import * as store from './storage.js';
 import { topView } from './osm.js';
 import { CITY, SPAWN, PLACES as CITY_PLACES, toBlocks } from './frankfurt.js';
-import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount } from './bigmap.js';
+import { makeMap, mapSize, spawnFor, keys as mapKeys, superCount, toBlocks as mapToBlocks } from './bigmap.js';
 // eindpunt van de ICE Amsterdam uit Greenisland: Amsterdam Centraal (echte stad, OpenStreetMap)
 const AMS = makeMap({ id: 'amsterdam-centraal', name: 'Amsterdam Centraal', lat: 52.3791, lon: 4.9003, km: 2.56 }); AMS.tiles = 20; AMS.superTiles = 4;
 import { META as METRO, PLACES as METRO_PLACES, zoneAtExport as metroZone, zoneName as metroZoneName, MW as METRO_W, ML as METRO_L } from './metropolis.js';
@@ -358,8 +358,10 @@ async function playMap(id, at) {
   const saveTile = (tx, tz, vox, H, y0, edge) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H, y0: y0 || 0, edge: edge || null });
   const isCity = map.id === CITY.id, isMetro = map.kind === 'proc', PR = PROC[map.id] || PROC[METRO.id];
   $('#menu').hidden = true;
-  $('#tp-wrap').hidden = !isCity && !isMetro;
-  fillTeleports(isMetro ? PR.PLACES.map(([n, x, z]) => [n, null, null, x, z]) : CITY_PLACES);
+  const isBE = map.id === BELGIE.id;
+  $('#tp-wrap').hidden = !isCity && !isMetro && !isBE;
+  { const ab = $('#btn-area-dl'); if (ab) ab.hidden = !(map.bigWorld || isBE); }
+  fillTeleports(isMetro ? PR.PLACES.map(([n, x, z]) => [n, null, null, x, z]) : isBE ? BE_PLACES.map(([n, la, lo, h]) => { const [x, z] = mapToBlocks(map, la, lo); return [n, null, null, x, z, h]; }) : CITY_PLACES);
   $('#game-title').textContent = meta.name;
   const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
   const areaProg = new Map();
@@ -374,7 +376,7 @@ async function playMap(id, at) {
   }); };
   const requestLods = (tx, tz, radius) => ask({ type: 'lods', map, tx, tz, radius }, onLod);
   let spawn = isMetro ? { ...PR.spawn } : isCity ? SPAWN : spawnFor(map);
-  if (at) { spawn = { x: at.x, y: (isMetro && PR.groundAt ? PR.groundAt(at.x, at.z) + 40 : map.ground + 90), z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
+  if (at) { spawn = { x: at.x, y: (isMetro && PR.groundAt ? PR.groundAt(at.x, at.z) + 40 : map.ground + 90 + (isBE ? 80 : 0)), z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
   rememberLast('map', id, meta.name);
   game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods, zoneName: isMetro ? PR.zoneName : null, groundAt: isMetro ? PR.groundAt : null }, provider, saveTile);
   game.start();
@@ -549,17 +551,44 @@ function drawBergMap() {
   img.src = './assets/alpen-map.jpg?v=' + APP_VERSION;
   c.addEventListener('click', (e) => { const r = c.getBoundingClientRect(); phoneFullscreen(); playMap(BERG.id, { x: (e.clientX - r.left) / r.width * BERG.tilesX * BERG.tile, z: (e.clientY - r.top) / r.height * BERG.tilesZ * BERG.tile }); });
 }
+// ---------- heel België: één grote echte kaart die laadt waar je komt ----------
+const BELGIE = { id: 'belgie', name: 'België', lat: 50.50, lon: 4.47, km: 300 };
+// steden en plekken om naartoe te springen: [naam, breedte, lengte, hoogte boven zee (m)]
+const BE_PLACES = [
+  ['Brussel – Grote Markt', 50.8467, 4.3525, 60], ['Atomium', 50.8949, 4.3415, 50], ['Antwerpen', 51.2194, 4.4025, 10], ['Haven van Antwerpen', 51.28, 4.35, 5],
+  ['Gent', 51.0543, 3.7174, 10], ['Brugge', 51.2093, 3.2247, 10], ['Oostende', 51.2154, 2.9286, 5], ['Knokke', 51.35, 3.29, 5], ['De Panne', 51.1, 2.5917, 5],
+  ['Leuven', 50.8798, 4.7005, 30], ['Mechelen', 51.0259, 4.4776, 10], ['Hasselt', 50.9307, 5.3325, 40], ['Genk', 50.965, 5.5, 80], ['Kortrijk', 50.828, 3.2649, 20],
+  ['Aalst', 50.9378, 4.0403, 15], ['Zottegem', 50.869, 3.81, 30], ['Sint-Niklaas', 51.1648, 4.1437, 15], ['Turnhout', 51.3227, 4.9447, 30], ['Roeselare', 50.9461, 3.1239, 20],
+  ['Ieper', 50.8503, 2.885, 20], ['Luchthaven Zaventem', 50.901, 4.4844, 55], ['Charleroi', 50.4108, 4.4446, 130], ['Namen', 50.4674, 4.8718, 85], ['Luik', 50.6326, 5.5797, 70],
+  ['Bergen (Mons)', 50.4542, 3.9523, 40], ['Doornik', 50.6055, 3.3875, 35], ['Waver', 50.7171, 4.6086, 60], ['Nijvel', 50.598, 4.3285, 100], ['Dinant', 50.2606, 4.9122, 100],
+  ['Durbuy', 50.3523, 5.4563, 180], ['Spa', 50.4919, 5.8638, 250], ['Eupen', 50.6304, 6.0315, 260], ['Signaal van Botrange', 50.5011, 6.0933, 694],
+  ['Bastenaken', 50.0, 5.7167, 500], ['La Roche-en-Ardenne', 50.1833, 5.5833, 250], ['Bouillon', 49.7934, 5.0679, 220], ['Aarlen', 49.6833, 5.8167, 400],
+];
+async function playBelgie(placeIdx = 0) {
+  let meta = await store.getRegionMeta(BELGIE.id);
+  if (!meta) { meta = mapMeta(makeMap(BELGIE)); meta.streamOnly = true; await store.saveMeta(meta); }
+  const [, la, lo] = BE_PLACES[placeIdx], [x, z] = mapToBlocks(meta.map, la, lo);
+  phoneFullscreen(); await playMap(BELGIE.id, meta.player ? null : { x, z });
+}
+$('#btn-belgie')?.addEventListener('click', () => playBelgie(0));
+// in het pauzemenu: de streek rond de speler (10 × 10 km) volledig op dit toestel bewaren
+$('#btn-area-dl')?.addEventListener('click', async () => {
+  if (!game || !game.meta || !game.meta.map) return;
+  const meta = await store.getRegionMeta(game.meta.id); if (!meta) return;
+  startPrefetch(meta, { x: game.player.pos.x, z: game.player.pos.z, km: 10 });
+  flash('⬇ De streek rond je wordt gedownload (zie het menu voor de voortgang)');
+});
 function fillTeleports(list) {
   const box = $('#tp-list');
   box.innerHTML = '';
-  for (const [name, lat, lon, bx, bz] of list) {
+  for (const [name, lat, lon, bx, bz, hm] of list) {
     const b = document.createElement('button');
     b.className = 'chip'; b.textContent = name;
     b.onclick = () => {
       if (!game || !game.tiled) return;
       const [x, z] = bx != null ? [bx, bz] : toBlocks(lat, lon);
       const p = game.player, G0 = game.meta.ground ?? 12;
-      p.pos.set(x, G0 + (bx != null ? 120 : 40), z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = bx != null ? -0.1 : 0.15;
+      p.pos.set(x, G0 + (hm != null ? hm + 70 : bx != null ? 120 : 40), z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = bx != null ? -0.1 : 0.15;
       game.tiled.aheadKey = null;
       game.updateTiles(true);
       game.resume();
@@ -571,7 +600,7 @@ function fillTeleports(list) {
 // Alles downloaden: elke tegel ophalen en omzetten, zodat de kaart volledig op dit toestel staat.
 const prefetch = { job: null };
 function stopPrefetch() { if (prefetch.job) prefetch.job.stop = true; }
-async function startPrefetch(meta) {
+async function startPrefetch(meta, area = null) {
   if (prefetch.job && prefetch.job.id === meta.id && !prefetch.job.stop) return;
   stopPrefetch();
   try { await navigator.storage?.persist?.(); } catch { /* niet ondersteund */ }
@@ -579,7 +608,7 @@ async function startPrefetch(meta) {
   meta.map.version = CITY.version;
   meta.map.baked = await bakedBase(meta.map);
   const map = meta.map, n = map.tiles, sc = superCount(map);
-  const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0, cached: 0 };
+  const job = { id: meta.id, stop: false, done: 0, total: n * n, failed: 0, bytes: 0, cached: 0, area: !!area };
   try { const e = await navigator.storage?.estimate?.(); if (e) { job.quota = e.quota; job.usage = e.usage; } } catch { /* onbekend */ }
   prefetch.job = job;
   refreshList(); // andere kaart toont nu 'gepauzeerd'
@@ -587,6 +616,14 @@ async function startPrefetch(meta) {
   const supers = [];
   for (let sz = 0; sz < sc; sz++) for (let sx = 0; sx < sc; sx++) supers.push([sx, sz, (sx - sc / 2 + 0.5) ** 2 + (sz - sc / 2 + 0.5) ** 2]);
   supers.sort((a, b) => a[2] - b[2]);
+  // alleen een streek (heel België): de superblokken binnen een vierkant rond de speler, dichtste eerst
+  if (area) {
+    const B = map.tile * map.superTiles, half = area.km * 500;
+    const keep = supers.filter(([sx, sz]) => Math.abs((sx + 0.5) * B - area.x) <= half + B / 2 && Math.abs((sz + 0.5) * B - area.z) <= half + B / 2);
+    keep.sort((a, b) => ((a[0] + 0.5) * B - area.x) ** 2 + ((a[1] + 0.5) * B - area.z) ** 2 - (((b[0] + 0.5) * B - area.x) ** 2 + ((b[1] + 0.5) * B - area.z) ** 2));
+    supers.length = 0; supers.push(...keep);
+    job.total = keep.length * map.superTiles * map.superTiles;
+  }
   const one = (tx, tz) => new Promise((resolve) => {
     ask({ type: 'cityTile', tx, tz, map, prefetch: true }, (m) => {
       if (m.type === 'cityTile') { job.bytes += m.bytes || 0; if (m.from === 'cache') job.cached++; resolve(true); }
@@ -616,7 +653,7 @@ async function startPrefetch(meta) {
     while (!job.stop && next < supers.length) { const [sx, sz] = supers[next++]; await doSuper(sx, sz); }
   }));
   const m2 = await store.getRegionMeta(meta.id);
-  if (m2) { m2.done = job.done; m2.complete = job.done >= job.total; m2.bytes = (m2.bytes || 0) + job.bytes; await store.saveMeta(m2); }
+  if (m2) { m2.done = area ? (m2.done || 0) + job.done : job.done; m2.complete = !area && job.done >= job.total; m2.bytes = (m2.bytes || 0) + job.bytes; await store.saveMeta(m2); }
   job.finished = true;
   showPrefetch(job);
   if (prefetch.job === job) prefetch.job = null;
@@ -1058,7 +1095,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-16h';
+const APP_VERSION = '2026-11-16i';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
