@@ -7,6 +7,7 @@ const checks = [
   ['Alpen: gebouwen (zwevend, in de grond, ingangen)', 'tools/check-alpen-buildings.mjs'],
   ['Alpen: spoor, perrons, kabelbaanstations', 'tools/check-alpen-rail.mjs'],
   ['Echte steden: funderingen en tegelnaden op een helling', 'tools/check-osm-terrain.mjs'],
+  ['Heel België: Ardennen-tegels (niets afgesneden, y0)', 'tools/check-belgie.mjs'],
   ['Nova Metropool: gebouwen, naden, startbanen', 'tools/check-metropool.mjs'],
   ['Greenisland: spoor, gebouwen, wegen, naden', 'tools/check-green.mjs'],
 ];
