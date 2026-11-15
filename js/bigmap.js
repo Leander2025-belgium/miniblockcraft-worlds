@@ -9,7 +9,9 @@ export function makeMap(spec) {
   const tile = 128;
   const tiles = Math.max(2, Math.ceil((spec.km * 1000) / tile));
   const superTiles = 4; // downloads van ~500 m: klein genoeg om vlot en betrouwbaar te zijn
-  return { ...spec, tile, tiles, superTiles, ground: REAL_GROUND, version: MAP_VERSION };
+  // heel grote kaarten (een land): minikaart op lagere resolutie (hoogstens ~4000 px breed)
+  const miniStep = Math.max(1, Math.ceil(tiles * 16 / 4096));
+  return { ...spec, tile, tiles, superTiles, ground: REAL_GROUND, version: MAP_VERSION, ...(miniStep > 1 ? { miniStep } : {}), ...(spec.km >= 50 ? { bigWorld: true } : {}) };
 }
 export function mapMX(m) { return 111320 * Math.cos(m.lat * Math.PI / 180); }
 export function mapSize(m) { return m.tile * m.tiles; }

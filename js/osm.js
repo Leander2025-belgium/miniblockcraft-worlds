@@ -763,7 +763,7 @@ export function rasterize(osm, lat0, lon0, size, onProgress, scale = 1, opts = {
   }
   let maxTop = 30;
   for (const b of all) { b.hm = buildingHeights(b.tags); maxTop = Math.max(maxTop, b.hm.h); }
-  const H = Math.min(700, Math.ceil((gMax + maxTop * scale + 20 + 14 * scale) / 8) * 8);
+  const H = Math.min(1100, Math.ceil((gMax + maxTop * scale + 20 + 14 * scale) / 8) * 8); // ook de Ardennen (tot ~700 m) en hoger
 
   const vox = new Uint8Array(N * H);
   // ondergrond + oppervlak
@@ -1394,4 +1394,16 @@ export function unpackTile(buf) {
   const H = dv.getUint32(3, true), jl = dv.getUint32(7, true);
   const paths = JSON.parse(new TextDecoder().decode(b.subarray(11, 11 + jl))).map(p => ({ type: p.t, pts: new Float32Array(p.p) }));
   return { H, paths, rle: b.slice(11 + jl) };
+}
+
+// hoge grond (heuvels, Ardennen): de tegel begint pas net onder zijn laagste punt (y0), zodat hij niet honderden
+// lege meters steen meedraagt; vlakke tegels (bijna alle steden) blijven precies zoals ze waren (y0 = 0)
+export function lowerTile(r, T) {
+  const H = r.H, vox = r.vox; let low = H;
+  for (let i = 0, n = T * T; i < n && low > 0; i++) { const b = i * H; let y = 1; while (y < H && vox[b + y]) y++; if (y < low) low = y; }
+  const y0 = Math.max(0, Math.floor((low - 40) / 8) * 8);
+  if (y0 < 64) return { ...r, y0: 0 };
+  const H2 = H - y0, v2 = new Uint8Array(T * T * H2);
+  for (let i = 0, n = T * T; i < n; i++) v2.set(vox.subarray(i * H + y0, i * H + H), i * H2);
+  return { ...r, vox: v2, H: H2, y0 };
 }

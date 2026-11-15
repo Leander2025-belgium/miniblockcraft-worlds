@@ -1,7 +1,7 @@
 // Web Worker: berekent de stadskaart, voorbeelden en volledige 3D-gebieden.
 import { fillColumn, generateRegion, WIDTH, LENGTH, GROUND, HEIGHT } from './city.js';
 import { BLOCKS } from './blocks.js';
-import { aerowayQuery, parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile } from './osm.js';
+import { aerowayQuery, parseOSM, fetchOSM, fetchOSMBox, rasterize, topView, indexOSM, subsetOSM, bboxFor, computeLod, unpackTile, lowerTile } from './osm.js';
 import { mapMX, tileCenter, superBox, keys } from './bigmap.js';
 import { cacheGet, cachePut, cacheDelete, rleEncode, rleDecode, rleLength } from './storage.js';
 import { elevationSampler, elevationBase } from './terrain.js';
@@ -22,7 +22,8 @@ const elevMem = new Map();
 async function mapElevBase(map) {
   const k = `${map.id}-elevbase`;
   let v = await cacheGet(k);
-  if (v == null) { v = await elevationBase(bboxFor(map.lat, map.lon, mapSize(map), 100)); await cachePut(k, v); }
+  // een land (heel België): hoogte boven zeeniveau (de laagste polders liggen nog net erboven), zonder duizenden hoogtetegels op te halen
+  if (v == null) { v = mapSize(map) >= 50000 ? -3 : await elevationBase(bboxFor(map.lat, map.lon, mapSize(map), 100)); await cachePut(k, v); }
   return v;
 }
 function superElev(map, sx, sz) {
@@ -289,11 +290,12 @@ async function cityTileInner(m) {
   const b = bboxFor(c.lat, c.lon, map.tile, 30);
   const sub = subsetOSM(osm, b.s, b.w, b.n, b.e);
   const elev = await superElev(map, Math.floor(tx / map.superTiles), Math.floor(tz / map.superTiles));
-  const r = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
+  const r0 = rasterize(sub, c.lat, c.lon, map.tile, null, 1, { mx: mapMX(map), ox: tx * map.tile, oz: tz * map.tile, elev });
+  const r = lowerTile(r0, map.tile);
   const rle = rleEncode(r.vox), tunnels = r.tunnels && r.tunnels.length ? r.tunnels : null, edge = r.edge || null;
-  await cachePut(key, { rle, H: r.H, paths: r.paths, tunnels, edge });
-  await cachePut(lodKey(map, tx, tz), computeLod(r.vox, map.tile, r.H));
-  return { rle, fresh: r.vox, H: r.H, y0: 0, edge, paths: r.paths, tunnels, from: superWasDownloaded.has(sk) ? 'net' : 'gen' };
+  await cachePut(key, { rle, H: r.H, y0: r.y0, paths: r.paths, tunnels, edge });
+  await cachePut(lodKey(map, tx, tz), lodFor(r.vox, map.tile, r.H, r.y0));
+  return { rle, fresh: r.vox, H: r.H, y0: r.y0, edge, paths: r.paths, tunnels, from: superWasDownloaded.has(sk) ? 'net' : 'gen' };
 }
 // Elke ontvanger krijgt zijn EIGEN voxelbuffer: de eerste mag de verse buffer hebben,
 // alle andere krijgen een nieuwe kopie uit de (nooit overgedragen) RLE-gegevens.
