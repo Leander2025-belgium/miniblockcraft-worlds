@@ -816,16 +816,17 @@ async function createBigMap() {
 }
 
 let saving = null;
+let saveAgain = false;
 async function saveGame(quiet) {
   if (!game || !game.meta) return;
-  if (saving) return saving;
+  if (saving) { saveAgain = true; return saving; } // bezig: daarna nog eens (met de nieuwste positie)
   if (game.tiled) {
     game.saveDirtyTiles();
     game.dirty = false;
     const meta = { ...game.meta, player: game.playerState() };
     game.meta = meta;
     saving = store.saveMeta(meta)
-      .then(() => { if (!quiet) flash('Opgeslagen ✓'); }).catch(err => flash('Opslaan mislukt: ' + err.message)).finally(() => { saving = null; });
+      .then(() => { if (!quiet) flash('Opgeslagen ✓'); }).catch(err => flash('Opslaan mislukt: ' + err.message)).finally(() => { saving = null; if (saveAgain) { saveAgain = false; saveGame(true); } });
     return saving;
   }
   const meta = { ...game.meta, player: game.playerState() };
