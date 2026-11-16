@@ -1049,7 +1049,7 @@ export function shellFill(lx, wy, lz, b) {
 export const PLACES = [
   ['Hoofdingang Megatower', CX + 0.5, CZ - 52, G, 0],
   ['Hotelreceptie (30)', CX + 0.5, CZ - 24, floorY(30), 30],
-  ['Restaurant (31)', CX + 0.5, CZ + 30, floorY(31), 31],
+  ['Restaurant (31)', CX + 0.5, CZ + 21, floorY(31), 31],
   ['Sky garden (121)', CX + 0.5, CZ - 16, floorY(121), 121],
   ['Zwembad hotel (33)', CX + 10.5, CZ + 16, floorY(33) + 1, 33],
   ['Penthouse (220)', CX + 0.5, CZ - 14, floorY(220), 220],

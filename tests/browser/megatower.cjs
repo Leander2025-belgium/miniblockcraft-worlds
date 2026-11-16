@@ -23,12 +23,12 @@ const SHOTS = process.env.SHOTS;
   await start();
   const T = await p.evaluate(async () => { const m = await import('./js/megatower.js'); return { CX: m.CX, CZ: m.CZ, G: m.G, lifts: m.LIFTS.map(L => ({ id: L.id, cells: L.cells, door: L.door, button: L.button, out: L.out })) }; });
   const fy = (f) => T.G + 4 * f;
+  const frames = async (n) => { for (let i = 0; i < n; i++) await p.evaluate(() => new Promise(r => requestAnimationFrame(() => r()))); };
   // wachten tot alles rond de speler geladen en opgebouwd is
-  const settle = async (ms = 120000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { await p.waitForTimeout(400); const ok = await p.evaluate(() => window.blokGame().readyHere()); if (ok) { await p.waitForTimeout(300); return Date.now() - t0; } } return -1; };
+  const settle = async (ms = 120000) => { const t0 = Date.now(); await frames(4); while (Date.now() - t0 < ms) { await p.waitForTimeout(400); const ok = await p.evaluate(() => window.blokGame().readyHere()); if (ok) { await p.waitForTimeout(300); return Date.now() - t0; } } return -1; };
   const put = (x, y, z, yaw = 0, pitch = 0) => p.evaluate(([x, y, z, yaw, pitch]) => { const g = window.blokGame(); g.seat = null; Object.assign(g.player, { fly: false, yaw, pitch }); g.player.pos.set(x, y, z); g.player.vel.set(0, 0, 0); g.updateTiles(true); }, [x, y, z, yaw, pitch]);
   const stats = () => p.evaluate(() => { const g = window.blokGame(); let n = 0, tri = 0, full = 0; for (const c of g.chunks.values()) for (const m of [c.o, c.t]) if (m && m.visible) { n++; tri += m.geometry.index.count / 3; if (c.kind === 'full') full++; } return { meshes: n, tri: Math.round(tri), full, y: +g.player.pos.y.toFixed(2), hud: document.getElementById('hud-place').textContent }; });
   const shot = async (name) => { if (SHOTS) await p.screenshot({ path: path.join(SHOTS, name + '.png'), timeout: 240000 }); };
-  const frames = async (n) => { for (let i = 0; i < n; i++) await p.evaluate(() => new Promise(r => requestAnimationFrame(() => r()))); };
 
   // 1. lift: in de lobby voor de Snellift Noord, knop zoeken en roepen
   const XN = T.lifts.find(L => L.id === 'XN');
@@ -99,9 +99,8 @@ const SHOTS = process.env.SHOTS;
   R.interactie = inter;
   await frames(10);
   // opstaan door te bewegen
-  await p.evaluate(() => { const g = window.blokGame(); g.keys.add('KeyW'); });
-  await frames(3);
-  R.opgestaan = await p.evaluate(() => { const g = window.blokGame(); g.keys.delete('KeyW'); return !g.seat; });
+  // opstaan door te bewegen (de testbrowser heeft geen muisvergrendeling: één spelstap direct uitvoeren)
+  R.opgestaan = await p.evaluate(() => { const g = window.blokGame(); g.keys.add('KeyW'); g.updateMain(0.016); g.keys.delete('KeyW'); return !g.seat; });
   // bed
   R.bed = await p.evaluate(async () => {
     const g = window.blokGame(), { B } = await import('./js/blocks.js'), { actionFor } = await import('./js/interact.js'), p0 = g.player.pos;

@@ -117,7 +117,8 @@ for (let f = F_MIN; f <= F_MAX; f++) if (!LIFTS.some(L => L.stops.has(f))) fail(
 // 4. snelreisplaatsen
 for (const [name, x, z, y] of PLACES) {
   const X = Math.floor(x), Z = Math.floor(z);
-  const ok = IS_SOLID[get(X, y - 1, Z)] && !IS_SOLID[get(X, y, Z)] && !IS_SOLID[get(X, y + 1, Z)];
+  let ok = IS_SOLID[get(X, y - 1, Z)];
+  for (const ex of [x - 0.3, x + 0.29]) for (const ez of [z - 0.3, z + 0.29]) for (const ey of [y, y + 1]) if (IS_SOLID[get(Math.floor(ex), ey, Math.floor(ez))]) ok = false;
   const r = roomAt(x, y + 0.5, z);
   console.log(`  ${ok ? '✓' : '✗'} ${name} → ${r ? 'verdieping ' + r.label + ' · ' + r.room : 'buiten de toren'}`);
   if (!ok) fail(`snelreisplaats '${name}' staat niet op een vrije vloer`);

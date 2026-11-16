@@ -122,6 +122,8 @@ export class MegaView {
     const inS = this.S.find(S => this.inCab(S) && S.target == null);
     if (inS && !this.riding) { if (this.panelFor !== inS) this.showPanel(inS); if (S_open(inS)) inS.hold = Math.max(inS.hold, 2); }
     else if (!this.riding && this.panelFor) this.hidePanel();
+    // meerijden: de speler en de camera op de nieuwe hoogte van de cabine (geen beeld achterstand)
+    if (this.riding) { this.updateRide(); g.placeCamera(); }
     if (near) this.drawLanding(); else this.land.count = 0;
     this.doorT -= dt;
     if (near && (this.doorT <= 0 || this.doorsDirty)) { this.doorT = 0.5; this.doorsDirty = false; this.drawLeaves(); }
