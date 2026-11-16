@@ -15,6 +15,12 @@ export const B = {
   WOOL_RED: 63, BOOKSHELF: 64, CRATE: 65, CHECKER: 66, ROOF_GREEN: 67, SOLAR: 68, PINE_LEAVES: 69, CLAY_ROOF: 70,
   DEEPSLATE: 71, COAL_ORE: 72, IRON_ORE: 73, GOLD_ORE: 74, DIAMOND_ORE: 75, LADDER: 76, ELEVATOR: 77, BASALT: 78, CLAY: 79, ESCALATOR: 80,
   DOOR: 81, DOOR_TOP: 82, DOOR_GLASS: 83, BIKE_PATH: 84, BUS_LANE: 85,
+  // Megatower: meubels, liften, techniek en bediening
+  BED: 86, PILLOW: 87, SOFA: 88, CHAIR: 89, TABLE: 90, TV: 91, TV_ON: 92, COUNTER: 93, STOVE: 94, FRIDGE: 95, SINK: 96, TOILET: 97,
+  BATHTUB: 98, WARDROBE: 99, LAMP_OFF: 100, SWITCH: 101, CARPET_BLUE: 102, CARPET_BEIGE: 103, DOOR_SHUT: 104, DOOR_SHUT_TOP: 105,
+  DOOR_OPEN: 106, CHARGER: 107, PAY_MACHINE: 108, BARRIER: 109, LIFT_DOOR: 110, LIFT_BUTTON: 111, SIGN: 112, ROOM_FILL: 113,
+  SERVER: 114, GENERATOR: 115, PUMP: 116, VENT: 117, GYM: 118, SHELF: 119, SHOWER_FLOOR: 120, MIRROR_WALL: 121, PARQUET: 122,
+  HELIPAD: 123, PLANTER: 124, DOOR_OPEN_TOP: 125, TICKET: 126, CARPET_GREY: 127, BED_BLUE: 128, SOFA_LEATHER: 129, CHAIR_RED: 130, WALL_WOOD: 131,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -106,6 +112,52 @@ export const BLOCKS = [
   { id: 83, name: 'Glazen deur', color: [170, 210, 230], tex: ['glass', 'door_glass', 'glass'], transparent: true, passable: true },
   { id: 84, name: 'Fietspad (rood asfalt)', color: [150, 62, 50], tex: ['bike_path', 'asphalt', 'asphalt'] },
   { id: 85, name: 'Busbaan', color: [112, 40, 44], tex: ['bus_lane', 'asphalt', 'asphalt'] },
+  { id: 86, name: 'Bed', color: [220, 222, 228], tex: ['bed_top', 'bed_side', 'planks'], seat: 'bed' },
+  { id: 87, name: 'Kussen', color: [246, 246, 244], tex: ['pillow', 'bed_side', 'planks'], seat: 'bed' },
+  { id: 88, name: 'Zetel', color: [110, 116, 126], tex: ['sofa_top', 'sofa_side', 'dark_planks'], seat: 'sit' },
+  { id: 89, name: 'Stoel', color: [150, 110, 70], tex: ['chair_top', 'chair_side', 'planks'], seat: 'sit', cutout: true },
+  { id: 90, name: 'Tafel', color: [170, 130, 84], tex: ['table_top', 'table_side', 'planks'], cutout: true },
+  { id: 91, name: 'Televisie (uit)', color: [24, 24, 28], tex: ['paint_black', 'tv_off', 'paint_black'], toggle: 92 },
+  { id: 92, name: 'Televisie (aan)', color: [60, 110, 170], tex: ['paint_black', 'tv_on', 'paint_black'], toggle: 91, glow: true },
+  { id: 93, name: 'Keukenkast', color: [226, 226, 222], tex: ['counter_top', 'cabinet', 'cabinet'] },
+  { id: 94, name: 'Kookplaat en oven', color: [60, 60, 64], tex: ['stove_top', 'oven', 'cabinet'] },
+  { id: 95, name: 'Koelkast', color: [236, 238, 240], tex: ['paint_white', 'fridge', 'paint_white'] },
+  { id: 96, name: 'Wastafel', color: [240, 242, 244], tex: ['sink_top', 'cabinet', 'cabinet'] },
+  { id: 97, name: 'Toilet', color: [246, 246, 246], tex: ['toilet_top', 'toilet_side', 'paint_white'], seat: 'sit', cutout: true },
+  { id: 98, name: 'Bad', color: [240, 244, 248], tex: ['bath_top', 'bath_side', 'paint_white'] },
+  { id: 99, name: 'Kleerkast', color: [140, 100, 64], tex: ['planks', 'wardrobe', 'planks'] },
+  { id: 100, name: 'Lamp (uit)', color: [180, 176, 160], tex: ['lamp_off'], toggle: 21 },
+  { id: 101, name: 'Lichtschakelaar', color: [236, 234, 228], tex: ['plaster', 'switch', 'plaster'] },
+  { id: 102, name: 'Blauw tapijt', color: [52, 70, 120], tex: ['carpet_blue'] },
+  { id: 103, name: 'Beige tapijt', color: [196, 178, 150], tex: ['carpet_beige'] },
+  { id: 104, name: 'Deur (dicht)', color: [120, 78, 44], tex: ['planks', 'door_low', 'planks'], toggle: 106 },
+  { id: 105, name: 'Deur (dicht, bovenkant)', color: [120, 78, 44], tex: ['planks', 'door_high', 'planks'], toggle: 125 },
+  { id: 106, name: 'Deur (open)', color: [120, 78, 44], tex: ['planks'], passable: true, invisible: true, toggle: 104 },
+  { id: 107, name: 'Laadpaal', color: [40, 150, 90], tex: ['metal', 'charger', 'metal'] },
+  { id: 108, name: 'Parkeerautomaat', color: [40, 70, 140], tex: ['metal', 'paymachine', 'metal'] },
+  { id: 109, name: 'Slagboom', color: [210, 40, 40], tex: ['barrier', 'barrier', 'barrier'] },
+  { id: 110, name: 'Liftdeur (staal)', color: [180, 184, 190], tex: ['metal', 'liftdoor', 'metal'] },
+  { id: 111, name: 'Liftknop', color: [180, 184, 190], tex: ['metal', 'liftbutton', 'metal'] },
+  { id: 112, name: 'Bord', color: [30, 110, 70], tex: ['metal', 'sign', 'metal'] },
+  { id: 113, name: 'Verlichte kamer (gevel)', color: [200, 180, 140], tex: ['room_fill'], hidden: true },
+  { id: 114, name: 'Serverkast', color: [30, 34, 40], tex: ['metal', 'server', 'metal'] },
+  { id: 115, name: 'Noodgenerator', color: [210, 170, 40], tex: ['generator_top', 'generator', 'metal'] },
+  { id: 116, name: 'Waterpomp', color: [40, 90, 170], tex: ['metal', 'pump', 'metal'] },
+  { id: 117, name: 'Ventilatie', color: [150, 156, 160], tex: ['vent', 'vent', 'metal'] },
+  { id: 118, name: 'Fitnesstoestel', color: [50, 50, 56], tex: ['gym_top', 'gym', 'paint_black'] },
+  { id: 119, name: 'Winkelrek', color: [200, 200, 196], tex: ['metal', 'shelf', 'metal'] },
+  { id: 120, name: 'Douchevloer', color: [210, 220, 228], tex: ['shower', 'tile', 'tile'] },
+  { id: 121, name: 'Spiegel', color: [200, 214, 222], tex: ['paint_white', 'mirror_wall', 'paint_white'] },
+  { id: 122, name: 'Parket', color: [190, 150, 104], tex: ['parquet'] },
+  { id: 123, name: 'Helikopterplatform', color: [60, 64, 70], tex: ['helipad', 'concrete', 'concrete'] },
+  { id: 124, name: 'Plantenbak', color: [96, 70, 50], tex: ['planter_top', 'planter', 'planter'] },
+  { id: 125, name: 'Deur (open, bovenkant)', color: [120, 78, 44], tex: ['planks'], passable: true, invisible: true, toggle: 105 },
+  { id: 126, name: 'Ticketautomaat', color: [200, 40, 50], tex: ['metal', 'ticket', 'metal'] },
+  { id: 127, name: 'Grijs tapijt', color: [110, 112, 116], tex: ['carpet_grey'] },
+  { id: 128, name: 'Bed (blauw)', color: [70, 100, 160], tex: ['bed_top_blue', 'bed_side', 'dark_planks'], seat: 'bed' },
+  { id: 129, name: 'Leren zetel', color: [96, 60, 40], tex: ['leather_top', 'leather_side', 'dark_planks'], seat: 'sit' },
+  { id: 130, name: 'Rode stoel', color: [170, 40, 44], tex: ['chair_red', 'chair_red_side', 'metal'], seat: 'sit', cutout: true },
+  { id: 131, name: 'Houten wandbekleding', color: [130, 92, 60], tex: ['wall_wood'] },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
@@ -115,13 +167,15 @@ export const IS_TRANSPARENT = new Uint8Array(256); // glas, water (doorzichtige 
 export const IS_CUTOUT = new Uint8Array(256);      // bladeren
 export const IS_SOLID = new Uint8Array(256);       // botsing
 export const IS_OPAQUE = new Uint8Array(256);      // voor AO en verbergen van vlakken
+export const IS_INVISIBLE = new Uint8Array(256);   // open deuren: geen vlakken (het deurblad tekent js/megaview.js)
 for (const b of BLOCKS) {
   if (b.id === 0) continue;
+  if (b.invisible) IS_INVISIBLE[b.id] = 1;
   if (b.transparent) IS_TRANSPARENT[b.id] = 1;
   if (b.cutout) IS_CUTOUT[b.id] = 1;
   if (!b.liquid && !b.climb && !b.passable) IS_SOLID[b.id] = 1;
-  if (!b.transparent && !b.cutout) IS_OPAQUE[b.id] = 1;
+  if (!b.transparent && !b.cutout && !b.invisible) IS_OPAQUE[b.id] = 1;
 }
 
 // Blokken die je kan kiezen in de inventaris
-export const PLACEABLE = BLOCKS.filter(b => b.id !== 0 && b.id !== B.BEDROCK).map(b => b.id);
+export const PLACEABLE = BLOCKS.filter(b => b.id !== 0 && b.id !== B.BEDROCK && !b.hidden && !b.invisible).map(b => b.id);
