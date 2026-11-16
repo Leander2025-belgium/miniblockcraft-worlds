@@ -27,8 +27,13 @@ async function loadGreen() {
     spawn: { x: GREENW.SPAWN.x, y: GREENW.SPAWN.y, z: GREENW.SPAWN.z, yaw: Math.PI, pitch: 0.05, fly: false } });
   return GREENW;
 }
+// Megatower City (stad + toren van 1.000 m)
+import { META as MEGA, PLACES as MEGA_PLACES, zoneName as megaZoneName, SPAWN as MEGA_SPAWN, groundAt as megaGround } from './megacity.js';
+import { PLACES as TOWER_PLACES, shellInside as towerInside, shellFill as towerShell, TOWER_TX, TOWER_TZ } from './megatower.js';
 // zelfgegenereerde werelden
 const PROC = {
+  [MEGA.id]: { META: MEGA, PLACES: [...TOWER_PLACES.map(([n, x, z, y]) => [n, x, z, y]), ...MEGA_PLACES.slice(1)], zoneName: megaZoneName, groundAt: megaGround,
+    spawn: { ...MEGA_SPAWN, fly: false }, info: 'Fantasiestad · 10 × 10 km · The Megatower: 1.000 m hoog, 25 kelders tot -100 m' },
   [GREEN.id]: { META: GREEN, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: `Fictief eilandland · ${GI.lengthKm} × ${GI.widthKm} km · hoofdstad ${GI.capital}` },
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
   [BERG.id]: { META: BERG, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
@@ -361,7 +366,7 @@ async function playMap(id, at) {
   const isBE = map.id === BELGIE.id;
   $('#tp-wrap').hidden = !isCity && !isMetro && !isBE;
   { const ab = $('#btn-area-dl'); if (ab) ab.hidden = !(map.bigWorld || isBE); }
-  fillTeleports(isMetro ? PR.PLACES.map(([n, x, z]) => [n, null, null, x, z]) : isBE ? BE_PLACES.map(([n, la, lo, h]) => { const [x, z] = mapToBlocks(map, la, lo); return [n, null, null, x, z, h]; }) : CITY_PLACES);
+  fillTeleports(isMetro ? PR.PLACES.map(([n, x, z, y]) => [n, null, null, x, z, null, y]) : isBE ? BE_PLACES.map(([n, la, lo, h]) => { const [x, z] = mapToBlocks(map, la, lo); return [n, null, null, x, z, h]; }) : CITY_PLACES);
   $('#game-title').textContent = meta.name;
   const onLod = (m) => { if (m.type === 'lodTile' && game && game.lod) game.lod.add(m.tx, m.tz, m.lod); };
   const areaProg = new Map();
@@ -378,7 +383,8 @@ async function playMap(id, at) {
   let spawn = isMetro ? { ...PR.spawn } : isCity ? SPAWN : spawnFor(map);
   if (at) { spawn = { x: at.x, y: (isMetro && PR.groundAt ? PR.groundAt(at.x, at.z) + 40 : map.ground + 90 + (isBE ? 80 : 0)), z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
   rememberLast('map', id, meta.name);
-  game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods, zoneName: isMetro ? PR.zoneName : null, groundAt: isMetro ? PR.groundAt : null }, provider, saveTile);
+  const interiorFor = map.id === MEGA.id ? (tx, tz) => (tx === TOWER_TX && tz === TOWER_TZ ? { x0: 16, z0: 16, x1: 112, z1: 112, fill: towerShell, inside: towerInside } : null) : null;
+  game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods, interiorFor, zoneName: isMetro ? PR.zoneName : null, groundAt: isMetro ? PR.groundAt : null }, provider, saveTile);
   game.start();
 }
 $('#btn-city').addEventListener('click', () => playMap(CITY.id));
@@ -394,6 +400,39 @@ $('#btn-city-dl')?.addEventListener('click', async () => {
 });
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
+$('#btn-mega')?.addEventListener('click', () => { phoneFullscreen(); playMap(MEGA.id); });
+// voorbeeld van Megatower City in het menu: stadskaart links, silhouet van de toren rechts (met hoogteschaal)
+function drawMegaPreview() {
+  const c = $('#mega-map'); if (!c) return;
+  c.width = 800; c.height = 500;
+  const ctx = c.getContext('2d'), S = 500, k = S / MEGA.tilesX / MEGA.tile;
+  const col = { 'The Megatower': '#e8b830', 'Rivier en kades': '#2f63b8', 'Centraal Park': '#4c8f3c', 'Stadspark': '#4c8f3c', 'Megatower Stadion': '#c45a3a', 'Luchthaven': '#8a8f96', 'Universiteitscampus': '#a0584a',
+    'Industriegebied': '#7b6f60', 'Ziekenhuis Sint-Elisabeth': '#e6e6e6', 'Busstation Centraal': '#5a6fa0', 'Winkelcentrum': '#d08a3a', 'Centrum': '#3c4250', 'Zakendistrict': '#4d5566', 'Stadswijk': '#6b6a66', 'Woonwijk': '#8b7a68', 'Buitenwijk': '#7f8f6a', 'Station Megatower Centraal': '#fff' };
+  const step = 32;
+  for (let z = 0; z < MEGA.tilesZ * MEGA.tile; z += step) for (let x = 0; x < MEGA.tilesX * MEGA.tile; x += step) { ctx.fillStyle = col[megaZoneName(x + 16, z + 16)] || '#666'; ctx.fillRect(x * k, z * k, step * k + 0.6, step * k + 0.6); }
+  ctx.strokeStyle = 'rgba(20,20,24,.55)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= MEGA.tilesX; i++) { ctx.beginPath(); ctx.moveTo(i * MEGA.tile * k, 0); ctx.lineTo(i * MEGA.tile * k, S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * MEGA.tile * k); ctx.lineTo(S, i * MEGA.tile * k); ctx.stroke(); }
+  ctx.fillStyle = '#ddd'; ctx.fillRect(0, 47 * MEGA.tile * k - 1.5, 70 * MEGA.tile * k, 3); // spoorviaduct
+  ctx.fillStyle = '#e8b830'; ctx.beginPath(); ctx.arc(40.5 * MEGA.tile * k, 40.5 * MEGA.tile * k, 7, 0, 7); ctx.fill();
+  ctx.font = 'bold 13px system-ui'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  for (const [n, x, z] of [['Megatower', 40.5, 39.2], ['Luchthaven', 74, 40], ['Stadion', 31, 49.4], ['Park', 45.5, 32.6], ['Rivier', 17.5, 10], ['Universiteit', 23.5, 29.4], ['Industrie', 62, 7]]) ctx.fillText(n, x * MEGA.tile * k, z * MEGA.tile * k);
+  // silhouet: toren van 1.000 m naast de andere torens en de Eiffeltoren (330 m) als maat
+  const x0 = 520, base = 470, hk = 440 / 1000;
+  const sky = ctx.createLinearGradient(0, 0, 0, S); sky.addColorStop(0, '#1b2a4a'); sky.addColorStop(1, '#5c7aa8');
+  ctx.fillStyle = sky; ctx.fillRect(S, 0, 300, S);
+  ctx.fillStyle = '#2a3140';
+  for (const [dx, h, w] of [[10, 420, 22], [36, 300, 18], [210, 520, 24], [240, 260, 20], [262, 380, 16]]) ctx.fillRect(x0 + dx - 20, base - h * hk, w, h * hk);
+  const tw = [[0, 46], [10, 42], [30, 40], [80, 36], [120, 32], [150, 28], [200, 24], [230, 20]];
+  ctx.fillStyle = '#9fb7d8';
+  tw.forEach(([f0, a], i) => { const f1 = i + 1 < tw.length ? tw[i + 1][0] : 250; ctx.fillRect(x0 + 120 - a * 0.9, base - f1 * 4 * hk, a * 1.8, (f1 - f0) * 4 * hk); });
+  ctx.fillStyle = '#ffd36a'; ctx.fillRect(x0 + 120 - 18, base - 1000 * hk, 36, 3);
+  ctx.fillStyle = '#3a2f22'; ctx.fillRect(S, base, 300, 30);
+  ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = '11px system-ui'; ctx.textAlign = 'left';
+  for (const m of [0, 250, 500, 750, 1000]) { const y = base - m * hk; ctx.fillRect(S + 6, y, 10, 1); ctx.fillText(m + ' m', S + 18, y + 4); }
+  ctx.fillText('-100 m (B25)', S + 18, base + 24);
+  ctx.textAlign = 'center'; ctx.font = 'bold 13px system-ui'; ctx.fillStyle = '#fff'; ctx.fillText('The Megatower · 1.000 m', x0 + 120, base - 1000 * hk - 8);
+}
+drawMegaPreview();
 // ---------- Greenisland in het menu: kaart, zoeken, favorieten, locatie kiezen ----------
 let giImg = null, giLab = null;
 async function giData() {
@@ -581,13 +620,17 @@ $('#btn-area-dl')?.addEventListener('click', async () => {
 function fillTeleports(list) {
   const box = $('#tp-list');
   box.innerHTML = '';
-  for (const [name, lat, lon, bx, bz, hm] of list) {
+  for (const [name, lat, lon, bx, bz, hm, ey] of list) {
     const b = document.createElement('button');
     b.className = 'chip'; b.textContent = name;
     b.onclick = () => {
       if (!game || !game.tiled) return;
       const [x, z] = bx != null ? [bx, bz] : toBlocks(lat, lon);
       const p = game.player, G0 = game.meta.ground ?? 12;
+      if (ey != null) { // precieze plek (in de Megatower): op de vloer zetten, niet vliegen
+        game.teleportTo?.(x, ey, z) ?? (p.pos.set(x, ey + 0.02, z), p.vel.set(0, 0, 0));
+        p.fly = false; p.pitch = 0; game.tiled.aheadKey = null; game.updateTiles(true); game.resume(); return;
+      }
       p.pos.set(x, G0 + (hm != null ? hm + 70 : bx != null ? 120 : 40), z + 60); p.vel.set(0, 0, 0); p.fly = true; p.yaw = 0; p.pitch = bx != null ? -0.1 : 0.15;
       game.tiled.aheadKey = null;
       game.updateTiles(true);

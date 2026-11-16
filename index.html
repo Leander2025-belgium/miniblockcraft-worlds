@@ -78,6 +78,8 @@
   .help { font-size: 13px; color: var(--muted); }
   .help kbd, .keys kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font: 12px ui-monospace, monospace; color: var(--text); }
 
+  .badge-new { font-size: 11px; background: #e8b830; color: #222; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
+  .mega-card { border-color: #e8b830; }
   .city-card { background: var(--panel2); border: 1px solid var(--accent-d); border-radius: 12px; padding: 12px; margin: 6px 0 4px; }
   .city-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
   .city-name { font-weight: 700; font-size: 16px; }
@@ -208,6 +210,16 @@
   .drive-pad .plane-only { display: none; } .drive-pad[data-mode=plane] .plane-only { display: grid; } .drive-pad[data-mode=plane] .rail-only { display: none; }
   .drive-pad[data-mode=road] .rail-only, .drive-pad[data-mode=pass] .rail-only, .drive-pad[data-mode=pass] .dp-left, .drive-pad[data-mode=pass] .dp-right { display: none; }
   .driving #t-move { display: none !important; }
+  #t-use { display: none; right: calc(110px + env(safe-area-inset-right, 0px)); bottom: calc(170px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
+  .is-touch #t-use.show { display: grid; }
+  #use-hint { position: absolute; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); background: rgba(10,14,20,.72); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 13px; pointer-events: none; white-space: nowrap; z-index: 6; }
+  #lift-panel { position: absolute; right: 12px; top: 70px; width: min(420px, calc(100vw - 24px)); max-height: calc(100vh - 160px); overflow: auto; background: rgba(16,20,28,.94); border: 1px solid #e8b830; border-radius: 12px; padding: 10px; z-index: 30; color: #fff; }
+  #lift-panel .lp-head { margin-bottom: 6px; font-size: 14px; } #lift-panel .lp-kind { color: #aab; font-size: 12px; }
+  #lift-panel .lp-floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 5px; }
+  #lift-panel .lp-f { background: #2a3140; color: #fff; border: 1px solid #445; border-radius: 8px; padding: 6px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: center; font-size: 15px; }
+  #lift-panel .lp-f small { font-size: 9px; color: #cdb; } #lift-panel .lp-f.cur { background: #e8b830; color: #222; } #lift-panel .lp-f:hover { background: #3a4a66; }
+  #lift-panel .lp-foot { display: flex; gap: 6px; margin-top: 8px; }
+  #lift-hud { position: absolute; left: 50%; top: 70px; transform: translateX(-50%); background: rgba(16,20,28,.85); color: #ffd36a; padding: 6px 12px; border-radius: 10px; font-size: 14px; z-index: 29; white-space: nowrap; }
   #t-ride { display: none; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
   .is-touch #t-ride.show { display: grid; }
   .photo #t-ride { display: none !important; }
@@ -418,6 +430,17 @@
       </div>
       <p class="help">Vijf provincies, de hoofdstad <b>Munkbay</b> met wolkenkrabbers, oude stad, universiteit, park, haven, strand en een internationale luchthaven (GreenAir), het <b>Viridonia Gebergte</b>, regenwoud bij Rainforest City, kliffen bij Northcliff en Black Point. Een nationaal <b>spoornet</b>: IC1 Oostkustlijn, IC2 Viridonia Express, S1 Munkbay S-Bahn, AX1 Airport Express en de ICE naar Frankfurt en Amsterdam via de Noordzeetunnel. Tik op de kaart om ergens te beginnen.</p>
     </div>
+    <div class="city-card mega-card">
+      <div class="city-top">
+        <div>
+          <div class="city-name">🏙 Megatower City <span class="badge-new">NIEUW</span></div>
+          <div class="small muted">Fantasiestad · 10 × 10 km · The Megatower: 1.000 m hoog, 250 verdiepingen + 25 kelders</div>
+        </div>
+        <button class="btn primary" id="btn-mega">▶ Spelen</button>
+      </div>
+      <canvas id="mega-map" title="Megatower City" style="width:100%;aspect-ratio:1.6;border-radius:8px;margin-top:8px;display:block"></canvas>
+      <p class="help">Een complete stad rond <b>The Megatower</b>: lobby, winkelcentrum, kantoren en congrescentrum, een <b>vijfsterrenhotel</b> met ingerichte kamers en suites, honderden <b>ingerichte appartementen</b>, sky gardens, zwembaden, penthouses en een <b>observatieplatform op 992 m</b>. Onder de grond: metrostation, 10 niveaus parking en techniek tot <b>-100 m</b>. Werkende <b>liften</b> (oproepknop, deuren, verdieping kiezen), deuren, lichtschakelaars, tv's, zetels en bedden: kijk ernaar en druk op <b>E</b> (of de ✋-knop). Rond de toren: rivier met bruggen, metro, trams, bussen, station Megatower Centraal, stadion, universiteit, ziekenhuis en een luchthaven.</p>
+    </div>
     <div class="city-card">
       <div class="city-top">
         <div>
@@ -506,6 +529,8 @@
   <button class="touch tbtn" id="t-cam" aria-label="Camera">👁</button>
   <button class="touch tbtn" id="t-build" aria-label="Bouwmodus">🏗</button>
   <button class="touch tbtn" id="t-flash" aria-label="Zaklamp">🔦</button>
+  <button class="touch tbtn" id="t-use" aria-label="Bedienen">✋</button>
+  <div id="use-hint" hidden></div>
   <div id="build-bar" class="build-bar" hidden>
     <button class="btn" id="bb-c1" title="Hoek 1 = blok waar je naar kijkt (linkerklik)">① hoek</button>
     <button class="btn" id="bb-c2" title="Hoek 2 (rechterklik)">② hoek</button>
