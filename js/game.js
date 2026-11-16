@@ -1,6 +1,7 @@
 // De 3D-game: rendering, besturing, natuurkunde, bouwen en breken.
 import * as THREE from 'three';
 import { meshChunk, CS, SMOOTH, OVER } from './mesher.js';
+import { actionFor, updateSeat } from './interact.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
 import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, RES as TS, materialTexture } from './textures.js';
 import { districtAt, GROUND } from './city.js';
@@ -24,6 +25,7 @@ let MV = null;
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
 const SKY_RAW = [0.62, 0.80, 0.96];
+const SEC = 32; // hoogte van een verticale sectie (torens met interieur)
 
 const VERT = `
 attribute vec2 tile;
@@ -74,6 +76,8 @@ uniform float isTrans;
 uniform float atlasCols;
 uniform vec2 lampTile;
 uniform vec2 waterTile;
+uniform vec2 fillTile;
+uniform vec2 tvTile;
 varying vec2 vUv;
 varying vec2 vTile;
 varying float vLight;
@@ -126,9 +130,13 @@ void main() {
   float upF = n.y * 0.5 + 0.5;
   // hemel- en grondlicht
   vec3 ambientC = mix(vec3(0.42, 0.40, 0.36), mix(fogColor, skyTop, 0.5) * 0.95 + 0.12, upF);
-  float ao = clamp(vLight, 0.22, 1.0);
+  // binnenruimtes (Megatower): de mesher telt 2 op bij het licht; daar warm kunstlicht, weinig zon
+  float indoor = step(1.5, vLight);
+  float vl = vLight - 2.0 * indoor;
+  float ao = clamp(vl, 0.22, 1.0);
   vec3 light = ambientC * (0.5 + 0.4 * daylight) * daylight * ao + sunColor * (0.78 * sunF * sh * day) * (0.55 + 0.45 * ao);
-  if (isUnder > 0.5) light = vec3(1.0, 0.82, 0.6) * vLight * 1.25 + vec3(0.035, 0.038, 0.048); // ondergronds: lampen
+  if (indoor > 0.5) light = vec3(1.0, 0.95, 0.86) * (0.5 + 0.42 * ao) + ambientC * 0.18 * daylight * ao;
+  if (isUnder > 0.5) light = vec3(1.0, 0.82, 0.6) * vl * 1.25 + vec3(0.035, 0.038, 0.048); // ondergronds: lampen
   // zaklamp
   if (flashOn > 0.5) {
     vec3 tf = vWorld - flashPos; float fd = length(tf); vec3 fdir = tf / max(fd, 0.001);
@@ -143,6 +151,12 @@ void main() {
   float fr = pow(1.0 - clamp(abs(dot(n, viewDir)), 0.0, 1.0), 4.0);
   vec3 skyRefl = mix(fogColor, skyTop, clamp(reflect(-viewDir, n).y, 0.0, 1.0)) * daylight;
   if (isLamp) col = c.rgb * mix(1.0, 1.4, 1.0 - day);
+  if (distance(vTile, tvTile) < 0.1) col = c.rgb * 1.15;
+  if (distance(vTile, fillTile) < 0.1) {
+    // achter het glas van een toren: verlichte kamers ('s nachts niet allemaal)
+    float on = step(0.3, h3(floor(vWorld - n * 0.5) * vec3(1.0, 0.25, 1.0)));
+    col = c.rgb * mix(mix(0.1, 0.85, on), 0.5, day);
+  }
   if (isWater) {
     float w1 = sin(vWorld.x * 0.55 + vWorld.z * 0.22 + time * 1.1);
     float w2 = sin(vWorld.z * 0.81 - vWorld.x * 0.17 - time * 1.3);
@@ -317,6 +331,8 @@ export class Game {
       wet: { value: 0 }, isUnder: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
+      fillTile: { value: new THREE.Vector2(TILE_INDEX.room_fill % ATLAS_COLS, Math.floor(TILE_INDEX.room_fill / ATLAS_COLS)) },
+      tvTile: { value: new THREE.Vector2(TILE_INDEX.tv_on % ATLAS_COLS, Math.floor(TILE_INDEX.tv_on / ATLAS_COLS)) },
     });
     this.matOpaque = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms() });
     this.matTrans = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
@@ -369,6 +385,7 @@ export class Game {
     if (this.lod) { this.lod.dispose(); this.lod = null; }
     if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
     this.dropMountain(); this.leaveVehicle();
+    this.mega?.dispose(); this.mega = null; this.seat = null;
     this.under?.dispose(); this.under = null;
     this.ships?.dispose(); this.ships = null; this.aboard = null;
     this.airports?.dispose(); this.airports = null;
@@ -414,6 +431,9 @@ export class Game {
     this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
     this.airports?.dispose(); this.airports = new Airports(this);
     this.dropMountain(); this.leaveVehicle();
+    // Megatower: liften, deurbladen, kamernamen
+    this.mega?.dispose(); this.mega = null; this.seat = null;
+    if (spec.megatower) { const tok = this.megaToken = {}; import('./megaview.js').then((m) => { if (this.megaToken === tok) this.mega = new m.MegaView(this); }).catch((e) => console.error(e)); }
     this.under?.dispose();
     const W = this.world;
     this.under = new Underground(this.scene, {
@@ -543,11 +563,55 @@ export class Game {
     if (this.far && this.far.rebuild) this.far.rebuild();
   }
   addSource(src) {
-    const nc = src.w.nc;
-    src.pendingChunks = nc * nc; src.ready = false;
-    for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) this.queue.push([src, cx, cz]);
-    this.totalChunks += nc * nc;
+    const nc = src.w.nc, I = src.interior;
+    let n = 0;
+    for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) { if (I && this.inInterior(src, cx, cz)) continue; this.queue.push([src, cx, cz]); n++; }
+    if (I) {
+      // torens met interieur: buiten de schil per sectie van SEC m (alleen de gevel), binnen pas volledig als je er bent
+      I.nsec = Math.ceil(src.w.H / SEC); I.full = I.full || new Map(); I.lo = -1; I.hi = -2;
+      const y0i = src.w.y0 || 0;
+      I.fillL = (x, y, z, b) => I.fill(x, y + y0i, z, b); I.indoorL = (x, y, z) => I.inside(x, y + y0i, z);
+      I.chunks = []; for (let cz = 0; cz < nc; cz++) for (let cx = 0; cx < nc; cx++) if (this.inInterior(src, cx, cz)) I.chunks.push([cx, cz]);
+      for (let sct = 0; sct < I.nsec; sct++) { this.queue.push([src, 3, 3, 'shell', sct]); n++; }
+    }
+    src.pendingChunks = n; src.ready = false;
+    this.totalChunks += n;
     if (this.player) this.sortQueue();
+  }
+  inInterior(src, cx, cz) { const I = src.interior; return !!I && cx * CS >= I.x0 && cx * CS + CS <= I.x1 && cz * CS >= I.z0 && cz * CS + CS <= I.z1; }
+  // verticale streaming: rond de speler de volledige verdiepingen (secties van SEC m), elders alleen de gevel
+  updateInteriors() {
+    const W = this.world;
+    if (!W || !W.tiles) return;
+    const p = this.player.pos, now = performance.now();
+    for (const t of W.tiles.values()) {
+      const I = t.interior;
+      if (!I || !I.nsec || !t.w.vox) continue;
+      const lx = p.x - t.ox, lz = p.z - t.oz, ly = p.y - (t.w.y0 || 0);
+      const dx = Math.max(I.x0 - lx, 0, lx - I.x1), dz = Math.max(I.z0 - lz, 0, lz - I.z1);
+      let lo = -1, hi = -2;
+      if (Math.hypot(dx, dz) < 36) { lo = Math.max(0, Math.floor((ly - 12) / SEC)); hi = Math.min(I.nsec - 1, Math.floor((ly + 14) / SEC)); }
+      I.lo = lo; I.hi = hi;
+      for (let sct = lo; sct <= hi; sct++) {
+        let F = I.full.get(sct);
+        if (!F) { F = { built: 0, total: I.chunks.length, used: now }; I.full.set(sct, F); for (const [cx, cz] of I.chunks) this.queue.push([t, cx, cz, 'full', sct]); this.sortQueue(); }
+        F.used = now;
+      }
+      // verdiepingen ver van de speler: meshes weg (de blokken blijven, terugkomen = opnieuw opbouwen uit het geheugen)
+      for (const [sct, F] of I.full) {
+        if (sct >= lo - 1 && sct <= hi + 1) continue;
+        if (now - F.used < 4000) continue;
+        I.full.delete(sct);
+        this.queue = this.queue.filter(q => !(q[0] === t && q[3] === 'full' && q[4] === sct));
+        for (const [k, c] of this.chunks) if (c.src === t && c.kind === 'full' && c.sec === sct) { for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); } this.chunks.delete(k); }
+      }
+    }
+  }
+  sectionVisible(c) {
+    const I = c.src.interior;
+    if (!I || !c.kind) return true;
+    const F = I.full.get(c.sec), inWin = c.sec >= I.lo && c.sec <= I.hi, ready = !!F && F.built >= F.total;
+    return c.kind === 'full' ? inWin && ready : !(inWin && ready);
   }
 
   removeSource(src) {
@@ -582,8 +646,10 @@ export class Game {
     this.trafficDirty = true;
     // zuinig bewaren: wijzigingen eerst opslaan, dan de blokken samengeperst (de meshes blijven klaarstaan)
     if (t.dirty) { td.saveTile(t.tx, t.tz, t.w.vox, t.w.H, t.w.y0, t.w.edge); t.dirty = false; }
-    const pend = this.queue.filter(q => q[0] === t);
-    if (pend.length) { t.pendingQ = pend.map(q => [q[1], q[2]]); this.queue = this.queue.filter(q => q[0] !== t); }
+    const pend = this.queue.filter(q => q[0] === t && q[3] !== 'full');
+    if (t.interior && t.interior.full) { t.interior.lo = -1; t.interior.hi = -2; }
+    if (pend.length) { t.pendingQ = pend.map(q => q.slice(1)); }
+    this.queue = this.queue.filter(q => q[0] !== t);
     if (t.w.vox && t.ready) { t.rle = rleEncode(t.w.vox); t.w.vox = null; t.bytes = 0; }
     // te veel in het geheugen? de langst niet bezochte tegels opruimen (wijzigingen eerst bewaren)
     let total = 0;
@@ -604,7 +670,8 @@ export class Game {
     if (!t) return false;
     td.parked.delete(k); t.parked = false;
     if (!t.w.vox && t.rle) { t.w.vox = rleDecode(t.rle, t.w.size * t.w.size * t.w.H); t.rle = null; t.bytes = 0; }
-    if (t.pendingQ) { for (const [cx, cz] of t.pendingQ) this.queue.push([t, cx, cz]); t.pendingQ = null; }
+    if (t.pendingQ) { for (const q of t.pendingQ) this.queue.push([t, ...q]); t.pendingQ = null; }
+    if (t.interior && t.interior.full) { for (const F of t.interior.full.values()) F.built = Math.min(F.built, F.total); }
     this.world.tiles.set(k, t);
     this.trafficDirty = true; td.stats.memory++;
     return true;
@@ -673,6 +740,8 @@ export class Game {
         w.ox = tx * T; w.oz = tz * T; w.under = this.under;
         if (tunnels && this.under) this.under.addCarves(tunnels);
         const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
+        const intr = td.spec.interiorFor && td.spec.interiorFor(tx, tz);
+        if (intr) src.interior = { ...intr };
         this.trafficDirty = true;
         w.src = src;
         W.tiles.set(k, src);
@@ -709,8 +778,9 @@ export class Game {
   }
 
   sortQueue() {
-    const px = this.player.pos.x, pz = this.player.pos.z;
-    const d = (q) => (q[0].ox + q[1] * CS + 8 - px) ** 2 + (q[0].oz + q[2] * CS + 8 - pz) ** 2;
+    const px = this.player.pos.x, pz = this.player.pos.z, py = this.player.pos.y;
+    // secties van een toren: de verdiepingen waar je bent eerst, de gevelschil als gewone chunk
+    const d = (q) => (q[0].ox + q[1] * CS + 8 - px) ** 2 + (q[0].oz + q[2] * CS + 8 - pz) ** 2 + (q[3] === 'full' ? ((q[0].w.y0 || 0) + q[4] * SEC + SEC / 2 - py) ** 2 * 0.25 - 4000 : q[3] === 'shell' ? 2000 : 0);
     this.queue.sort((a, b) => d(b) - d(a));
   }
 
@@ -722,16 +792,28 @@ export class Game {
     this.chunks.clear();
   }
 
-  buildChunk(src, cx, cz) {
+  buildChunk(src, cx, cz, kind, sct) {
     if (src.dead) return;
-    const key = src.key + ':' + (cz * src.w.nc + cx);
+    const I = src.interior;
+    if (!kind && I && this.inInterior(src, cx, cz)) {
+      // een blok in de toren veranderd: de volledige secties van deze chunk opnieuw, en de gevelschil op die hoogte
+      const ey = this.editY, y0 = src.w.y0 || 0;
+      for (const sc of I.full.keys()) if (this.chunks.has(src.key + ':' + (cz * src.w.nc + cx) + ':f' + sc)) this.buildChunk(src, cx, cz, 'full', sc);
+      if (ey) for (let sc = Math.max(0, Math.floor((ey[0] - y0 - 1) / SEC)); sc <= Math.min(I.nsec - 1, Math.floor((ey[1] - y0 + 1) / SEC)); sc++) this.buildChunk(src, 3, 3, 'shell', sc);
+      return;
+    }
+    const key = src.key + ':' + (cz * src.w.nc + cx) + (kind === 'shell' ? ':s' + sct : kind === 'full' ? ':f' + sct : '');
     const old = this.chunks.get(key);
     if (old) for (const m of [old.o, old.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
-    const out = meshChunk(src.w, cx, cz);
+    let out;
+    if (kind === 'shell') out = meshChunk(src.w, 0, 0, { x0: I.x0, z0: I.z0, sx: I.x1 - I.x0, sz: I.z1 - I.z0, ylo: sct * SEC, yhi: (sct + 1) * SEC, fill: I.fillL });
+    else if (kind === 'full') out = meshChunk(src.w, cx, cz, { ylo: sct * SEC, yhi: (sct + 1) * SEC, indoor: I.indoorL });
+    else out = meshChunk(src.w, cx, cz);
     const entry = { o: this.toMesh(out.opaque, this.matOpaque, src), t: this.toMesh(out.trans, this.matTrans, src), src,
-      wx: src.ox + cx * CS + 8, wz: src.oz + cz * CS + 8 };
+      wx: src.ox + (kind === 'shell' ? (I.x0 + I.x1) / 2 : cx * CS + 8), wz: src.oz + (kind === 'shell' ? (I.z0 + I.z1) / 2 : cz * CS + 8), kind, sec: sct };
     if (entry.t) entry.t.renderOrder = 1;
-    if (!old && src.pendingChunks > 0 && --src.pendingChunks === 0) src.ready = true; // alle chunks klaar: de verre blokken mogen weg
+    if (kind === 'full') { const F = I.full.get(sct); if (!F) { for (const m of [entry.o, entry.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); } return; } if (!old) F.built++; }
+    else if (!old && src.pendingChunks > 0 && --src.pendingChunks === 0) src.ready = true; // alle chunks klaar: de verre blokken mogen weg
     this.chunks.set(key, entry);
   }
 
@@ -757,9 +839,10 @@ export class Game {
     return m;
   }
 
-  remeshAround(gx, gz) {
+  remeshAround(gx, gz, gy) {
     const src = this.world.sourceAt(gx, gz);
     if (!src) return;
+    this.editY = gy != null ? [gy, gy] : null;
     const x = gx - src.ox, z = gz - src.oz;
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     const set = new Set([`${cx},${cz}`]);
@@ -776,6 +859,7 @@ export class Game {
       const [a, b] = k.split(',').map(Number);
       if (a >= 0 && b >= 0 && a < src.w.nc && b < src.w.nc) this.buildChunk(src, a, b);
     }
+    this.editY = null;
   }
 
   // ---------- lus ----------
@@ -829,9 +913,10 @@ export class Game {
     let n = 0;
     const budget = this.tiled && this.tiled.speed > 25 && !this.touch ? 16 : 12;
     while (this.queue.length && (performance.now() - t0 < budget || n === 0)) {
-      const [src, cx, cz] = this.queue.pop();
+      const [src, cx, cz, kind, sct] = this.queue.pop();
       if (src.dead || !src.w.vox) continue;
-      this.buildChunk(src, cx, cz);
+      if (kind === 'full' && !(src.interior && src.interior.full.has(sct))) continue;
+      this.buildChunk(src, cx, cz, kind, sct);
       this.builtChunks++; n++;
     }
     if (this.tiled) return;
@@ -914,14 +999,16 @@ export class Game {
       if (lu) { lu.fogNear.value = 5000; lu.fogFar.value = 60000; }
     }
     this.camera.far = (this.tiled ? Math.max(far, this.settings.lod * 1.6) : far) + 60; this.camera.updateProjectionMatrix();
+    this.updateInteriors();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
     for (const c of this.chunks.values()) {
       const dx = c.wx - pcx, dz = c.wz - pcz;
-      const vis = !c.src.parked && (!!this.tiled || dx * dx + dz * dz < lim); // grote kaarten: alle geladen tegels tonen; geparkeerde verbergen
+      const vis = !c.src.parked && (!!this.tiled || dx * dx + dz * dz < lim) && (!c.kind || this.sectionVisible(c)); // grote kaarten: alle geladen tegels tonen; geparkeerde verbergen
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
     }
     if (this.under) this.under.update(p.pos, (x, y, z) => this.world.get(x, y, z));
+    if (this.mega) this.mega.update(dt);
     if (this.lod) for (const m of this.lod.meshes.values()) if (ug) m.visible = false;
     if (this.lod?.groundMesh) this.lod.groundMesh.visible = !ug && !this.far;
     this.clouds.visible = !ug;
@@ -1021,6 +1108,7 @@ export class Game {
     this.drive = new Drive(this, v, mode);
     document.getElementById('drive-choice')?.setAttribute('hidden', '');
   }
+  useAction() { const a = this.action; if (!a) return; try { a.run(); } catch (err) { console.error(err); } this.action = null; this.updateTarget(); }
   toggleFlash() { this.flash = !this.flash; this.toast(this.flash ? '🔦 Zaklamp aan' : 'Zaklamp uit'); }
   cycleCamera() {
     const order = ['first', 'third', 'front'];
@@ -1275,7 +1363,8 @@ export class Game {
   }
 
   // ---------- natuurkunde ----------
-  solid(x, y, z) { return this.world.solidAt(x, y, z); }
+  solid(x, y, z) { return this.world.solidAt(x, y, z) || (!!this.mega && this.mega.solid(x, y, z)); }
+  teleportTo(x, y, z) { const p = this.player; this.seat = null; p.pos.set(x, y + 0.02, z); p.vel.set(0, 0, 0); p.fly = false; return true; }
   collides(px, py, pz) {
     const r = 0.3, h = 1.8;
     const x0 = Math.floor(px - r), x1 = Math.floor(px + r - 1e-6);
@@ -1366,6 +1455,9 @@ export class Game {
   updateMain(dt) {
     const p = this.player, k = this.keys;
     if (this.drive) { this.drive.update(dt); this.updateHud(); return; }
+    // in een lift van de Megatower: meerijden; op een stoel of in bed: blijven tot je beweegt
+    if (this.mega && this.mega.updateRide()) { if (this.tiled) this.updateTiles(); this.updateHud(); return; }
+    if (this.seat && updateSeat(this)) { this.updateTarget(); this.updateHud(); return; }
     // voertuig in de buurt? (instappen)
     if (this.traffic && !this.aboardStep && (this.nearT = (this.nearT || 0) + dt) > 0.4) {
       this.nearT = 0;
@@ -1524,6 +1616,14 @@ export class Game {
   updateTarget() {
     if (this.aboardStep || this.aboard) { this.target = null; this.highlight.visible = false; return; }
     this.target = this.raycast();
+    // interactie: kijk je naar iets wat je kan bedienen? (E of ✋)
+    const t = this.target, ex = this.eye;
+    const act = t && (t.x + 0.5 - ex.x) ** 2 + (t.y + 0.5 - ex.y) ** 2 + (t.z + 0.5 - ex.z) ** 2 < 25 ? actionFor(this, t) : null;
+    if ((act && act.label) !== (this.action && this.action.label)) {
+      const hint = document.getElementById('use-hint'); if (hint) { hint.hidden = !act; if (act) hint.textContent = (this.touch ? '✋ ' : 'E · ') + act.label; }
+      document.getElementById('t-use')?.classList.toggle('show', !!act);
+    }
+    this.action = act;
     if (this.target) {
       this.highlight.visible = true;
       this.highlight.position.set(this.target.x + 0.5, this.target.y + 0.5, this.target.z + 0.5);
@@ -1539,7 +1639,7 @@ export class Game {
     if (kind === 'break') {
       if (t.b === B.BEDROCK) return;
       this.builder.set(t.x, t.y, t.z, 0);
-      this.remeshAround(t.x, t.z);
+      this.remeshAround(t.x, t.z, t.y);
       this.missions.add('broken');
     } else if (kind === 'place') {
       const x = t.x + t.n[0], y = t.y + t.n[1], z = t.z + t.n[2];
@@ -1552,7 +1652,7 @@ export class Game {
         const p = this.player.pos;
         if (this.collides(p.x, p.y, p.z)) { this.builder.set(x, y, z, cur); return; }
       }
-      this.remeshAround(x, z);
+      this.remeshAround(x, z, y);
       // opdrachten bijhouden
       const G = this.meta.ground ?? GROUND, sc = (this.meta.real && this.meta.real.scale) || 1;
       this.missions.add('placed');
@@ -1587,7 +1687,8 @@ export class Game {
       const dir = ['N', 'NO', 'O', 'ZO', 'Z', 'ZW', 'W', 'NW'][Math.round(deg / 45) % 8];
       this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m${this.gnmiNow && this.isGreen() ? ` · ${this.gnmiNow.icon} ${Math.round(this.gnmiNow.temp)} °C` : ''}${this.wallet && this.isGreen() ? ` · 💰 ${Math.round(this.wallet.balance)} VC` : ''}`;
       const zn = this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : zoneName;
-      this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
+      const mt = this.mega && this.mega.hudText();
+      this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${mt || zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
       return;
     }
     if (m.real) {
@@ -1751,6 +1852,8 @@ export class Game {
       if (e.target.tagName === 'INPUT') return;
       if (e.code === 'KeyE') {
         e.preventDefault();
+        // E: bedienen waar je naar kijkt (deur, lift, licht, tv, stoel…); anders de inventaris
+        if (!this.invOpen && this.active() && this.action && !e.repeat) { this.useAction(); return; }
         if (this.invOpen) this.closeInventory(); else if (this.active()) this.openInventory();
         return;
       }
@@ -1870,6 +1973,7 @@ export class Game {
     document.getElementById('gnmi-close')?.addEventListener('click', () => this.resume());
     document.getElementById('t-shot')?.addEventListener('click', () => this.savePhoto());
     document.getElementById('t-ride')?.addEventListener('click', () => this.toggleRide());
+    document.getElementById('t-use')?.addEventListener('click', (e) => { e.stopPropagation(); this.useAction(); });
     document.getElementById('t-cam')?.addEventListener('click', () => this.cycleCamera());
     document.getElementById('t-build')?.addEventListener('click', () => this.builder.toggle());
     document.getElementById('t-flash')?.addEventListener('click', () => this.toggleFlash());

@@ -45,18 +45,21 @@ export class Builder {
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   apply(list, useTo) {
-    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9;
     for (const [x, y, z, from, to] of list) {
       this.g.world.set(x, y, z, useTo ? to : from);
-      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
     }
+    this.g.editY = [y0, y1];
     this.remesh(x0, z0, x1, z1);
+    this.g.editY = null;
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   undo() { const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length} blokken)`); }
   redo() { const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length} blokken)`); }
   remesh(x0, z0, x1, z1) {
-    const done = new Set();
+    const done = new Set(), hadY = this.g.editY;
+    if (!hadY) this.g.editY = [0, 4000]; // onbekende hoogte: in een toren alle gevelsecties bijwerken
     for (let x = Math.floor((x0 - 1) / 16) * 16; x <= x1 + 1; x += 16) for (let z = Math.floor((z0 - 1) / 16) * 16; z <= z1 + 1; z += 16) {
       const src = this.g.world.sourceAt(x, z); if (!src) continue;
       const cx = Math.floor((x - src.ox) / 16), cz = Math.floor((z - src.oz) / 16), k = src.key + ':' + cx + ',' + cz;
@@ -65,6 +68,7 @@ export class Builder {
       if (src.w.recomputeTop) src.w.recomputeTop(cx, cz);
       this.g.buildChunk(src, cx, cz);
     }
+    if (!hadY) this.g.editY = null;
   }
   // ---------- bouwmodus ----------
   toggle(on = !this.on) {

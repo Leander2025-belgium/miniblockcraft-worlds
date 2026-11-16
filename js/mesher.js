@@ -1,5 +1,5 @@
 // Greedy mesher: zet een chunk van 16×16 kolommen om in zo weinig mogelijk vlakken.
-import { B, IS_OPAQUE, IS_TRANSPARENT } from './blocks.js';
+import { B, IS_OPAQUE, IS_TRANSPARENT, IS_INVISIBLE } from './blocks.js';
 import { FACE_TILE, ATLAS_COLS } from './textures.js';
 
 export const CS = 16;
@@ -17,12 +17,40 @@ const SHADE = [0.82, 0.82, 1.0, 0.55, 0.68, 0.68];
 
 function newBuf() { return { pos: [], uv: [], tile: [], light: [], face: [], idx: [], n: 0 }; }
 
-export function meshChunk(world, cx, cz) {
+// opt (verticale secties, js/game.js): { x0, z0, sx, sz } = ander gebied dan één chunk, { ylo, yhi } = alleen die hoogtes
+// (tegelcoördinaten), fill(x, y, z) = binnen de gevel telt alles als dicht (schil van een toren: enkel de buitenkant),
+// indoor(x, y, z) = binnenruimte (warm binnenlicht in plaats van zon)
+export function meshChunk(world, cx, cz, opt) {
   const { size, H, vox } = world;
-  const X0 = cx * CS, Z0 = cz * CS;
-  const sx = Math.min(CS, size - X0), sz = Math.min(CS, size - Z0);
-  const hy = Math.min(H, world.chunkTop(cx, cz) + 2);
-  const dims = [sx, hy, sz];
+  const X0 = opt && opt.x0 != null ? opt.x0 : cx * CS, Z0 = opt && opt.z0 != null ? opt.z0 : cz * CS;
+  const sx = opt && opt.sx ? opt.sx : Math.min(CS, size - X0), sz = opt && opt.sz ? opt.sz : Math.min(CS, size - Z0);
+  const YL = opt && opt.ylo != null ? Math.max(0, opt.ylo) : 0;
+  const hy = opt && opt.yhi != null ? Math.min(H, opt.yhi) : Math.min(H, world.chunkTop(cx, cz) + 2);
+  if (hy <= YL) return { opaque: newBuf(), trans: newBuf() };
+  const dims = [sx, hy - YL, sz];
+  // fill(x, y, z, blok) → vervangblok of 0 (binnen de gevel: verlichte kamer; stijlen in de gevel: glas)
+  const fill = opt && opt.fill, indoor = opt && opt.indoor;
+  let cell = null;
+  if (fill) {
+    // het hele gebied (met een rand van 1) één keer opzoeken: daarna gaat het meshen even snel als gewoon
+    const RX = sx + 2, RY = hy - YL + 2, RZ = sz + 2, R = new Uint8Array(RX * RY * RZ);
+    for (let z = 0; z < RZ; z++) for (let x = 0; x < RX; x++) {
+      const gx = X0 + x - 1, gz = Z0 + z - 1;
+      if (gx < 0 || gz < 0 || gx >= size || gz >= size) continue;
+      const base = (gz * size + gx) * H, rb = (z * RX + x) * RY;
+      for (let y = 0; y < RY; y++) {
+        const gy = YL + y - 1;
+        if (gy < 0 || gy >= H) continue;
+        const b = vox[base + gy];
+        R[rb + y] = (gy >= YL && gy < hy && fill(gx, gy, gz, b)) || b;
+      }
+    }
+    cell = (x, y, z) => {
+      const rx = x - X0 + 1, ry = y - YL + 1, rz = z - Z0 + 1;
+      if (rx >= 0 && rx < RX && ry >= 0 && ry < RY && rz >= 0 && rz < RZ) return R[(rz * RX + rx) * RY + ry];
+      const b = vox[(z * size + x) * H + y]; return (y >= YL && y < hy && fill(x, y, z, b)) || b;
+    };
+  }
 
   // tegels met randinformatie: naast de tegel is er grond tot de hoogte van de buur (geen muur aan de rand)
   const edge = world.edge, y0 = world.y0 || 0;
@@ -39,13 +67,13 @@ export function meshChunk(world, cx, cz) {
     if (y < 0) return B.BEDROCK;
     if (x < 0 || z < 0 || x >= size || z >= size) return edgeSolid(x, y, z) ? B.STONE : 0;
     if (y >= H) return 0;
-    return vox[(z * size + x) * H + y];
+    return fill ? cell(x, y, z) : vox[(z * size + x) * H + y];
   };
   const opaque = (x, y, z) => {
     if (y < 0) return 1;
     if (x < 0 || z < 0 || x >= size || z >= size) return edgeSolid(x, y, z) ? 1 : 0;
     if (y >= H) return 0;
-    return IS_OPAQUE[vox[(z * size + x) * H + y]];
+    return IS_OPAQUE[fill ? cell(x, y, z) : vox[(z * size + x) * H + y]];
   };
 
   const out = { opaque: newBuf(), trans: newBuf() };
@@ -55,6 +83,7 @@ export function meshChunk(world, cx, cz) {
   const W2 = sx + 2, surf = new Int16Array(W2 * (sz + 2)).fill(-1);
   const sAt = (lx, lz) => surf[(lz + 1) * W2 + lx + 1];
   for (let lz = -1; lz <= sz; lz++) for (let lx = -1; lx <= sx; lx++) {
+    if (opt) break; // secties van een toren: geen vloeiend terrein
     const gx = X0 + lx, gz = Z0 + lz;
     let s0 = -1;
     if (gx < 0 || gz < 0 || gx >= size || gz >= size) {
@@ -103,9 +132,9 @@ export function meshChunk(world, cx, cz) {
           p[v] = k;
           for (let j = 0; j < du; j++, n++) {
             p[u] = j;
-            const gx = X0 + p[0], gy = p[1], gz = Z0 + p[2];
-            const b = vox[(gz * size + gx) * H + gy];
-            if (!b) { mask[n] = 0; continue; }
+            const gx = X0 + p[0], gy = p[1] + YL, gz = Z0 + p[2];
+            const b = fill ? cell(gx, gy, gz) : vox[(gz * size + gx) * H + gy];
+            if (!b || IS_INVISIBLE[b]) { mask[n] = 0; continue; }
             const lxx = p[0], lzz = p[2], own = sAt(lxx, lzz);
             if (own === gy) {
               if (a === 1 && s > 0) { mask[n] = 0; continue; } // wordt een schuin vlak
@@ -120,7 +149,7 @@ export function meshChunk(world, cx, cz) {
             if (nb && (IS_OPAQUE[nb] || nb === b)) { mask[n] = 0; continue; }
             // ambient occlusion op de 4 hoeken
             let ao = 0;
-            if (IS_OPAQUE[b]) {
+            if (IS_OPAQUE[b] && b !== B.ROOM_FILL) {
               const X = c[0], Y = c[1], Z = c[2];
               for (let q = 0; q < 4; q++) {
                 const cu = (q === 1 || q === 2) ? 1 : -1, cv = (q >= 2) ? 1 : -1;
@@ -131,7 +160,7 @@ export function meshChunk(world, cx, cz) {
                 ao |= lvl << (q * 2);
               }
             } else ao = 0xff;
-            mask[n] = b | (ao << 8);
+            mask[n] = b | (ao << 8) | (indoor && indoor(c[0], c[1], c[2]) ? 0x10000 : 0);
           }
         }
         // greedy samenvoegen
@@ -150,7 +179,7 @@ export function meshChunk(world, cx, cz) {
             }
             const b = m & 0xff, ao = (m >> 8) & 0xff;
             p[a] = i + (s > 0 ? 1 : 0); p[u] = j; p[v] = k;
-            emit(out, b, a, u, v, s, X0 + p[0], p[1], Z0 + p[2], w, h, ao, faceTile, shade);
+            emit(out, b, a, u, v, s, X0 + p[0], p[1] + YL, Z0 + p[2], w, h, ao, faceTile, shade, m & 0x10000 ? 2 : 0);
             for (let hh = 0; hh < h; hh++) for (let q = 0; q < w; q++) mask[n + q + hh * du] = 0;
             j += w; n += w;
           }
@@ -202,7 +231,7 @@ function skirt(out, b, e1, e2, lo1, lo2, hi1, hi2, f) {
 }
 
 const V = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
-function emit(out, b, a, u, v, s, ox, oy, oz, w, h, ao, faceTile, shade) {
+function emit(out, b, a, u, v, s, ox, oy, oz, w, h, ao, faceTile, shade, lightAdd = 0) {
   const buf = IS_TRANSPARENT[b] ? out.trans : out.opaque;
   const o = [ox, oy, oz];
   for (let q = 0; q < 4; q++) {
@@ -224,7 +253,7 @@ function emit(out, b, a, u, v, s, ox, oy, oz, w, h, ao, faceTile, shade) {
     else buf.uv.push(vt[0], vt[2]);
     buf.tile.push(tx, ty);
     const lvl = ao === 0xff ? 3 : (ao >> (q * 2)) & 3;
-    buf.light.push(shade * AO_LEVEL[lvl]);
+    buf.light.push(shade * AO_LEVEL[lvl] + lightAdd); // +2 = binnenruimte (de shader geeft binnenlicht)
     buf.face.push(a * 2 + (s > 0 ? 0 : 1)); // richting van het vlak (voor licht en weerspiegeling)
   }
   const a0 = ao === 0xff ? 3 : ao & 3, a1 = ao === 0xff ? 3 : (ao >> 2) & 3;
