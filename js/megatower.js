@@ -549,6 +549,7 @@ P.mall = (F) => { slab(F, B.MARBLE, 5); P.mallShops(F, F.f === -1 ? 'Winkelcentr
 function escalators(F) { // roltrappen in de passage (noord- en zuidkant), naar de verdieping erboven
   if (F.f === 1) { for (const s of [0, 2]) for (let i = 1; i < 4; i++) for (const t of [7, 8, 9, 10]) { const [ci, cj] = sideToC(s, t, 22 + i); if (t === 7 || t === 10) F.set(ci, cj, 1, B.GLASS); else for (let l = 0; l < 4; l++) F.set(ci, cj, l, 0); } return; }
   if (F.f >= 1) return;
+  for (const s of [0, 2]) for (let i = 0; i < 4; i++) for (const t of [7, 10]) { const [ci, cj] = sideToC(s, t, 22 + i); F.set(ci, cj, 1, B.GLASS); F.set(ci, cj, 2, 0); } // leuningen
   for (const s of [0, 2]) for (let i = 0; i < 4; i++) for (const t of [8, 9]) {
     const [ci, cj] = sideToC(s, t, 22 + i);
     for (let l = 0; l < 4; l++) F.set(ci, cj, l, 0);

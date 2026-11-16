@@ -47,8 +47,8 @@ export function landmark(tx, tz) {
 }
 const lmId = (tx, tz) => { const l = landmark(tx, tz); return l && !l.single && l.id !== 'river' && l.id !== 'industry' ? (l.group || l.id) : null; };
 // laan tussen twee tegels: weg als beide tegels bij hetzelfde grote gebied horen
-function avenueNS(i, tz) { if (tz < 0 || tz >= TILES) return false; const a = lmId(i - 1, tz); return !(a && a === lmId(i, tz)); }
-function avenueEW(j, tx) { if (tx < 0 || tx >= TILES) return false; const a = lmId(tx, j - 1); return !(a && a === lmId(tx, j)); }
+export function avenueNS(i, tz) { if (tz < 0 || tz >= TILES) return false; const a = lmId(i - 1, tz); return !(a && a === lmId(i, tz)); }
+export function avenueEW(j, tx) { if (tx < 0 || tx >= TILES) return false; const a = lmId(tx, j - 1); return !(a && a === lmId(tx, j)); }
 const off = (v) => { const r = ((v % T) + T) % T; return r < 14 ? r : r >= T - 14 ? r - T : null; };
 function district(x, z) {
   const d = Math.hypot(x - CX, z - CZ);

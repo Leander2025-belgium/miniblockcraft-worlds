@@ -578,6 +578,14 @@ export class Game {
     this.totalChunks += n;
     if (this.player) this.sortQueue();
   }
+  // is alles rond de speler klaar? (tegel geladen, en in een toren de verdiepingen rond je opgebouwd)
+  readyHere() {
+    const p = this.player.pos, t = this.world && this.world.tileAt ? this.world.tileAt(p.x, p.z) : null;
+    if (!t) return false;
+    const I = t.interior;
+    if (I && I.nsec) { if (I.lo > I.hi) return !!t.ready; for (let s = I.lo; s <= I.hi; s++) { const F = I.full.get(s); if (!F || F.built < F.total) return false; } return true; }
+    return !!t.ready;
+  }
   inInterior(src, cx, cz) { const I = src.interior; return !!I && cx * CS >= I.x0 && cx * CS + CS <= I.x1 && cz * CS >= I.z0 && cz * CS + CS <= I.z1; }
   // verticale streaming: rond de speler de volledige verdiepingen (secties van SEC m), elders alleen de gevel
   updateInteriors() {
@@ -1233,7 +1241,7 @@ export class Game {
   // ---------- schaduwen van de zon (rond de speler) ----------
   updateShadows(env) {
     const S = this.shadow, q = this.settings.quality || 'normal';
-    const want = this.autoLow || this.settings.shadows === false ? 0 : q === 'sharp' ? 2048 : q === 'normal' ? (this.touch ? 1024 : 2048) : 0;
+    const want = this.autoLow || this.settings.shadows === false ? 0 : q === 'ultra' ? 4096 : q === 'sharp' ? 2048 : q === 'normal' ? (this.touch ? 1024 : 2048) : 0;
     const set = (k, v) => { for (const m of this.mats) m.uniforms[k].value = v; };
     if (!want || env.day < 0.08 || !this.world) { set('shadowOn', 0); return; }
     if (S.size !== want) {
@@ -1767,7 +1775,7 @@ export class Game {
   applyQuality() {
     const dpr = window.devicePixelRatio || 1;
     const q = this.settings.quality || 'normal';
-    const r = q === 'fast' ? 1 : q === 'sharp' ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
+    const r = q === 'fast' ? 1 : q === 'sharp' || q === 'ultra' ? Math.min(dpr, 2) : Math.min(dpr, 1.5);
     this.renderer.setPixelRatio(Math.max(0.6, r * (this.tune ? this.tune.scale : 1)));
     if (this.camera) this.resize();
   }
@@ -1788,6 +1796,18 @@ export class Game {
       cyc.addEventListener('change', () => { this.settings.cycle = cyc.checked; saveSettings(this.settings); });
     }
     if (cyc) cyc.checked = !!this.settings.cycle;
+    // grafische profielen: kijkafstand, verre gebouwen, scherpte en schaduwen in één keer
+    const prof = document.getElementById('set-profile');
+    if (prof) {
+      prof.value = this.settings.profile || '';
+      if (!prof.dataset.bound) { prof.dataset.bound = '1'; prof.addEventListener('change', () => {
+        const P = { laag: { quality: 'fast', shadows: false, view: 96, lod: 800 }, gemiddeld: { quality: 'normal', shadows: false, view: 160, lod: 1600 },
+          hoog: { quality: 'normal', shadows: true, view: 224, lod: 2600 }, ultra: { quality: 'ultra', shadows: true, view: 320, lod: 4000 } }[prof.value];
+        this.settings.profile = prof.value;
+        if (P) Object.assign(this.settings, P);
+        saveSettings(this.settings); this.applySettings(); this.applyQuality(); this.updateTiles?.(true);
+      }); }
+    }
     const ql = document.getElementById('set-quality');
     if (ql) {
       ql.value = this.settings.quality || 'normal';

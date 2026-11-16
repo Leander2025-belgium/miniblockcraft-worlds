@@ -10,6 +10,8 @@ const checks = [
   ['Heel België: Ardennen-tegels (niets afgesneden, y0)', 'tools/check-belgie.mjs'],
   ['Nova Metropool: gebouwen, naden, startbanen', 'tools/check-metropool.mjs'],
   ['Greenisland: spoor, gebouwen, wegen, naden', 'tools/check-green.mjs'],
+  ['Megatower: 1.000 m, kamers bereikbaar, deuren, liften, snelreizen', 'tools/check-megatower.mjs'],
+  ['Megatower City: lanen, gaten, bruggen, sporen, determinisme', 'tools/check-megacity.mjs'],
 ];
 let fail = 0;
 for (const [name, file] of checks) {
