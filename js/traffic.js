@@ -194,11 +194,11 @@ function consist(kind, r) {
     return { secs: s, L: o + 18 };
   }
   if (kind === 'tram') {
-    const s = [{ m: 'tramCab', len: 7.6, off: 3.8 }];
+    const s = [{ m: 'tramCab', len: 7.6, off: 3.8, doors: 'tramDoorsCab' }];
     const mids = r < 0.5 ? 2 : 3;
     let o = 7.6;
-    for (let i = 0; i < mids; i++) { s.push({ m: 'tramMid', len: 7.0, off: o + 3.5 }); o += 7.0; }
-    s.push({ m: 'tramCab', len: 7.6, off: o + 3.8, flip: true });
+    for (let i = 0; i < mids; i++) { s.push({ m: 'tramMid', len: 7.0, off: o + 3.5, doors: 'tramDoorsMid' }); o += 7.0; }
+    s.push({ m: 'tramCab', len: 7.6, off: o + 3.8, flip: true, doors: 'tramDoorsCab' });
     return { secs: s, L: o + 7.6 };
   }
   if (kind === 'train') {
@@ -215,7 +215,13 @@ function consist(kind, r) {
     for (let i = 0; i < n; i++) { s.push({ m: 'regioCoach', len: 26.8, off: o + 13.4 }); o += 26.8; }
     return { secs: s, L: o };
   }
-  if (kind === 'bus') return { secs: [{ m: 'bus', len: 12, off: 6 }], L: 12 };
+  if (kind === 'bus') {
+    // vloot: stadsbussen, gelede bussen (scharnier volgt de bocht: elke wagen heeft zijn eigen as), elektrische bussen,
+    // touringcars en buurtbussen; deuren gaan open aan de halte
+    if (r < 0.3) return { secs: [{ m: 'busArtF', len: 11, off: 5.5, doors: 'busArtFDoors' }, { m: 'busArtR', len: 7, off: 11.6 + 3.5, doors: 'busArtRDoors' }], L: 18.6 };
+    const m = r < 0.55 ? 'busElec' : r < 0.62 ? 'busCoach' : r < 0.7 ? 'busMini' : 'busCity', len = { busElec: 12, busCoach: 13, busMini: 8, busCity: 12 }[m];
+    return { secs: [{ m, len, off: len / 2, doors: m + 'Doors' }], L: len };
+  }
   const cars = ['sedan', 'sedan', 'hatch', 'hatch', 'suv', 'van', 'taxi', 'sedan', 'suv', 'hatch'];
   // af en toe hulpdiensten met zwaailichten
   const em = r < 0.015 ? 'police' : r < 0.025 ? 'ambulance' : r < 0.032 ? 'fire' : null;
@@ -223,7 +229,7 @@ function consist(kind, r) {
   if (em) return { secs: [{ m, len, off: len / 2, beacon: em === 'police' ? 'Car' : em === 'ambulance' ? 'Van' : 'Truck' }], L: len, emergency: em };
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
-const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
+const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
@@ -746,7 +752,7 @@ export class Traffic {
       const lift = a.kind === 'train' || a.kind === 'metro' ? 0.2 : a.kind === 'tram' ? 0.05 : 0;
       if (a.emergency === undefined) a.emergency = a.secs && a.secs[0] && ['police', 'ambulance', 'fire'].includes(a.secs[0].m) ? a.secs[0].m : null;
       // deuren open bij een halte (AI) of als de bestuurder ze opent
-      const doorsOpen = a.kind === 'metro' && (a.player ? a.player.doors : (a.wait > 1.5 && a.wait < 18));
+      const doorsOpen = (a.kind === 'metro' || a.kind === 'bus' || a.kind === 'tram') && (a.player ? a.player.doors : (a.atStop !== false && a.wait > 1.2 && a.wait < (a.kind === 'bus' ? 10 : 18)));
       a.doorsOpen = doorsOpen;
       for (const s of a.secs) {
         const M = this.meshes[s.m];

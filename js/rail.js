@@ -2,12 +2,14 @@
 // meerijden (zitplaats kiezen, in- en uitstappen aan perrons), zelf rijden vanuit de cabine (tractie, rem,
 // noodrem, seinen, snelheidsbeperkingen, haltes, deuren, omroepen) en een interactieve kaart met reisplanner.
 import * as THREE from 'three';
+import { TrainShells } from './trainshell.js';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
 // useNet(net) kiest het net van de wereld die gespeeld wordt.
 let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffset = () => 2.5, LIFTS = [], CROSSINGS = [], groundAt = () => 0, MW = 1, ML = 1, SERVICES = [];
 export let RUNS = [];
+export function netInfo() { return { LINES, STATIONS_ALL, trackOffset }; }
 export function useNet(net) {
   NET = net;
   ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML } = net);
@@ -260,6 +262,13 @@ function inHours(sv, dep) {
   const h = (((dep % P) + P) % P) / 3600, [a, b] = sv.hours;
   return a <= b ? h >= a && h < b : h >= a || h < b;
 }
+// staat de trein aan een perron met de deuren open? (na het stoppen open, 4 s voor vertrek dicht)
+function doorsOpenAt(a) {
+  const pr = a.run.pr;
+  if (a.v > 0.05 || !pr.stops) return 0;
+  for (const st of pr.stops) if (a.t >= st.arr + 1.5 && a.t <= st.dep - 4) return 1;
+  return 0;
+}
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
@@ -342,6 +351,7 @@ export class AlpRail {
   constructor(game) {
     this.g = game;
     this.group = new THREE.Group(); game.scene.add(this.group);
+    this.shells = new TrainShells(game.scene); // gladde buitenkant (van buiten), het blokinterieur aan boord
     this.designs = new Map(); this.trains = new Map(); this.t = 0;
     this.tmpV = new THREE.Vector3(); this.tmpW = new THREE.Vector3();
     this.announced = new Set();
@@ -375,6 +385,7 @@ export class AlpRail {
   }
   dispose() {
     for (const tr of this.trains.values()) this.dropTrain(tr);
+    this.shells?.dispose();
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.group.removeFromParent();
     if (this.tunnel) this.tunnel.geometry.dispose();
@@ -413,13 +424,22 @@ export class AlpRail {
       for (const [geo, mat] of d.geos) { const m = new THREE.Mesh(geo, mat); m.position.set(-d.W / 2, 0, -d.L / 2); m.layers.enable(1); if (mat === this.g.matTrans) m.renderOrder = 1; grp.add(m); }
       this.group.add(grp);
       const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'tram');
-      tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip });
+      const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE);
+      tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip, shell });
     }
     return tr;
   }
+  // van buiten de gladde buitenkant, aan boord het interieur; deuren schuiven open als de trein aan een perron staat
+  dressTrain(tr, aboard, dt, doorWant) {
+    tr.doorF = Math.max(0, Math.min(1, (tr.doorF || 0) + (doorWant ? 1 : -1) * dt / 1.6));
+    for (const c of tr.cars) {
+      c.grp.visible = aboard || !c.shell;
+      if (c.shell) { c.shell.g.visible = !aboard; this.shells.setDoors(c.shell, tr.doorF); }
+    }
+  }
   dropTrain(tr) {
     if (this.g.aboard && this.g.aboard.train === tr) this.g.leaveVessel?.();
-    for (const c of tr.cars) c.grp.removeFromParent();
+    for (const c of tr.cars) { c.grp.removeFromParent(); c.shell?.g.removeFromParent(); }
   }
   // plaats van alle rijtuigen van een trein
   place(tr, L, sHead, dir, line) {
@@ -436,6 +456,7 @@ export class AlpRail {
       const x = (fx + bx) / 2, z = (fz + bz) / 2, y = (fy + by) / 2;
       c.body.setPose(x, y, z, yaw, pitch);
       c.grp.position.set(x, y, z); c.grp.rotation.set(-pitch, yaw, 0);
+      if (c.shell) { c.shell.g.position.set(x, y, z); c.shell.g.rotation.set(-pitch, yaw, 0); }
       off += c.d.L + GAP;
     }
     void line;
@@ -467,6 +488,7 @@ export class AlpRail {
       if (!tr) { tr = this.makeTrain(a); this.trains.set(a.id, tr); }
       tr.a = a; tr.L = L; tr.dir = dir; tr.s = s; tr.v = a.v;
       this.place(tr, L, s, dir);
+      this.dressTrain(tr, aboardThis, dt, doorsOpenAt(a));
       seen.add(a.id);
     }
     // de zelf bestuurde trein (na het verlaten van de cabine: uitbollen en blijven staan)
@@ -475,11 +497,10 @@ export class AlpRail {
       if (!g.drive) { pt.v = Math.max(0, pt.v - 0.9 * dt); pt.s += pt.dir * pt.v * dt; pt.s = Math.max(5, Math.min(pt.L.len - 5, pt.s)); }
       const hp = pt.L.at(pt.s);
       if (!g.drive && !(g.aboard && g.aboard.train === pt.tr) && Math.hypot(hp.x - p.x, hp.z - p.z) > 1500) { this.dropTrain(pt.tr); this.trains.delete(pt.tr.id); this.player = null; }
-      else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); }
+      else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || !!g.drive, dt, pt.doors ? 1 : 0); }
     }
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
-    const light = 0.2 + 0.8 * day;
-    void light;
+    this.shells.update(day);
     this.updateSignals(act);
     this.updateCrossings(act);
     this.updateTunnel(p);

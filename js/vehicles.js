@@ -170,6 +170,66 @@ function busModel() {
   return P.done();
 }
 
+// ---------- bussen 2.0: stadsbus, gelede bus (voor- en achterwagen met balg), elektrische bus, touringcar, buurtbus ----------
+// o = { L, H, front (neus met chauffeur), rear (achterkant met lichten), bellowFront (balg vooraan: achterwagen),
+//       coach (hoge vloer, getinte ruiten, bagageruimte), electric (accu's op het dak), doors: [z…] }
+function busBody(o) {
+  const P = new Parts(), L = o.L, W = 2.55, H = o.H || 3.1, hz = L / 2;
+  const floorY = o.coach ? 1.3 : 0.62;
+  P.box('paint', W, o.coach ? 1.55 : 1.05, L, 0, o.coach ? 1.15 : 0.88, 0);                    // onderkant
+  P.box('trim', W + 0.02, 0.04, L - 0.2, 0, o.coach ? 1.6 : 1.42, 0, 0xc9cdd2);               // sierlijst
+  const wy = o.coach ? 2.45 : 2.05, wh = o.coach ? 1.1 : 1.2;
+  // ruiten met stijlen (niet over de deuren)
+  for (const sx of [1, -1]) for (let z = -hz + 0.6; z < hz - (o.front ? 1.6 : 0.6); z += 1.55) {
+    if ((o.doors || []).some(dz => Math.abs(z + 0.65 - dz) < 1.1)) continue;
+    P.box('trim', 0.04, wh, 1.35, sx * (W / 2 + 0.01), wy, z + 0.65, o.coach ? 0x1a2230 : GLASS);
+    P.box('trim', 0.05, wh + 0.05, 0.12, sx * (W / 2 + 0.015), wy, z + 1.4, DARK);
+  }
+  P.box('paint', W, H - wy - wh / 2 + 0.05, L, 0, (H + wy + wh / 2) / 2, 0);                  // boven de ramen
+  P.box('trim', W * 0.95, 0.18, L * 0.96, 0, H + 0.05, 0, 0xe9ebee, { sx: 0.92 });            // dak
+  if (o.electric) { P.box('trim', 2.0, 0.32, L * 0.55, 0, H + 0.3, -0.5, 0x6b7c8c); P.box('light', 0.5, 0.06, 0.4, 0.6, H + 0.47, 1.5, 0x5fe08a); }
+  else P.box('trim', 1.6, 0.3, 2.4, 0, H + 0.28, -hz + 3, 0xd5d8dc);                         // airco
+  if (o.front) {
+    P.box('trim', W - 0.1, H - 1.1, 0.06, 0, (H + 1.1) / 2 + 0.1, hz + 0.01, GLASS);          // grote voorruit
+    P.box('light', 1.9, 0.26, 0.05, 0, H - 0.28, hz + 0.03, AMBER);                           // bestemmingsscherm (lijn en bestemming)
+    P.box('light', 0.34, 0.18, 0.05, W / 2 - 0.3, 0.75, hz + 0.03, HEAD).box('light', 0.34, 0.18, 0.05, -W / 2 + 0.3, 0.75, hz + 0.03, HEAD);
+    P.box('trim', W + 0.02, 0.3, 0.16, 0, 0.42, hz + 0.04, DARK);
+    for (const sx of [1, -1]) { P.box('trim', 0.06, 0.06, 0.5, sx * (W / 2 + 0.25), H - 0.45, hz - 0.1, DARK); P.box('trim', 0.12, 0.45, 0.08, sx * (W / 2 + 0.48), H - 0.75, hz + 0.12, 0x101215); } // spiegels op armen
+    P.box('trim', 0.5, 0.9, 0.5, -0.7, floorY + 0.6, hz - 1.1, 0x30343b);                      // chauffeursstoel en dashboard
+    P.box('trim', W - 0.3, 0.35, 0.4, 0, floorY + 0.95, hz - 0.45, 0x22252a);
+  }
+  if (o.rear) {
+    P.box('light', 0.22, 0.55, 0.05, W / 2 - 0.15, 1.15, -hz - 0.03, TAIL).box('light', 0.22, 0.55, 0.05, -W / 2 + 0.15, 1.15, -hz - 0.03, TAIL);
+    P.box('light', 0.18, 0.12, 0.05, W / 2 - 0.15, 1.55, -hz - 0.03, 0xffa21a).box('light', 0.18, 0.12, 0.05, -W / 2 + 0.15, 1.55, -hz - 0.03, 0xffa21a); // richtingaanwijzers
+    P.box('trim', W + 0.02, 0.3, 0.16, 0, 0.42, -hz - 0.04, DARK);
+    P.box('trim', W - 0.2, 0.9, 0.05, 0, 2.2, -hz - 0.02, o.coach ? 0x1a2230 : GLASS);
+  }
+  if (o.bellowFront) P.box('trim', W - 0.25, H - 0.6, 0.9, 0, (H + 0.4) / 2, hz + 0.45, 0x1c1d20); // balg
+  // interieur: stoelen in rijen, stangen, rolstoelplaats bij de middendeur
+  for (let z = -hz + 1.2; z < hz - (o.front ? 2.2 : 0.8); z += 0.95) {
+    if ((o.doors || []).some(dz => Math.abs(z - dz) < 1.6)) continue;
+    for (const sx of [0.62, -0.62]) { P.box('trim', 0.5, 0.1, 0.45, sx * 1.15, floorY + 0.45, z, o.coach ? 0x3c4a73 : 0x2e5c9e); P.box('trim', 0.5, 0.6, 0.08, sx * 1.15, floorY + 0.8, z - 0.2, o.coach ? 0x3c4a73 : 0x2e5c9e); }
+  }
+  // wielen
+  const axles = o.axles || [hz - 2.6, -hz + 3.2];
+  for (const sz of axles) for (const sx of [W / 2 - 0.2, -W / 2 + 0.2]) P.wheel(0.5, 0.32, sx, 0.5, sz, TYRE);
+  if (o.coach) P.box('trim', 0.04, 0.7, L * 0.5, W / 2 + 0.02, 0.85, -0.5, 0x5a5e66).box('trim', 0.04, 0.7, L * 0.5, -W / 2 - 0.02, 0.85, -0.5, 0x5a5e66); // bagageluiken
+  return P.done();
+}
+function busDoors(o) {
+  const P = new Parts(), W = 2.55, h = o.coach ? 2.4 : 2.1, y = o.coach ? 1.65 : 1.4;
+  for (const dz of o.doors || []) P.box('trim', 0.06, h, 1.25, W / 2 + 0.02, y, dz, GLASS_LIGHT);
+  return { trim: P.done().trim };
+}
+export const BUS_TYPES = {
+  busCity: { L: 12, front: true, rear: true, doors: [4.6, 0.3, -3.6] },
+  busElec: { L: 12, front: true, rear: true, electric: true, doors: [4.6, 0.3, -3.6] },
+  busArtF: { L: 11, front: true, rear: false, doors: [4.1, -0.2], axles: [2.9, -2.6] },
+  busArtR: { L: 7, front: false, rear: true, bellowFront: true, doors: [1.2], axles: [-1.9] },
+  busCoach: { L: 13, front: true, rear: true, coach: true, H: 3.6, doors: [5.4], axles: [3.9, -3.4, -4.7] },
+  busMini: { L: 8, front: true, rear: true, H: 2.9, doors: [2.9, -1.2], axles: [2.2, -2.3] },
+};
+
 // ---------- tram (lagevloertram, gelede bakken) ----------
 function tramSection(cab) {
   const P = new Parts(), L = cab ? 7.6 : 7.0, W = 2.4;
@@ -301,6 +361,9 @@ export function buildModels() {
   }
   { const P = new Parts(); P.box('light', 0.28, 0.28, 0.12, 0, 0, 0, 0xffffff); M.signalHead = P.done(); }
   M.tramCab = tramSection(true); M.tramMid = tramSection(false);
+  for (const [k, o] of Object.entries(BUS_TYPES)) { M[k] = busBody(o); M[k + 'Doors'] = busDoors(o); }
+  M.tramDoorsCab = { trim: (() => { const P = new Parts(); P.box('trim', 0.06, 2.15, 1.3, 1.22, 1.4, 0.2, GLASS_LIGHT); P.box('trim', 0.06, 2.15, 1.3, -1.22, 1.4, -1.8, GLASS_LIGHT); return P.done().trim; })() };
+  M.tramDoorsMid = { trim: (() => { const P = new Parts(); P.box('trim', 0.06, 2.15, 1.3, 1.22, 1.4, 0.5, GLASS_LIGHT); P.box('trim', 0.06, 2.15, 1.3, -1.22, 1.4, -1.5, GLASS_LIGHT); return P.done().trim; })() };
   M.iceHead = trainCar({ L: 20.5, cab: true, stripe: 0xd4121c, H: 3.85 });
   M.iceCoach = trainCar({ L: 26.4, stripe: 0xd4121c, H: 3.85 });
   M.regioCab = trainCar({ L: 26.8, cab: true, doubleDeck: true, H: 4.6 });

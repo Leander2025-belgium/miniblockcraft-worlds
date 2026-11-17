@@ -1189,6 +1189,7 @@ refreshList().then(() => {
 
 // diagnose in het pauzemenu
 $('#btn-diag')?.addEventListener('click', () => { $('#diag-text').value = diagText(); game && game.showOverlay('diag'); });
+$('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
 window.addEventListener('error', (e) => diag('fout', String(e.message || e).slice(0, 200)));
