@@ -1012,7 +1012,7 @@ export class Game {
     if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z, this.lodNear ? this.settings.lod : 0);
     if (this.traffic && this.settings.traffic !== false) {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
-      this.traffic.update(dt, p.pos, env.day);
+      this.traffic.update(dt, p.pos, env.day, this.settings.hour);
     }
     if (this.ships) this.ships.update(dt);
     if (this.airports) this.airports.update(dt, env.day);
@@ -1058,6 +1058,7 @@ export class Game {
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
     this.renderer.autoClear = true;
+    this.perfHud(dt);
     this.autoTune(dt);
     this.drawMinimap();
   }
@@ -1289,6 +1290,22 @@ export class Game {
     S.matrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
     set('shadowMap', S.rt.depthTexture); set('shadowOn', 1);
     S.ready = true;
+  }
+  // FPS-meter (instellingen of F3): beelden per seconde, traagste frame, tekenopdrachten, driehoeken, geheugen, laadtijd
+  perfHud(dt) {
+    const P = this.perf || (this.perf = { t: 0, n: 0, worst: 0, born: performance.now() });
+    P.t += dt; P.n++; P.worst = Math.max(P.worst, dt);
+    if (!P.loaded && this.player && this.world && this.world.tileAt?.(this.player.pos.x, this.player.pos.z) && !(this.queue && this.queue.length > 30)) P.loaded = performance.now() - P.born;
+    if (P.t < 0.5) return;
+    const fps = P.n / P.t, worst = P.worst; P.t = 0; P.n = 0; P.worst = 0;
+    this.fpsNow = fps;
+    let el = document.getElementById('fps-hud');
+    if (!this.settings.fps) { if (el) el.hidden = true; return; }
+    if (!el) { el = document.createElement('div'); el.id = 'fps-hud'; el.className = 'fps-hud'; (this.ui.root || document.body).appendChild(el); }
+    el.hidden = false;
+    const inf = this.renderer.info.render, mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB' : 'n.v.t.';
+    const col = fps >= 50 ? '#4ade80' : fps >= 28 ? '#fbbf24' : '#ff5a4a';
+    el.innerHTML = `<b style="color:${col}">${fps.toFixed(0)} FPS</b> · traagste ${(worst * 1000).toFixed(0)} ms<br>${inf.calls} tekenopdr. · ${(inf.triangles / 1000).toFixed(0)}k driehoeken<br>geheugen ${mem} · resolutie ${Math.round((this.tune?.scale ?? 1) * 100)}%${this.autoLow ? ' (laag)' : ''}<br>laadtijd ${P.loaded ? (P.loaded / 1000).toFixed(1) + ' s' : '…'} · wachtrij ${this.queue ? this.queue.length : 0}`;
   }
   // automatische kwaliteit: bij te weinig beelden per seconde de resolutie en schaduwen terugschroeven
   autoTune(dt) {
@@ -1864,6 +1881,8 @@ export class Game {
         });
       }
     }
+    const fpsEl = document.getElementById('set-fps');
+    if (fpsEl) { fpsEl.checked = !!this.settings.fps; if (!fpsEl.dataset.bound) { fpsEl.dataset.bound = '1'; fpsEl.addEventListener('change', () => { this.settings.fps = fpsEl.checked; saveSettings(this.settings); }); } }
     for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
       const el = document.getElementById(id); if (!el) continue;
       el.checked = this.settings[key] !== false;
@@ -1933,6 +1952,7 @@ export class Game {
       if (e.code === 'KeyL' && !e.repeat) this.toggleFlash();
       if (e.code === 'KeyV' && !e.repeat && !this.buildKeys?.(e)) this.cycleCamera();
       if ((e.code === 'Enter' || e.code === 'NumpadEnter') && this.photo) this.savePhoto();
+      if (e.code === 'F3' && !e.repeat) { e.preventDefault(); this.settings.fps = !this.settings.fps; saveSettings(this.settings); const f = document.getElementById('set-fps'); if (f) f.checked = this.settings.fps; return; }
       if (e.code === 'KeyT' && !e.repeat) { this.settings.hour = (Math.floor(this.settings.hour) + 3) % 24; this.syncTimeUi(); saveSettings(this.settings); this.toast(`🕒 ${String(Math.floor(this.settings.hour)).padStart(2, '0')}:00`); }
       if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
     });
@@ -2043,7 +2063,7 @@ export class Game {
       el.addEventListener('pointerdown', (e) => { e.preventDefault(); this[flag] = true; });
       for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(ev, () => { this[flag] = false; });
     }
-    for (const [id, code] of [['dp-flaps', 'KeyF'], ['dp-gear', 'KeyG'], ['dp-doors', 'KeyQ'], ['dp-ann', 'KeyN'], ['dp-rev', 'KeyR'], ['dp-exit', 'KeyH'], ['dp-cam', 'KeyV']]) {
+    for (const [id, code] of [['dp-flaps', 'KeyF'], ['dp-gear', 'KeyG'], ['dp-doors', 'KeyQ'], ['dp-ann', 'KeyN'], ['dp-indl', 'KeyZ'], ['dp-indr', 'KeyC'], ['dp-rev', 'KeyR'], ['dp-exit', 'KeyH'], ['dp-cam', 'KeyV']]) {
       document.getElementById(id)?.addEventListener('click', () => this.drive?.key(code));
     }
     document.getElementById('t-photo-exit')?.addEventListener('click', () => this.togglePhoto(false));

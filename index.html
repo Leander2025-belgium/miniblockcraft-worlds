@@ -208,10 +208,13 @@
   .drive-pad .dp-top { right: calc(12px + var(--sr)); top: calc(62px + var(--st)); }
   .drive-pad .dp-left .tbtn, .drive-pad .dp-right .tbtn { width: 66px; height: 66px; font-size: 26px; }
   .drive-pad .plane-only { display: none; } .drive-pad[data-mode=plane] .plane-only { display: grid; } .drive-pad[data-mode=plane] .rail-only { display: none; }
+  .drive-pad .bus-only { display: none; } .drive-pad[data-mode=bus] .bus-only, .drive-pad[data-mode=bus] .bus-ok { display: grid; } .drive-pad[data-mode=bus] .rail-only:not(.bus-ok) { display: none; }
+  .bus-desk .bus-ind { display: flex; flex-direction: column; gap: 2px; font-size: 18px; color: #4ade80; }
   .drive-pad[data-mode=road] .rail-only, .drive-pad[data-mode=pass] .rail-only, .drive-pad[data-mode=pass] .dp-left, .drive-pad[data-mode=pass] .dp-right { display: none; }
   .driving #t-move { display: none !important; }
   #t-use { display: none; right: calc(110px + env(safe-area-inset-right, 0px)); bottom: calc(170px + env(safe-area-inset-bottom, 0px)); width: 64px; height: 64px; font-size: 28px; }
   .is-touch #t-use.show { display: grid; }
+  .fps-hud { position: absolute; left: calc(8px + var(--sl)); top: calc(70px + var(--st)); z-index: 8; pointer-events: none; background: rgba(10,14,20,.72); color: #dde; font: 11px/1.35 ui-monospace, monospace; padding: 5px 8px; border-radius: 6px; }
   .cab-desk { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 4px; }
   .cab-desk .lever { position: relative; width: 22px; height: 64px; background: #20262f; border: 1px solid #455; border-radius: 6px; overflow: hidden; }
   .cab-desk .lv-fill { position: absolute; left: 0; right: 0; bottom: 0; }
@@ -580,7 +583,7 @@
     </div>
     <div class="dp-top">
       <button class="tbtn plane-only" id="dp-plus">＋</button><button class="tbtn plane-only" id="dp-minus">－</button><button class="tbtn plane-only" id="dp-flaps">F</button><button class="tbtn plane-only" id="dp-gear">G</button>
-      <button class="tbtn rail-only" id="dp-doors">🚪</button><button class="tbtn rail-only" id="dp-ann">📢</button><button class="tbtn rail-only" id="dp-rev">↩</button>
+      <button class="tbtn bus-only" id="dp-indl">⬅</button><button class="tbtn bus-only" id="dp-indr">➡</button><button class="tbtn rail-only bus-ok" id="dp-doors">🚪</button><button class="tbtn rail-only bus-ok" id="dp-ann">📢</button><button class="tbtn rail-only" id="dp-rev">↩</button>
       <button class="tbtn" id="dp-cam">🎥</button><button class="tbtn" id="dp-exit">⏏</button>
     </div>
   </div>
@@ -684,6 +687,7 @@
           <option value="ultra">Ultra (schaduwen 4096, scherpst)</option>
         </select></label>
       <label class="check"><input type="checkbox" id="set-shadows"> Zonneschaduwen</label>
+      <label class="check"><input type="checkbox" id="set-fps"> FPS-meter tonen (F3): beelden per seconde, driehoeken, geheugen, laadtijd</label>
       <label class="check"><input type="checkbox" id="set-auto"> Kwaliteit automatisch aanpassen (vloeiend blijven)</label>
       <label>Verre gebouwen tot: <span id="set-lod-label"></span>
         <input type="range" id="set-lod" min="400" max="4000" step="100"></label>

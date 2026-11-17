@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { TrainShells } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
+import { RailSound } from './sound.js';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
@@ -503,6 +504,7 @@ export class AlpRail {
     const act = activeTrains(now);
     this.active = act;
     const seen = new Set();
+    let snd = null;
     // treinen in de buurt tonen (3 km), de rest alleen op de kaart
     for (const a of act) {
       if (this.player && this.player.id === a.id) continue;
@@ -523,6 +525,7 @@ export class AlpRail {
       tr.a = a; tr.L = L; tr.dir = dir; tr.s = s; tr.v = a.v;
       this.place(tr, L, s, dir);
       this.dressTrain(tr, aboardThis, dt, doorsOpenAt(a));
+      if (aboardThis) snd = { v: a.v, th: 0.5, br: -1, kind: a.run.sv.metro ? 'metro' : a.run.sv.tram ? 'tram' : 'train' };
       seen.add(a.id);
     }
     // de zelf bestuurde trein (na het verlaten van de cabine: uitbollen en blijven staan)
@@ -533,6 +536,15 @@ export class AlpRail {
       if (!g.drive && !(g.aboard && g.aboard.train === pt.tr) && Math.hypot(hp.x - p.x, hp.z - p.z) > 1500) { this.dropTrain(pt.tr); this.trains.delete(pt.tr.id); this.player = null; }
       else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || (!!g.drive && !['chase', 'side'].includes(g.drive.cam)), dt, pt.doors ? 1 : 0); }
     }
+    const pt = this.player;
+    if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: 'train', out: ['chase', 'side'].includes(g.drive.cam) };
+    // treingeluid: in de trein (meerijden of besturen)
+    if (snd) {
+      if (!this.snd) this.snd = new RailSound(snd.kind);
+      const dv = snd.v - (this.sndV ?? snd.v); this.sndV = snd.v;
+      const th = snd.br < 0 ? (dv > 0.002 ? 0.7 : 0.05) : snd.th, br = snd.br < 0 ? (dv < -0.004 ? 0.8 : 0) : snd.br;
+      this.snd.update(dt, snd.v, th, br, !snd.out);
+    } else if (this.snd) { this.snd.stop(); this.snd = null; this.sndV = undefined; }
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
     this.shells.update(day);
     this.updateSignals(act);

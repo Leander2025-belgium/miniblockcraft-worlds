@@ -210,6 +210,19 @@ function busBody(o) {
     if ((o.doors || []).some(dz => Math.abs(z - dz) < 1.6)) continue;
     for (const sx of [0.62, -0.62]) { P.box('trim', 0.5, 0.1, 0.45, sx * 1.15, floorY + 0.45, z, o.coach ? 0x3c4a73 : 0x2e5c9e); P.box('trim', 0.5, 0.6, 0.08, sx * 1.15, floorY + 0.8, z - 0.2, o.coach ? 0x3c4a73 : 0x2e5c9e); }
   }
+  if (o.dd) {
+    // dubbeldekker: tweede ramenband, bovenverdieping met stoelen en een trap achter de voordeur
+    const y2 = 2.55, wy2 = 3.55;
+    P.box('trim', W - 0.1, 0.12, L - 0.6, 0, y2, 0, 0x3a3e45);
+    for (const sx of [1, -1]) for (let z = -hz + 0.5; z < hz - 0.5; z += 1.55) {
+      P.box('trim', 0.04, 0.95, 1.35, sx * (W / 2 + 0.01), wy2, z + 0.65, GLASS);
+      P.box('trim', 0.05, 1.0, 0.12, sx * (W / 2 + 0.015), wy2, z + 1.4, DARK);
+    }
+    if (o.front) P.box('trim', W - 0.2, 0.9, 0.06, 0, wy2, hz + 0.01, GLASS);               // panoramaruit boven
+    for (let z = -hz + 1.0; z < hz - 1.2; z += 0.95) for (const sx of [0.62, -0.62]) { P.box('trim', 0.5, 0.1, 0.45, sx * 1.15, y2 + 0.45, z, 0xa8323a); P.box('trim', 0.5, 0.55, 0.08, sx * 1.15, y2 + 0.78, z - 0.2, 0xa8323a); }
+    for (let i = 0; i < 7; i++) P.box('trim', 0.8, 0.12, 0.3, -0.75, 0.75 + i * 0.28, hz - 3.2 - i * 0.28, 0x55595f); // trap
+  }
+  if (o.regio) for (let z = -hz + 1.4; z < hz - 2.4; z += 1.9) for (const sx of [1, -1]) P.box('trim', 0.4, 0.06, 0.3, sx * 0.95, 2.75, z, 0x2a2d33); // bagagerekjes
   // wielen
   const axles = o.axles || [hz - 2.6, -hz + 3.2];
   for (const sz of axles) for (const sx of [W / 2 - 0.2, -W / 2 + 0.2]) P.wheel(0.5, 0.32, sx, 0.5, sz, TYRE);
@@ -228,6 +241,8 @@ export const BUS_TYPES = {
   busArtR: { L: 7, front: false, rear: true, bellowFront: true, doors: [1.2], axles: [-1.9] },
   busCoach: { L: 13, front: true, rear: true, coach: true, H: 3.6, doors: [5.4], axles: [3.9, -3.4, -4.7] },
   busMini: { L: 8, front: true, rear: true, H: 2.9, doors: [2.9, -1.2], axles: [2.2, -2.3] },
+  busDD: { L: 11.5, front: true, rear: true, dd: true, H: 4.3, doors: [4.4, -0.4], axles: [3.2, -2.9] },
+  busRegio: { L: 12.5, front: true, rear: true, regio: true, H: 3.25, doors: [4.9, -0.6], axles: [3.6, -3.2] },
 };
 
 // ---------- tram (lagevloertram, gelede bakken) ----------
