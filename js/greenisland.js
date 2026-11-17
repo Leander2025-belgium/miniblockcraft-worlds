@@ -1098,7 +1098,15 @@ function metroCarve(x, z, col, t, top, ctx) {
       col[by + 1] = ad < M_PIN + 0.6 ? B.LINE_WHITE : ad < M_PIN + 1.2 ? B.LINE_YELLOW : B.TILE;
       for (let y = by + 2; y <= by + 7; y++) col[y] = 0;
       col[by + 8] = Math.abs(ad - (M_PIN + 2.2)) < 0.5 && Math.round(q.s) % 6 === 0 ? B.LAMP : B.PANEL_WHITE;
-      if (Math.abs(ad - (M_PIN + 2.2)) < 0.5 && Math.round(q.s) % 40 === 20) { col[by + 2] = B.POST; col[by + 3] = paint; col[by + 4] = paint; } // vertrekbord in de lijnkleur
+      if (Math.abs(ad - (M_PIN + 2.2)) < 0.5 && Math.round(q.s) % 40 === 20) { col[by + 2] = B.POST; col[by + 3] = B.SIGN; col[by + 4] = paint; } // vertrekbord (E = vertrektijden) in de lijnkleur
+      if (Math.abs(ad - (M_POUT - 0.6)) < 0.5 && Math.round(q.s) % 30 === 10 && Math.abs(u + 1.5) > 4) col[by + 2] = B.TICKET;          // ticketautomaat
+      if (Math.abs(ad - (M_POUT - 0.6)) < 0.5 && Math.round(q.s) % 30 === 25) col[by + 2] = B.METAL;                                     // afvalbak
+      // lift van het perron naar de straat (aan het andere uiteinde dan de trap): liftblok op het perron en op de stoep
+      const liftU = sdir ? sdir * (q.s - (mid + sdir * 14)) : 99;
+      if (Math.abs(liftU) < 0.5 && Math.abs(ad - (M_POUT - 0.6)) < 0.5) {
+        col[by + 1] = B.ELEVATOR; col[by + 2] = 0; col[by + 3] = 0;
+        if (!col[top + 1] && !col[top + 2] && col[top]) { col[top] = B.ELEVATOR; col[top + 3] = B.GLASS; t = Math.max(t, top + 3); }
+      }
       if (Math.abs(ad - (M_POUT - 0.6)) < 0.5 && Math.round(q.s) % 14 === 7 && Math.abs(u + 1.5) > 4) col[by + 2] = B.DARK_PLANKS; // bank
     } else if (ad <= M_POUT + 1.4) { // wand met een band in de lijnkleur en een doorgang naar de trap
       for (let y = by - 1; y <= by + 8; y++) col[y] = y === by + 4 ? paint : y === by + 5 && Math.round(q.s) % 12 === 0 ? B.PAINT_WHITE : B.TILE;
@@ -1107,7 +1115,7 @@ function metroCarve(x, z, col, t, top, ctx) {
       if (u < -3 || u > (top - by) * 1.5 + 3) { if (u >= -4 && u <= (top - by) * 1.5 + 4) for (let y = by - 1; y <= Math.min(top - 1, by + Math.max(0, u / 1.5) + 6); y++) if (!col[y] || y <= by + 1) col[y] = B.CONCRETE; continue; }
       const fy = by + 1 + Math.max(0, Math.floor(u / 1.5)), lane = ad - (M_POUT + 1.4);
       if (fy > top + 1) continue;
-      col[fy - 1] = B.CONCRETE; col[fy] = lane < 1.2 ? B.METAL : B.TILE;
+      col[fy - 1] = B.CONCRETE; col[fy] = lane < 1.2 ? B.ESCALATOR : B.TILE;
       for (let y = fy + 1; y <= fy + 4; y++) col[y] = 0;
       if (fy + 5 < top) col[fy + 5] = B.CONCRETE;
       else { for (let y = fy + 5; y <= top + 4; y++) col[y] = 0; col[Math.max(fy + 5, top + 4)] = Math.round(u) % 6 === 0 ? paint : B.GLASS; t = Math.max(t, Math.max(fy + 5, top + 4)); } // ingang met glazen luifel

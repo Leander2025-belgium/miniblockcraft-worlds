@@ -24,7 +24,7 @@ export function actionFor(g, t) {
     return { label: kind === 'bed' ? 'Gaan liggen' : 'Gaan zitten', run: () => sit(g, t, kind) };
   }
   if (b === B.PAY_MACHINE || b === B.BARRIER) return { label: 'Betalen en slagboom openen', run: () => barrier(g, t) };
-  if (b === B.TICKET) return { label: 'Ticket kopen', run: () => g.toast('🎫 Ticket gekocht · geldig 90 minuten op metro, tram en bus') };
+  if (b === B.TICKET) return { label: 'Ticket kopen', run: () => g.toast('🎫 Ticket gekocht · geldig 90 minuten op metro, tram en bus' + (g.alpRail ? ' · M = routekaart en reisplanner' : '')) };
   if (b === B.CHARGER) return { label: 'Laadpaal bekijken', run: () => g.toast('⚡ Laadpaal · 22 kW · beschikbaar · tik je kaart om te laden') };
   if (b === B.SIGN) return { label: 'Bord lezen', run: () => g.toast(signText(g, t), 5000) };
   if (b === B.FRIDGE) return { label: 'Koelkast openen', run: () => g.toast('🧊 De koelkast is goed gevuld') };
@@ -124,6 +124,7 @@ function barrier(g, t) {
 }
 function signText(g, t) {
   if (g.mega) { const s = g.mega.signText(t); if (s) return s; }
+  if (g.alpRail && g.alpRail.signText) { const s = g.alpRail.signText(t); if (s) return s; }
   const zn = g.tiled && g.tiled.spec.zoneName;
   return '🪧 ' + (zn ? zn(t.x, t.z) : 'Informatiebord');
 }

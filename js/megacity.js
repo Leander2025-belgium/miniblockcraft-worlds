@@ -12,7 +12,7 @@ export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 4, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -38,6 +38,12 @@ const TRAM_X = [30, 52], TRAM_Z = [26, 56];          // laantegelgrenzen met een
 const AIRPORT = LM[2], RUNWAY_X = 76 * T + 64, RUNWAY_Z0 = 31 * T, RUNWAY_Z1 = 50 * T + 100;
 
 const TOWER_LM = { id: 'tower', group: 'towerplaza', single: false };
+// metrostation op deze plek (voor het vertrekbord)
+export function metroStationAt(x, z) {
+  const tx = Math.floor(x / T);
+  if (!METRO_ST.includes(tx) || Math.abs(z - METRO_Z) > 10) return null;
+  return { name: METRO_NAMES[tx], first: METRO_NAMES[METRO_ST[0]], last: METRO_NAMES[METRO_ST[METRO_ST.length - 1]] };
+}
 export function landmark(tx, tz) {
   if (tx === RIVER_TX) return { id: 'river' };
   if (tx === TOWER_TX && tz === TOWER_TZ) return TOWER_LM;
@@ -686,6 +692,13 @@ function metroColumn(x, z, col) {
   if (o === 0 && lx % 8 === 4) col[G - 9] = B.LAMP;
   if (plat && (o === 0 || o === 1) && lx % 16 === 8) { col[G - 16] = B.PLANKS; } // banken
   if (plat && o === 1 && lx % 32 === 20) { col[G - 16] = B.TICKET; }
+  if (plat && o === 0 && lx % 32 === 4) { col[G - 16] = B.POST; col[G - 15] = B.SIGN; }   // vertrekbord (E)
+  if (plat && o === 3 && lx % 24 === 12) col[G - 16] = B.METAL;                          // afvalbak
+  if (!tower && plat && o === 1 && lx === 26) {                                         // lift naar de middenberm
+    col[G - 17] = B.ELEVATOR; col[G - 16] = 0; col[G - 15] = 0;
+    col[G - 1] = B.ELEVATOR; for (let y = G; y <= G + 1; y++) col[y] = 0; col[G + 2] = B.GLASS;
+    return;
+  }
   if (tower) {
     // tussenverdieping boven het zuidelijke spoor naar de doorgang (B3 = G-13), roltrap naar het perron
     if (lx >= 58 && lx <= 69 && o >= 2 && o <= 8) {

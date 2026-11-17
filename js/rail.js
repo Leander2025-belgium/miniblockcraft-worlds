@@ -3,6 +3,7 @@
 // noodrem, seinen, snelheidsbeperkingen, haltes, deuren, omroepen) en een interactieve kaart met reisplanner.
 import * as THREE from 'three';
 import { TrainShells } from './trainshell.js';
+import { RailInfra } from './railinfra.js';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
@@ -262,6 +263,25 @@ function inHours(sv, dep) {
   const h = (((dep % P) + P) % P) / 3600, [a, b] = sv.hours;
   return a <= b ? h >= a && h < b : h >= a || h < b;
 }
+// dienstperiodes: spits (7–9 u, 16–19 u) alle ritten; daluren (9–16 u, 19–22 u) en vroeg (5–7 u) de helft bij
+// lijnen die minstens om het halfuur rijden; avond (22–24 u) een derde; nacht (0–5 u) een kwart (behalve diensten
+// met eigen uren, zoals nachtbussen). Treinen, vertrekborden en de reisplanner gebruiken allemaal dezelfde regel.
+export function periodOf(sec) {
+  const h = (((sec % P) + P) % P) / 3600;
+  if ((h >= 7 && h < 9) || (h >= 16 && h < 19)) return 'spits';
+  if ((h >= 9 && h < 16) || (h >= 19 && h < 22) || (h >= 5 && h < 7)) return 'dal';
+  if (h >= 22) return 'avond';
+  return 'nacht';
+}
+export const PERIOD_NAMES = { spits: 'Spits', dal: 'Daluren', avond: 'Avond', nacht: 'Nacht' };
+function runs(r, k) {
+  const dep = r.off + k * r.h;
+  if (!inHours(r.sv, dep)) return false;
+  if (r.sv.hours || r.sv.freight) return true;
+  const per = periodOf(dep), n = Math.round(P / r.h);
+  const every = per === 'spits' ? 1 : per === 'dal' ? (r.h <= 1800 ? 2 : 1) : per === 'avond' ? (r.h <= 1800 ? 3 : r.h <= 3600 ? 2 : 1) : (r.h <= 3600 ? 4 : 2);
+  return ((k % n) + n) % n % every === 0;
+}
 // staat de trein aan een perron met de deuren open? (na het stoppen open, 4 s voor vertrek dicht)
 function doorsOpenAt(a) {
   const pr = a.run.pr;
@@ -274,7 +294,7 @@ function activeTrains(now) {
   for (const r of RUNS) {
     const n = P / r.h;
     for (let k = 0; k < n; k++) {
-      if (!inHours(r.sv, r.off + k * r.h)) continue;
+      if (!runs(r, k)) continue;
       const dl = delayOf(r, k);
       let t = now - (r.off + k * r.h) - dl; t = ((t % P) + P) % P; if (t > P - 130 - dl) t -= P;
       if (t < -120 || t > r.pr.T + 60) continue;
@@ -290,7 +310,7 @@ export function departures(name, now, n = 8) {
   for (const r of RUNS) for (const st of r.pr.stops.concat([{ st: r.pr.first, arr: 0, dep: 0 }])) {
     if (st.st.name !== name || st.st.name === r.pr.last.name) continue; // aankomst aan het eindstation is geen vertrek
     for (let k = 0; k < P / r.h; k++) {
-      if (!inHours(r.sv, r.off + k * r.h)) continue;
+      if (!runs(r, k)) continue;
       let dt = (r.off + k * r.h + st.dep) - now; dt = ((dt % P) + P) % P;
       const dl = delayOf(r, k);
       if (dt > P - dl) dt -= P; // vertrekt nog (te laat)
@@ -309,18 +329,31 @@ export function plan(a, b, now) {
     const seq = [{ st: r.pr.first, arr: 0, dep: 0 }, ...r.pr.stops, { st: r.pr.last, arr: r.pr.T, dep: r.pr.T }];
     conn.push({ r, seq });
   }
-  for (let it = 0; it < 6 && todo.length; it++) {
+  // te voet overstappen tussen stations/haltes binnen 700 m (1,3 m/s, 30 % omweg)
+  const pos = new Map(STATIONS_ALL.map(s => [s.name, s]));
+  const walkFrom = (from, cur, next) => {
+    const A = pos.get(from); if (!A) return;
+    for (const S of STATIONS_ALL) {
+      if (S.name === from) continue;
+      const d = Math.hypot(S.x - A.x, S.z - A.z); if (d > 700) continue;
+      const arr = cur.t + d * 1.3 / 1.3, b0 = best.get(S.name);
+      if (!b0 || arr < b0.t) { best.set(S.name, { t: arr, legs: [...cur.legs, { walk: true, from, to: S.name, dep: cur.t, arr, m: Math.round(d * 1.3) }] }); next.push(S.name); }
+    }
+  };
+  for (let it = 0; it < 7 && todo.length; it++) {
     const next = [];
     for (const from of todo) {
       const cur = best.get(from);
+      if (!cur.legs.length || !cur.legs[cur.legs.length - 1].walk) walkFrom(from, cur, next);
       for (const { r, seq } of conn) {
         const i = seq.findIndex(q => q.st.name === from); if (i < 0 || i === seq.length - 1) continue;
         // eerste vertrek na aankomst (+2 min overstaptijd)
         const ready = cur.t + (cur.legs.length ? 120 : 0);
         let wait = (r.off + seq[i].dep) - ready; wait = ((wait % r.h) + r.h) % r.h;
         let dep = ready + wait;
-        for (let g2 = 0; g2 < P / r.h && !inHours(r.sv, dep - seq[i].dep); g2++) dep += r.h; // buiten de dienstUren: volgende rit
-        if (!inHours(r.sv, dep - seq[i].dep)) continue;
+        const kOf = (d) => Math.round((d - seq[i].dep - r.off) / r.h);
+        for (let g2 = 0; g2 < P / r.h && !runs(r, kOf(dep)); g2++) dep += r.h; // rit rijdt niet (dienstuur of daluren): volgende
+        if (!runs(r, kOf(dep))) continue;
         for (let j = i + 1; j < seq.length; j++) {
           const arr = dep + (seq[j].arr - seq[i].dep), to = seq[j].st.name;
           const b0 = best.get(to);
@@ -352,6 +385,7 @@ export class AlpRail {
     this.g = game;
     this.group = new THREE.Group(); game.scene.add(this.group);
     this.shells = new TrainShells(game.scene); // gladde buitenkant (van buiten), het blokinterieur aan boord
+    this.infra = new RailInfra(game.scene, LINES, trackOffset, TRACK); // bovenleiding, seinpalen, wissels
     this.designs = new Map(); this.trains = new Map(); this.t = 0;
     this.tmpV = new THREE.Vector3(); this.tmpW = new THREE.Vector3();
     this.announced = new Set();
@@ -385,7 +419,7 @@ export class AlpRail {
   }
   dispose() {
     for (const tr of this.trains.values()) this.dropTrain(tr);
-    this.shells?.dispose();
+    this.shells?.dispose(); this.infra?.dispose();
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.group.removeFromParent();
     if (this.tunnel) this.tunnel.geometry.dispose();
@@ -497,11 +531,13 @@ export class AlpRail {
       if (!g.drive) { pt.v = Math.max(0, pt.v - 0.9 * dt); pt.s += pt.dir * pt.v * dt; pt.s = Math.max(5, Math.min(pt.L.len - 5, pt.s)); }
       const hp = pt.L.at(pt.s);
       if (!g.drive && !(g.aboard && g.aboard.train === pt.tr) && Math.hypot(hp.x - p.x, hp.z - p.z) > 1500) { this.dropTrain(pt.tr); this.trains.delete(pt.tr.id); this.player = null; }
-      else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || !!g.drive, dt, pt.doors ? 1 : 0); }
+      else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || (!!g.drive && !['chase', 'side'].includes(g.drive.cam)), dt, pt.doors ? 1 : 0); }
     }
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
     this.shells.update(day);
     this.updateSignals(act);
+    this.infra?.update(p); this.infra?.setDay(day);
+    this.updateNav();
     this.updateCrossings(act);
     this.updateTunnel(p);
     this.updateAboard(dt);
@@ -520,7 +556,7 @@ export class AlpRail {
   }
   // ---------- seinen: rood als het volgende blok (1200 m) bezet is ----------
   updateSignals(act) {
-    const p = this.g.player.pos, m4 = new THREE.Matrix4(), c = new THREE.Color();
+    const p = this.g.player.pos, m4 = new THREE.Matrix4(), c = new THREE.Color(), posts = [];
     let n = 0;
     for (const sg of this.signals) {
       if (Math.abs(sg.x - p.x) > 1200 || Math.abs(sg.z - p.z) > 1200 || n >= this.sigMax) continue;
@@ -532,13 +568,16 @@ export class AlpRail {
       }
       if (this.player && this.player.L === sg.L && this.player.dir === 1) { const ds = this.player.s - sg.s; if (ds > -200 && ds < 1200) occ = 2; }
       const nx = -sg.tz, nz = sg.tx, off = 5.4 - 0.6;
-      m4.makeTranslation(sg.x + nx * off, sg.y + 6.5, sg.z + nz * off);
+      // seinlamp vooraan op de seinkast (naar de aankomende trein), paal tot op de grond
+      m4.makeTranslation(sg.x + nx * off - sg.tx * 0.3, sg.y + 6.5, sg.z + nz * off - sg.tz * 0.3);
       this.sigMesh.setMatrixAt(n, m4);
+      posts.push({ x: sg.x + nx * off, y: sg.y + 6.5, y0: sg.y + 1, z: sg.z + nz * off, yaw: Math.atan2(sg.tx, sg.tz) });
       c.set(occ === 2 ? 0xff2a1a : occ === 1 ? 0xffc21a : 0x2aff5a);
       this.sigMesh.setColorAt(n, c);
       n++;
     }
     this.sigMesh.count = n;
+    if (this.infra && (!this.postsAt || Math.hypot(p.x - this.postsAt.x, p.z - this.postsAt.z) > 100)) { this.postsAt = { x: p.x, z: p.z }; this.infra.setSignals(posts); }
     this.sigMesh.instanceMatrix.needsUpdate = true; if (this.sigMesh.instanceColor) this.sigMesh.instanceColor.needsUpdate = true;
   }
   updateCrossings(act) {
@@ -918,6 +957,63 @@ export class AlpRail {
     });
     if (reset) reset.addEventListener('click', () => { rebuildTimetable({}); this.resetTrains(); this.g.toast('🗓 Standaard dienstregeling hersteld'); this.renderPanel(); });
   }
+  // ---------- reisplanner: van, naar, vertrekuur; trein, metro, tram, bus en te voet overstappen ----------
+  routePanel(now, esc) {
+    const names = STATIONS_ALL.map(s => s.name).sort((a, b) => a.localeCompare(b, 'nl'));
+    const here = this.nearestStation();
+    const from = this.rFrom || (here && here.name) || names[0], to = this.rTo || names[Math.min(1, names.length - 1)];
+    const opt = (sel) => names.map(n => `<option${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('');
+    const tm = this.rTime || hhmm(now);
+    let h = `<div class="row" style="gap:6px;flex-wrap:wrap"><label class="small">Van <select id="rp-from">${opt(from)}</select></label><label class="small">Naar <select id="rp-to">${opt(to)}</select></label>
+      <label class="small">Vertrek <input id="rp-time" type="time" value="${tm}" style="width:90px"></label><button class="btn primary" id="rp-go">Zoeken</button></div>`;
+    h += `<div class="small muted">${PERIOD_NAMES[periodOf(now)]}: ${periodOf(now) === 'spits' ? 'alle ritten' : periodOf(now) === 'dal' ? 'drukke lijnen om de helft minder' : periodOf(now) === 'avond' ? 'minder ritten' : 'nachtdienst'}.</div>`;
+    if (this.rResult !== undefined) {
+      const r = this.rResult;
+      if (!r) h += '<p class="small">Geen verbinding gevonden.</p>';
+      else {
+        const rides = r.legs.filter(l => !l.walk), walkM = r.legs.filter(l => l.walk).reduce((a, l) => a + l.m, 0), dep = r.legs[0].dep;
+        h += `<h4 style="margin:8px 0 2px">${esc(this.rFromUsed)} → ${esc(this.rToUsed)}</h4><div class="small">Vertrek ${hhmm(dep)} · aankomst ${hhmm(r.t)} · reisduur ${Math.round((r.t - dep) / 60)} min · ${Math.max(0, rides.length - 1)} overstap(pen) · ${walkM} m wandelen</div>`;
+        for (const lg of r.legs) h += legHtml(lg, esc);
+        h += `<div class="row" style="margin-top:6px"><button class="btn" id="rp-nav">🧭 Navigeer naar ${esc(this.rFromUsed)}</button></div>`;
+      }
+    }
+    return h;
+  }
+  bindRoute(box) {
+    const go = box.querySelector('#rp-go'); if (!go) return;
+    go.addEventListener('click', () => {
+      this.rFrom = box.querySelector('#rp-from').value; this.rTo = box.querySelector('#rp-to').value; this.rTime = box.querySelector('#rp-time').value;
+      const [hh, mm] = this.rTime.split(':').map(Number), now = railClock(), want = (hh * 3600 + mm * 60) - (new Date().getTimezoneOffset() * 0);
+      let t = want - (((now % P) + P) % P) + now; if (t < now - 600) t += P; // vandaag of morgen
+      this.rFromUsed = this.rFrom; this.rToUsed = this.rTo;
+      this.rResult = this.rFrom === this.rTo ? null : plan(this.rFrom, this.rTo, t);
+      this.renderPanel();
+    });
+    box.querySelector('#rp-nav')?.addEventListener('click', () => { const st = STATIONS_ALL.find(q => q.name === this.rFromUsed); if (st) this.navTo(st); });
+  }
+  // vertrekbord in een station (E op een bord): de volgende vertrekken met lijn, bestemming, spoor en vertraging
+  signText(t) {
+    let best = null, bd = 160;
+    for (const st of STATIONS_ALL) { const d = Math.hypot(st.x - t.x, st.z - t.z); if (d < bd) { bd = d; best = st; } }
+    if (!best) return null;
+    const now = railClock(), list = departures(best.name, now, 6);
+    const rows = list.map(d => `${hhmm(d.at)}${d.delay > 59 ? ' +' + Math.round(d.delay / 60) : ''} ${d.run.sv.name.split(' ')[0]} → ${d.dest}${d.run.sv.platform?.[best.name] ? ' (spoor ' + d.run.sv.platform[best.name] + ')' : ''}`);
+    return `🚉 ${best.name} · vertrekken (${PERIOD_NAMES[periodOf(now)].toLowerCase()})\n${rows.join('\n') || 'Geen vertrekken meer vandaag'}\nM = OV-kaart, routekaart en reisplanner`;
+  }
+  // navigatie: pijl en afstand naar een station in de HUD
+  navTo(st) {
+    this.nav = { name: st.name, x: st.x, z: st.z };
+    this.g.toast(`🧭 Navigatie naar ${st.name}`); this.g.resume?.();
+  }
+  updateNav() {
+    const el = document.getElementById('nav-hud');
+    if (!this.nav) { if (el) el.hidden = true; return; }
+    const p = this.g.player.pos, dx = this.nav.x - p.x, dz = this.nav.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 25) { this.g.toast(`🚉 Je bent bij ${this.nav.name}`); this.nav = null; if (el) el.hidden = true; return; }
+    const ang = Math.atan2(dx, -dz) - (-this.g.player.yaw), arrows = ['⬆', '↗', '➡', '↘', '⬇', '↙', '⬅', '↖'];
+    const k = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+    if (el) { el.hidden = false; el.textContent = `🧭 ${this.nav.name}: ${arrows[k]} ${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}`; }
+  }
   resetTrains() { for (const tr of this.trains.values()) { if (this.g.aboard && this.g.aboard.train === tr) continue; this.dropTrain(tr); } for (const [id, tr] of [...this.trains]) if (!(this.g.aboard && this.g.aboard.train === tr)) this.trains.delete(id); }
   ovPanel(tab, now, esc) {
     const CAR_NAMES = { iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
@@ -966,9 +1062,10 @@ export class AlpRail {
     const now = railClock(), here = this.nearestStation();
     const esc = (t) => String(t).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[m]);
     const tab = this.tab || 'station';
-    let html = `<div class="row ov-tabs" style="gap:4px;margin:0 0 6px">${[['station', '🚉 Station'], ['plan', '🗓 Dienstregeling'], ['delay', '⏱ Vertragingen'], ['depot', '🏭 Depot']].map(([k, t]) => `<button class="btn${k === tab ? ' primary' : ''}" data-tab="${k}">${t}</button>`).join('')}</div>`;
+    let html = `<div class="row ov-tabs" style="gap:4px;margin:0 0 6px">${[['station', '🚉 Station'], ['route', '🧭 Reisplanner'], ['plan', '🗓 Dienstregeling'], ['delay', '⏱ Vertragingen'], ['depot', '🏭 Depot']].map(([k, t]) => `<button class="btn${k === tab ? ' primary' : ''}" data-tab="${k}">${t}</button>`).join('')}</div>`;
     box.parentElement?.classList.toggle('ov-wide', tab !== 'station'); // OV-beheer: tabellen over de volle breedte
     const ttl = document.getElementById('rail-title'); if (ttl) ttl.textContent = NET.title || (NET.id === 'alpen' ? '🚆 Spoorkaart Alpen' : '🚆 Spoorkaart');
+    if (tab === 'route') { box.innerHTML = html + this.routePanel(now, esc); this.bindRoute(box); this.bindPanel(box); return; }
     if (tab !== 'station') { box.innerHTML = html + this.ovPanel(tab, now, esc); this.bindPanel(box); return; }
     if (this.sel) {
       const st = STATIONS_ALL.find(q => q.name === this.sel);
@@ -979,7 +1076,7 @@ export class AlpRail {
       if (here && here.name !== st.name) {
         const r = plan(here.name, st.name, now);
         html += `<h4 style="margin:8px 0 2px">Reisplanner: ${esc(here.name)} → ${esc(st.name)}</h4>`;
-        if (r) for (const lg of r.legs) html += `<div class="small">${hhmm(lg.dep)} <span style="color:${lg.run.pr.L.color}">■</span> <b>${esc(lg.run.sv.name)}</b> ${esc(lg.from)} → ${esc(lg.to)} · aankomst ${hhmm(lg.arr)}</div>`;
+        if (r) for (const lg of r.legs) html += legHtml(lg, esc);
         else html += '<div class="small">Geen verbinding gevonden.</div>';
       }
       html += `<div class="row" style="margin-top:8px"><button class="btn" id="rail-tp">🧭 Naar dit station</button></div>`;
@@ -998,6 +1095,14 @@ export class AlpRail {
   }
 }
 
+// één reisstap (rit of wandeling)
+const MODE_ICON = (sv) => sv.bus ? '🚌' : /^M\d/.test(sv.line || sv.id) ? '🚇' : /^T\d|tram/i.test(sv.id + (sv.name || '')) ? '🚊' : '🚆';
+function legHtml(lg, esc) {
+  if (lg.walk) return `<div class="small">${hhmm(lg.dep)} 🚶 Wandelen ${esc(lg.from)} → ${esc(lg.to)} · ${lg.m} m · ${Math.max(1, Math.round((lg.arr - lg.dep) / 60))} min</div>`;
+  const pl = lg.run.sv.platform?.[lg.from];
+  return `<div class="small">${hhmm(lg.dep)} ${MODE_ICON(lg.run.sv)} <span style="color:${lg.run.pr.L.color}">■</span> <b>${esc(lg.run.sv.name)}</b> ${esc(lg.from)}${pl ? ` (spoor ${pl})` : ''} → ${esc(lg.to)} · aankomst ${hhmm(lg.arr)} · ${Math.round((lg.arr - lg.dep) / 60)} min</div>`;
+}
+
 // ---------- de cabine (zelf rijden) ----------
 class TrainCab {
   constructor(rail) { this.r = rail; this.g = rail.g; this.t = 0; this.show(true); }
@@ -1008,12 +1113,21 @@ class TrainCab {
     this.g.ui.root?.classList.toggle('driving', on);
   }
   camMode() { return 'first'; }
-  cycleCam() { this.cam = this.cam === 'chase' ? 'cab' : 'chase'; }
+  // camera's (V): cabine → achtervolging → buiten langs het spoor → bij de passagiers → cabine
+  cycleCam() {
+    const order = ['cab', 'chase', 'side', 'passenger'], i = order.indexOf(this.cam || 'cab');
+    this.cam = order[(i + 1) % order.length];
+    this.g.toast({ cab: '🎥 Cabine', chase: '🎥 Achter de trein', side: '🎥 Buiten langs het spoor', passenger: '🎥 Bij de passagiers' }[this.cam]);
+  }
   placeCamera(cam) {
-    const pt = this.r.player, c = pt.car, p = this.g.player;
-    const local = this.cam === 'chase' ? new THREE.Vector3(2, 9, -30) : new THREE.Vector3(c.d.cab[0], 3.75, c.d.cab[2] + 0.4);
+    const pt = this.r.player, p = this.g.player, mode = this.cam || 'cab';
+    const cars = pt.tr.cars, c = mode === 'passenger' ? (cars[Math.min(1, cars.length - 1)] || pt.car) : pt.car;
+    const local = mode === 'chase' ? new THREE.Vector3(2, 9, -30) : mode === 'side' ? new THREE.Vector3(-14, 3.5, c.d.L * 0.9) : mode === 'passenger' ? new THREE.Vector3(1.5, 3.6, c.d.L * 0.5) : new THREE.Vector3(c.d.cab ? c.d.cab[0] : 2, 3.75, (c.d.cab ? c.d.cab[2] : c.d.L - 2) + 0.4);
     const w = c.body.toWorld(local, new THREE.Vector3());
-    cam.position.copy(w); cam.rotation.set(p.pitch - (this.cam === 'chase' ? 0.18 : 0), c.body.yaw + Math.PI + p.yaw, 0);
+    const look = mode === 'side' ? -Math.PI / 2 + 0.5 : mode === 'passenger' ? -Math.PI / 2 : 0;
+    cam.position.copy(w); cam.rotation.set(p.pitch - (mode === 'chase' ? 0.18 : 0), c.body.yaw + Math.PI + p.yaw + look, 0);
+    // de buitenkant van de eigen trein tonen bij camera's buiten de cabine
+    for (const cc of cars) { const outside = mode === 'chase' || mode === 'side'; cc.grp.visible = !outside; if (cc.shell) cc.shell.g.visible = outside; }
     // voor het laden van de tegels: de speler staat in de cabine
     p.pos.set(w.x, w.y - 1.62, w.z);
     return true;
@@ -1028,11 +1142,24 @@ class TrainCab {
       this.t = 0;
       const sp = Math.round(pt.v * KMH), lim = Math.round(pt.lim * KMH), sg = pt.sig;
       const ns = pt.nextStop, dist = ns ? Math.abs(ns.s - pt.s) : 0;
-      r.hud.innerHTML = `<div class="dh-speed" style="color:${pt.v > pt.lim * 1.05 ? '#ff6a5a' : '#fff'}">${sp}<small> km/h</small></div>
+      // stopplaats: hoe ver van het einde van het perron (stopbord) sta je?
+      let stopInfo = '';
+      if (ns && dist < 400) { const stopAt = ns.s + pt.dir * (ns.len / 2 - 8); const d2 = (stopAt - pt.s) * pt.dir; stopInfo = `<div class="small">Stopbord over <b>${Math.max(0, Math.round(d2))} m</b>${pt.v < 0.3 && Math.abs(d2) < ns.len / 2 ? (Math.abs(d2) < 6 ? ' · ✅ goed gestopt' : d2 > 0 ? ' · iets verder rijden' : ' · voorbij het stopbord') : ''}</div>`; }
+      r.hud.innerHTML = `<div class="cab-desk">
+        <svg viewBox="0 0 120 70" width="120" height="70"><path d="M10 64 A50 50 0 0 1 110 64" stroke="#3a4250" stroke-width="8" fill="none"/>
+          <path d="M10 64 A50 50 0 0 1 110 64" stroke="${pt.v > pt.lim * 1.05 ? '#ff5a4a' : '#4ade80'}" stroke-width="8" fill="none" stroke-dasharray="${Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3)) * 157} 157"/>
+          <line x1="60" y1="64" x2="${60 + 46 * Math.cos(Math.PI * (1 - Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3))))}" y2="${64 - 46 * Math.sin(Math.PI * (1 - Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3))))}" stroke="#fff" stroke-width="3"/>
+          <text x="60" y="52" fill="#fff" font-size="18" text-anchor="middle" font-weight="700">${sp}</text><text x="60" y="66" fill="#aab" font-size="8" text-anchor="middle">km/h · max ${lim}</text></svg>
+        <div class="lever" title="Tractiehendel (W / ▲)"><div class="lv-fill" style="height:${Math.round(pt.throttle * 100)}%;background:#4ade80"></div><span>T</span></div>
+        <div class="lever" title="Remhendel (S / ▼)"><div class="lv-fill" style="height:${Math.round(pt.brake * 100)}%;background:${pt.emergency ? '#ff3a2a' : '#fbbf24'}"></div><span>R</span></div>
+        <div class="sig-lamp" style="background:${sg && sg.red ? '#ff3a2a' : '#22e06a'}" title="Volgend sein"></div>
+        <div class="lim-sign">${lim}</div></div>
+        <div class="dh-speed" style="display:none">${sp}</div>
         <div class="small"><b>${pt.tr.sv.name}</b> · max <b>${lim}</b> km/h<br>
         Tractie ${'▮'.repeat(Math.round(pt.throttle * 5)).padEnd(5, '▯')} · Rem ${'▮'.repeat(Math.round(pt.brake * 5)).padEnd(5, '▯')}${pt.emergency ? ' · <b style="color:#ff6a5a">NOODREM</b>' : ''}<br>
         Sein: <b style="color:${sg && sg.red ? '#ff4a3a' : '#4aff6a'}">${sg && sg.red ? 'ROOD' : 'GROEN'}</b>${sg && sg.ahead < 3000 ? ` (trein voor je op ${Math.round(sg.ahead)} m)` : ''}<br>
-        ${ns ? `Volgende halte: <b>${ns.name}</b> over ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}` : 'Einde van de lijn'}${pt.atStation ? ` · 🚉 ${pt.atStation.name}: Q = deuren` : ''}${pt.doors ? ' · 🚪 deuren open' : ''}</div>`;
+        ${ns ? `Volgende halte: <b>${ns.name}</b> over ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}` : 'Einde van de lijn'}${pt.atStation ? ` · 🚉 ${pt.atStation.name}: Q = deuren` : ''}${pt.doors ? ' · 🚪 deuren open' : ''}<br>
+        <span class="muted">W/S hendels · spatie noodrem · Q deuren · N omroep · R rijrichting · V camera (${{ cab: 'cabine', chase: 'achter', side: 'buiten', passenger: 'passagiers' }[this.cam || 'cab']}) · H verlaten</span></div>${stopInfo}`;
     }
   }
   key(code) {

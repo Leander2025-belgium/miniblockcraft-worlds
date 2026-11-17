@@ -2080,11 +2080,11 @@ export class Game {
     document.body.appendChild(a); a.click(); a.remove();
     this.toast('📷 Foto opgeslagen');
   }
-  toast(t) {
+  toast(t, ms) {
     const el = document.getElementById('toast');
     if (!el) return;
     el.textContent = t; el.hidden = false;
-    clearTimeout(this.toastT); this.toastT = setTimeout(() => { el.hidden = true; }, 1600);
+    clearTimeout(this.toastT); this.toastT = setTimeout(() => { el.hidden = true; }, ms || (t.includes('\n') ? 7000 : 1600));
   }
 
   playerState() {

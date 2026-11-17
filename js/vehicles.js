@@ -287,6 +287,27 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
     for (const wz of [0.9, -0.9]) for (const wx of [0.75, -0.75]) P.wheel(0.46, 0.14, wx, 0.46, zb + bz + wz, 0x3a3c40, 10);
   }
   P.box('trim', W - 0.4, H - 1.2, 0.3, 0, 0.8 + (H - 1.2) / 2, zb - Lb / 2 - 0.15, 0x1c1d20); // overgang
+  // interieur (zichtbaar door de ramen en als je meerijdt): vloer, stoelrijen 2+2 met hoofdsteunen en tafeltjes,
+  // bagagerekken, verlichting, infoschermen, toilet en tussendeuren
+  const floors = doubleDeck ? [1.05, 2.65] : [1.25];
+  for (const fy of floors) {
+    P.box('trim', W - 0.25, 0.06, Lb - 0.6, 0, fy, zb, 0x4a4e55);
+    const seatC = cab ? 0x8a2a2e : 0x2e4f8e;
+    for (let z = -Lb / 2 + 2.6; z < Lb / 2 - 2.6; z += 1.0) {
+      if (Math.abs(z) < 0.5 && !doubleDeck) continue;
+      for (const sx of [0.95, 0.5, -0.5, -0.95]) {
+        P.box('trim', 0.42, 0.1, 0.45, sx, fy + 0.45, zb + z, seatC);
+        P.box('trim', 0.42, 0.62, 0.08, sx, fy + 0.8, zb + z - 0.22, seatC);
+        P.box('trim', 0.3, 0.12, 0.08, sx, fy + 1.15, zb + z - 0.22, 0xd8dade);  // hoofdsteun
+      }
+      if (Math.round(z * 2) % 4 === 0) for (const sx of [0.72, -0.72]) P.box('trim', 0.8, 0.05, 0.5, sx, fy + 0.72, zb + z + 0.5, 0x6b5a46); // tafeltje
+    }
+    for (const sx of [1.05, -1.05]) P.box('trim', 0.4, 0.05, Lb - 3, sx, fy + 1.55, zb, 0x9aa0a8);                  // bagagerek
+    P.box('light', 0.25, 0.03, Lb - 2, 0, fy + (doubleDeck ? 1.45 : 2.25), zb, 0xf4f6ff);                              // plafondlicht
+    P.box('light', 0.6, 0.3, 0.05, 0, fy + 1.6, zb + Lb / 2 - 2.0, 0x2a6cff);                                          // infoscherm
+  }
+  P.box('trim', 1.0, 2.0, 1.4, 0.75, floors[0] + 1.0, zb - Lb / 2 + 1.6, 0xd9dbe0);                                    // toilet
+  P.box('trim', 0.9, 2.0, 0.06, 0, floors[0] + 1.0, zb + Lb / 2 - 0.4, 0x7a8088);                                     // tussendeur
   if (cab) {
     // gestroomlijnde neus
     P.box('paint', W, H - 1.25, 1.7, 0, 0.8 + (H - 1.25) / 2, L / 2 - 0.85, 0xffffff, { sx: 0.82, front: 1.2 });

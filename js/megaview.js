@@ -3,7 +3,7 @@
 // Wordt geladen door js/game.js als de wereld Megatower City is (spec.megatower).
 import * as THREE from 'three';
 import { B } from './blocks.js';
-import { buildingAt, interiorBlock } from './megacity.js';
+import { buildingAt, interiorBlock, metroStationAt } from './megacity.js';
 import { LIFTS, floorY, floorAt, floorLabel, roomAt, CX, CZ, zoneOf, ZONE_NAMES, inTowerBox, F_MIN } from './megatower.js';
 
 const FLOOR_NAMES = { '-25': 'Techniek', '-15': 'Parking', '-5': 'Logistiek', '-4': 'Metro', '-3': 'Metrohal', '-2': 'Winkels B2', '-1': 'Winkels B1', 0: 'Lobby', 1: 'Mezzanine', 20: 'Congres',
@@ -295,6 +295,11 @@ export class MegaView {
   }
   roomNear(t) { const r = roomAt(t.x + 0.5, t.y + 0.5, t.z + 0.5); return r && r.room && r.room !== 'Liftlobby' ? r.room : null; }
   signText(t) {
+    const ms = t.y < this.g.meta.ground - 6 ? metroStationAt(t.x, t.z) : null;
+    if (ms) {
+      const h = (this.g.settings.hour || 12), spits = (h >= 7 && h < 9) || (h >= 16 && h < 19), nacht = h < 5 || h >= 23;
+      return `🚇 Metro M1 · station ${ms.name}\nPerron 1 → ${ms.last} · perron 2 → ${ms.first}\n${nacht ? 'Nachtdienst: elke 15 min' : spits ? 'Spits: elke 3 min' : 'Daluren: elke 6 min'} · overstap Megatower (B3) en Luchthaven (trein)\nLift naar de straat aan het andere uiteinde van het perron`;
+    }
     if (!inTowerBox(t.x, t.z)) return null;
     const f = floorAt(t.y), r = roomAt(t.x + 0.5, t.y + 0.5, t.z + 0.5);
     const here = LIFTS.filter(L => L.stops.has(f)).map(L => L.name).join(', ');
