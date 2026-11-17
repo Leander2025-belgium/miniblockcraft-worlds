@@ -12,7 +12,12 @@ const world = args.find(a => !a.startsWith('--') && !/^[A-Z]/.test(a) && !a.ends
 const quick = args.includes('--snel');
 const onlyLine = args.includes('--lijn') ? args[args.indexOf('--lijn') + 1] : null;
 const jsonOut = args.includes('--json') ? args[args.indexOf('--json') + 1] : null;
-const HALF_W = 1.45, CLEAR_H = 4; // halve breedte van een rijtuig, vrije hoogte boven de spoorstaaf (blokken)
+// voertuigprofiel zoals de treinen in de game (js/trainshell.js): bak 4,06 m breed tot 5 m boven de spoorstaaf, afgerond dak
+// tot 5,5 m (3,3 m breed). Per blokhoogte h boven de spoorstaaf (blok y = spoor + h, de spoorstaaf ligt op spoor + 1):
+// h = 1 (0–1 m boven de spoorstaaf): alleen draaistellen en onderstel (2,9 m breed) — een perronrand mag daar onder de bak
+// h = 7: de stroomafnemer (1,8 m breed) tot 6,1 m. Megatower City: metrostellen 2,8 m breed, 3,5 m hoog.
+const PROFILE = world === 'megatower' ? [0, 1.4, 1.4, 1.4, 1.4] : [0, 1.5, 2.03, 2.03, 2.03, 2.03, 1.65, 0.9];
+const HALF_W = Math.max(...PROFILE), CLEAR_H = PROFILE.length - 1;
 
 const W = await import(world === 'alpen' ? '../js/alpen.js' : world === 'megatower' ? '../js/megacity.js' : '../js/greenisland.js');
 const T = 128;
@@ -64,27 +69,34 @@ if (world === 'megatower') {
 }
 // controleren
 const blocked = [], perLine = [];
-let checked = 0, steps = 0;
+let checked = 0, steps = 0, minCeil = { h: 99 };
+const ceil = {}, hitStat = {}, low = [];
 const BED = new Set([B.BALLAST, B.CONCRETE, B.TILE, B.LINE_WHITE, B.LINE_YELLOW, B.METAL, B.GRAVEL, B.STONE]);
 for (const tr of tracks) {
   let bad = 0;
   for (const sp of tr.samples) {
     checked++;
     let hit = null, step = false;
-    for (let o = -HALF_W; o <= HALF_W + 1e-6 && !hit; o += HALF_W / 2) {
+    for (let o = -HALF_W; o <= HALF_W + 1e-6 && !hit; o += HALF_W / 4) {
       const x = Math.floor(sp.x - sp.tz * o), z = Math.floor(sp.z + sp.tx * o);
       // valt dit blok echt binnen de breedte van het rijtuig? (afstand van het midden van het blok tot de spooras)
       const lat = Math.abs((x + 0.5 - sp.x) * -sp.tz + (z + 0.5 - sp.z) * sp.tx);
       if (lat > HALF_W + 0.5) continue;
       for (let h = 1; h <= CLEAR_H; h++) {
+        if (lat - 0.5 >= PROFILE[h]) continue; // dit blok raakt het profiel op deze hoogte niet
         const r = blockAt(x, sp.y + h, z);
         if (!IS_SOLID[r.b]) continue;
         // een trede van 1 blok in de spoorbedding (helling in blokken), met vrije ruimte erboven: geen muur
         if (h === 1 && BED.has(r.b) && [2, 3, 4, 5].every(k => !IS_SOLID[blockAt(x, sp.y + k, z).b])) { step = true; break; }
-        hit = { x, y: sp.y + h, z, blok: BLOCKS[r.b] ? BLOCKS[r.b].name : r.b, generator: r.src, s: sp.s }; break;
+        hitStat[h + '@' + (lat - 0.5).toFixed(1)] = (hitStat[h + '@' + (lat - 0.5).toFixed(1)] || 0) + 1;
+        hit = { x, y: sp.y + h, z, h, blok: BLOCKS[r.b] ? BLOCKS[r.b].name : r.b, generator: r.src, s: sp.s }; break;
       }
     }
+    // vrije hoogte boven het spoormidden (voor de bovenleiding): eerste vaste blok boven de spoorstaaf
+    { const x = Math.floor(sp.x), z = Math.floor(sp.z); let h = 1; while (h < 14 && !IS_SOLID[blockAt(x, sp.y + h, z).b]) h++; ceil[h] = (ceil[h] || 0) + 1; if (h < minCeil.h) minCeil = { h, x, y: sp.y, z, lijn: tr.id }; }
     if (step) steps++;
+    // alleen de stroomafnemer (6–7 m) raakt: geen muur voor het rijtuig, wel apart gemeld (laag plafond)
+    if (hit && hit.h === 7) { low.push({ lijn: tr.id, ...hit }); hit = null; }
     if (hit) { bad++; blocked.push({ lijn: tr.id, ...hit }); }
   }
   perLine.push({ lijn: tr.id, punten: tr.samples.length, geblokkeerd: bad });
@@ -94,4 +106,8 @@ const byGen = {}; for (const b of blocked) byGen[b.generator + ' / ' + b.blok] =
 if (blocked.length) { console.log('oorzaken:', JSON.stringify(byGen)); for (const b of blocked.slice(0, 12)) console.log('  ', JSON.stringify(b)); }
 if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify({ world, blocked }, null, 1));
 console.log(`${world}: ${checked} punten langs ${tracks.length} lijnen gecontroleerd · geblokkeerd: ${blocked.length} · treden van 1 blok in de bedding (geen muur): ${steps}`);
+// bovenleiding: de rijdraad hangt in de game op 6 m boven de spoorstaaf, in een tunnel op (plafond − 0,4 m)
+console.log(`vrije hoogte boven het spoor (blokken: aantal meetpunten): ${JSON.stringify(ceil)} · laagste: ${minCeil.h} (${minCeil.lijn} bij ${minCeil.x},${minCeil.y},${minCeil.z})`);
+if (blocked.length) console.log('raakpunten (hoogte@zijafstand):', JSON.stringify(hitStat));
+if (low.length) { const by = {}; for (const b of low) { const k = b.lijn + ' bij ' + Math.round(b.x / 100) * 100 + ',' + Math.round(b.z / 100) * 100; by[k] = (by[k] || 0) + 1; } console.log(`laag plafond (alleen de stroomafnemer, 6–7 m boven de spoorstaaf): ${low.length} meetpunten ${JSON.stringify(by)}`); }
 process.exitCode = blocked.length ? 1 : 0;

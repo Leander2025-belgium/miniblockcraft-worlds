@@ -20,6 +20,7 @@ export { MW, ML, G, LINES, LINE, STATIONS_ALL, TRACK, trackOffset, ALL_PLACES };
 export const T = 128;
 export { META } from './greenisland-meta.js';
 import { META } from './greenisland-meta.js';
+import { boreColumn, BORE_W, BORE_H } from './carve.js';
 
 class Grid {
   constructor(C) { this.C = C; this.m = new Map(); }
@@ -508,13 +509,12 @@ function railColumn(x, z, col, top, ctx, only) {
     return by;
   } }
   if (kind === 1) {
-    // enkelsporige tunnel: 6 m breed (vroeger 5,2 m: door afronding op blokken raakte een rijtuig soms de wand)
-    const bed = L.single && !two ? 3.0 : BED;
-    if (ad > bed + 1.2) return -1;
+    // tunnelprofiel (js/carve.js): bedding, dienstpad, kabelgoot, 8 m vrije hoogte, lampen hoog tegen de wand
+    const bed = L.single && !two ? 3.0 : BED, wall = bed + BORE_W;
+    if (ad > wall + 1.2) return -1;
     if (top - by >= 13) { deepTunnels.push([L, q, bed]); return -1; } // diepe tunnel: eerst straat en gebouwen erboven, daarna uitgraven
-    if (top <= by + 7) { if (ad <= bed) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad < bed - 0.7 ? B.BALLAST : B.GRAVEL; col[by - 1] = B.STONE; return by; } for (let y = by + 1; y <= Math.max(top, by + 9); y++) col[y] = B.CONCRETE; return Math.max(top, by + 9); }
-    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8); }
-    for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8);
+    if (top <= by + BORE_H) { if (ad <= wall) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad <= bed ? (ad < bed - 0.7 ? B.BALLAST : B.GRAVEL) : B.CONCRETE; col[by - 1] = B.STONE; if (ad > bed + 0.4) col[by + 1] = B.CONCRETE; return by + (ad > bed + 0.4 ? 1 : 0); } for (let y = by + 1; y <= Math.max(top, by + BORE_H + 2); y++) col[y] = B.CONCRETE; return Math.max(top, by + BORE_H + 2); }
+    return Math.max(top, boreColumn(col, by, ad, bed, q.s));
   }
   // perrons (ook gedeelde: in Munkbay Central liggen de lijnen 15 m uit elkaar, perrons tussen twee lijnen versmelten)
   if (st) {
@@ -569,7 +569,8 @@ function railColumn(x, z, col, top, ctx, only) {
 // ongelijkvloerse kruising: beide sporen in dezelfde kolom (onderste eerst, ook een tunnel eronder)
 function railColumnAll(x, z, col, top, ctx) {
   let lines = null;
-  for (const L of ctx.lines) { const r = L.near(x, z, 7); if (r && r.d <= (L.single ? 2.6 : BED)) (lines || (lines = [])).push([L, r]); }
+  // een tunnel telt mee tot aan zijn buitenwand (anders wordt een tunnel onder een ander spoor maar half uitgegraven)
+  for (const L of ctx.lines) { const r = L.near(x, z, 9); if (r && r.d <= (r.kind === 1 ? (L.single ? 3.0 : BED) + BORE_W + 1.2 : L.single ? 2.6 : BED)) (lines || (lines = [])).push([L, r]); }
   if (!lines || lines.length < 2) return railColumn(x, z, col, top, ctx);
   lines.sort((a, b) => a[1].y - b[1].y);
   const [Lo, ql] = lines[0], [Lh, qh] = lines[lines.length - 1], yl = Math.round(ql.y), yh = Math.round(qh.y);
@@ -1069,12 +1070,7 @@ function fillColumn(x, z, col, slope, ctx, h) {
   deepTunnels.length = 0;
   let t = fillColumnSurface(x, z, col, slope, ctx, h);
   if (busStopGrid().at(x, z).length) t = busShelter(x, z, col, t, Math.round(G + h));
-  for (const [L, q, bed] of deepTunnels) {
-    const by = Math.round(q.y), ad = q.d;
-    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; }
-    else for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE;
-    t = Math.max(t, by + 8);
-  }
+  for (const [L, q, bed] of deepTunnels) t = Math.max(t, boreColumn(col, Math.round(q.y), q.d, bed, q.s));
   return ctx.metro && ctx.metro.length ? metroCarve(x, z, col, t, Math.round(G + h), ctx) : t;
 }
 // ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------
@@ -1085,10 +1081,8 @@ function metroCarve(x, z, col, t, top, ctx) {
     const q = L.near(x, z, M_POUT + 1.4 + M_STAIR + 1); if (!q) continue;
     const by = Math.round(q.y), ad = q.d, st = L.stationAt(q.s);
     if (!st) {
-      if (ad > BED + 1.2) continue;
-      if (ad <= BED) { col[by - 1] = B.CONCRETE; col[by] = ad < BED - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; if (ad > BED - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; col[by + 7] = B.CONCRETE; }
-      else for (let y = by - 1; y <= by + 7; y++) col[y] = B.CONCRETE;
-      t = Math.max(t, by + 7); continue;
+      if (ad > BED + BORE_W + 1.2) continue;
+      t = Math.max(t, boreColumn(col, by, ad, BED, q.s)); continue;
     }
     const mid = (st.s0 + st.s1) / 2, sdir = metroStair(L, st, q.sd > 0 ? 1 : -1), u = sdir ? sdir * (q.s - (mid - sdir * 8)) : -99, paint = METRO_PAINT[L.id] || B.PAINT_BLUE;
     if (ad <= BED) { // sporen in de hal
@@ -1418,7 +1412,8 @@ function tileTunnels(X0, Z0, lines) {
     for (let s = Math.max(a, 0); s < b; s += 16) {
       L.at(s, p); L.at(Math.min(b, s + 16), q);
       if (Math.max(p.x, q.x) < X0 - 8 || Math.min(p.x, q.x) > X0 + T + 8 || Math.max(p.z, q.z) < Z0 - 8 || Math.min(p.z, q.z) > Z0 + T + 8) continue;
-      out.push({ type: L.single ? 'tube' : 'tube2', ax: p.x, az: p.z, ay: Math.round(p.y), bx: q.x, bz: q.z, by: Math.round(q.y), key: `${L.id}:${Math.round(s)}` });
+      const two = !L.single || L.stations.some(st2 => s > st2.s0 - 95 && s < st2.s1 + 95);
+      out.push({ type: 'bore', bed: two ? BED : 3.0, ax: p.x, az: p.z, ay: Math.round(p.y), bx: q.x, bz: q.z, by: Math.round(q.y), key: `${L.id}:${Math.round(s)}` });
     }
   }
   return out;

@@ -4,13 +4,40 @@
 // ondergrond (tunnels en perronhallen), zodat alles naadloos aansluit.
 import { B } from './blocks.js';
 
-// soorten: 'tube' (spoortunnel), 'hall' (perronhal), 'stair' (trap met roltrap naar de straat)
+// Tunnelprofiel van de spoor- en metrotunnels (Greenisland, Alpen), sinds Blokstad 12. Eén regel voor de tegels en
+// voor de diepe ondergrond, zodat alles naadloos aansluit. Afgestemd op de treinen (js/trainshell.js: 4,06 m breed,
+// dak op 5,5 m, stroomafnemer tot 6,1 m boven de spoorstaaf):
+// - de spoorbedding (ballast) tot 'bed' van de as, daarnaast 1 m dienstpad (verhoogd) tot de wand;
+// - 8 blokken vrije hoogte boven de bedding (ook op hellingen waar het plafond een blok verspringt), plafond en dak in beton;
+// - een kabelgoot langs de wand, lampen hoog tegen de wand (buiten het vrijprofiel) om de 24 m.
+export const BORE_W = 1.0, BORE_H = 8;
+// blok op afstand d van de tunnelas, op hoogte y (ty = bovenkant van de bedding); -1 = buiten de tunnel
+export function boreBlock(d, y, ty, bed, s) {
+  const wall = bed + BORE_W;
+  if (d > wall + 1.2 || y < ty - 1 || y > ty + BORE_H + 2) return -1;
+  if (d > wall || y === ty - 1 || y > ty + BORE_H) return B.CONCRETE;
+  if (y === ty) return d <= bed ? (d < bed - 0.7 ? B.BALLAST : B.CONCRETE) : B.CONCRETE;
+  if (d > bed + 0.4 && y === ty + 1) return B.CONCRETE;                             // dienstpad (een halve meter van de bak)
+  if (d > wall - 0.6 && y === ty + 3) return B.METAL;                                // kabelgoot
+  if (d > wall - 0.6 && y === ty + BORE_H && Math.round(s) % 24 === 0) return B.LAMP; // lamp
+  return 0;
+}
+// tunnelkolom in een tegel: bedding op 'by', alles tot het plafond; geeft de bovenkant terug
+// (ligt er vlak onder een andere tunnel, dan blijft diens luchtruimte open: geen extra betonplaat onder de bedding)
+export function boreColumn(col, by, ad, bed, s) {
+  for (let y = by - 1; y <= by + BORE_H + 2; y++) { const b = boreBlock(ad, y, by, bed, s); if (b < 0 || (y === by - 1 && col[y] === 0 && col[y - 1] === 0)) continue; col[y] = b; }
+  return by + BORE_H + 2;
+}
+
+// soorten: 'bore' (spoortunnel, profiel hierboven), 'tube' (smalle tunnel, echte steden), 'hall' (perronhal),
+// 'stair' (trap met roltrap naar de straat)
 export function carveAt(seg, x, z, y) {
   const vx = seg.bx - seg.ax, vz = seg.bz - seg.az, L2 = vx * vx + vz * vz || 1;
   const t = Math.max(0, Math.min(1, ((x + 0.5 - seg.ax) * vx + (z + 0.5 - seg.az) * vz) / L2));
   const dx = x + 0.5 - seg.ax - vx * t, dz = z + 0.5 - seg.az - vz * t, d = Math.hypot(dx, dz);
   const s = t * Math.sqrt(L2);
   const ty = Math.round(seg.ay + (seg.by - seg.ay) * t); // vloer (ballast) van het spoor
+  if (seg.type === 'bore') return boreBlock(d, y, ty, seg.bed, s);
   if (seg.type === 'tube') {
     if (d > 3.6 || y < ty - 1 || y > ty + 6) return -1;
     if (d <= 2.5) {

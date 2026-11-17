@@ -22,7 +22,7 @@ export function shellParts(d, liv) {
   const P = new Parts(), L = d.L, type = d.type, hz = L / 2;
   const cab = CAB.has(type), freight = type === 'box' || type === 'tank' || type === 'flat';
   // onderstel, draaistellen met wielen, koppelingen
-  P.box('trim', 3.2, 0.5, L - 1.6, 0, 0.7, 0, DARK);
+  P.box('trim', 2.9, 0.5, L - 1.6, 0, 0.7, 0, DARK);
   // draaistel apart (draait in bochten mee met het spoor): frame, 4 wielen met asdozen, veren, remblokken
   const B = new Parts();
   B.box('trim', 2.9, 0.4, 2.9, 0, 0.58, 0, BOGIE);

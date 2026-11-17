@@ -4,7 +4,8 @@
 // beweegt (InstancedMesh: weinig tekenwerk).
 import * as THREE from 'three';
 
-const R = 1200, STEP = 60;
+// rijdraad op de hoogte van de stroomafnemer (js/trainshell.js: 6,85 m boven de spoorstaaf; spoorstaaf = lijn + 1)
+const R = 1200, STEP = 60, WIRE = 7.85;
 export class RailInfra {
   constructor(scene, lines, trackOffset, TRACK) {
     this.lines = lines.filter(L => !L.tram && !L.bus); this.trackOffset = trackOffset; this.TRACK = TRACK;
@@ -12,7 +13,7 @@ export class RailInfra {
     const mat = this.mat = new THREE.MeshBasicMaterial({ vertexColors: false, color: 0x8a9096 });
     const dark = this.dark = new THREE.MeshBasicMaterial({ color: 0x23262a });
     const mk = (geo, m, max) => { const im = new THREE.InstancedMesh(geo, m, max); im.count = 0; im.frustumCulled = false; this.group.add(im); return im; };
-    this.mast = mk(new THREE.BoxGeometry(0.3, 7.6, 0.3).translate(0, 3.8, 0), mat, 1600);
+    this.mast = mk(new THREE.BoxGeometry(0.3, 8.0, 0.3).translate(0, 4.0, 0), mat, 1600);
     this.arm = mk(new THREE.BoxGeometry(1, 0.14, 0.14).translate(0.5, 0, 0), mat, 3200);
     this.sigPole = mk(new THREE.BoxGeometry(0.22, 1, 0.22).translate(0, 0.5, 0), dark, 400);
     this.sigHead = mk(new THREE.BoxGeometry(0.75, 1.5, 0.35), dark, 400);
@@ -53,14 +54,14 @@ export class RailInfra {
             const side = (Math.floor(s / STEP) % 2 ? 1 : -1), mo = (off || 0) + 3.4;
             const mx = q.x + nx * mo * side, mz = q.z + nz * mo * side;
             this.put(this.mast, nm++, mx, q.y + 1, mz, yaw);
-            for (const t of tracks) if (na < 3200) { const dl = t - mo * side, reach = Math.abs(dl) + 0.3, dx = nx * Math.sign(dl), dz = nz * Math.sign(dl); this.put(this.arm, na++, mx, q.y + 7.2, mz, Math.atan2(-dz, dx), reach, 1, 1); }
+            for (const t of tracks) if (na < 3200) { const dl = t - mo * side, reach = Math.abs(dl) + 0.3, dx = nx * Math.sign(dl), dz = nz * Math.sign(dl); this.put(this.arm, na++, mx, q.y + 8.0, mz, Math.atan2(-dz, dx), reach, 1, 1); }
           }
           // rijdraad naar het volgende stuk
           L.at(Math.min(L.len, s + STEP), q2);
           const off2 = this.trackOffset(L, Math.min(L.len, s + STEP));
           for (let i = 0; i < tracks.length; i++) {
             const t1 = tracks[i], t2 = off2 ? (i ? off2 : -off2) : 0;
-            wires.push(q.x + nx * t1, q.y + 7.0, q.z + nz * t1, q2.x - q2.tz * t2, q2.y + 7.0, q2.z + q2.tx * t2);
+            wires.push(q.x + nx * t1, q.y + WIRE, q.z + nz * t1, q2.x - q2.tz * t2, q2.y + WIRE, q2.z + q2.tx * t2);
           }
         }
       }

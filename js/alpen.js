@@ -14,6 +14,7 @@ export const T = 128, MW = W, ML = W;
 export const TOFF = OX / T; // 140 tegels
 export { META } from './alpen-meta.js';
 import { META } from './alpen-meta.js';
+import { boreColumn, BORE_W, BORE_H } from './carve.js';
 const O = OLDM._internal;
 const inOld = (x, z) => x >= OX && z >= OZ && x < OX + OLD && z < OZ + OLD;
 const dOld = (x, z) => Math.hypot(Math.max(OX - x, 0, x - (OX + OLD)), Math.max(OZ - z, 0, z - (OZ + OLD)));
@@ -469,24 +470,17 @@ function railColumn1(x, z, col, top, ctx) {
   if (kind === 0 && ad <= bed + 0.5) { const rr = roadAt(x, z); if (rr && rr.r.farm && rr.d <= rr.r.hw + 0.5) { under(col, top, by, B.STONE); for (let y = top + 1; y < by; y++) col[y] = B.GRAVEL; for (let y = by + 1; y <= top + 1; y++) col[y] = 0; col[by] = B.ASPHALT; return by; } }
   // tunnel: uitgraven, de berg erboven blijft
   if (kind === 1) {
-    // enkelsporige tunnel: 6 m breed (vroeger 5,2 m: door afronding op blokken raakte een rijtuig soms de wand)
-    const bed = single && !two ? 3.0 : BED;
-    if (ad > bed + 1.2) return -1;
-    if (top <= by + 7) { // portaal: open sleuf tot aan de berg
-      if (ad <= bed) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad < bed - 0.7 ? B.BALLAST : B.GRAVEL; col[by - 1] = B.STONE; return by; }
-      for (let y = by + 1; y <= Math.max(top, by + 9); y++) col[y] = B.CONCRETE; return Math.max(top, by + 9);
+    // tunnelprofiel (js/carve.js): bedding, dienstpad, kabelgoot, 8 m vrije hoogte, lampen hoog tegen de wand
+    const bed = single && !two ? 3.0 : BED, wall = bed + BORE_W;
+    if (ad > wall + 1.2) return -1;
+    if (top <= by + BORE_H) { // portaal: open sleuf tot aan de berg
+      if (ad <= wall) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad <= bed ? (ad < bed - 0.7 ? B.BALLAST : B.GRAVEL) : B.CONCRETE; col[by - 1] = B.STONE; if (ad > bed + 0.4) col[by + 1] = B.CONCRETE; return by + (ad > bed + 0.4 ? 1 : 0); }
+      for (let y = by + 1; y <= Math.max(top, by + BORE_H + 2); y++) col[y] = B.CONCRETE; return Math.max(top, by + BORE_H + 2);
     }
-    if (ad <= bed) {
-      col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE;
-      for (let y = by + 1; y <= by + 6; y++) col[y] = 0;
-      col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE;
-      if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; // lamp hoog tegen de wand, buiten het vrijprofiel
-      // portaal (betonnen kader in de bergwand)
-      if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE;
-      return top;
-    }
-    for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE; // wand
-    return Math.max(top, by + 8);
+    const t = boreColumn(col, by, ad, bed, q.s);
+    // portaal (betonnen kader in de bergwand)
+    if (top - by < 15) for (let y = t + 1; y <= top; y++) col[y] = B.CONCRETE;
+    return Math.max(top, t);
   }
   // perrons
   if (st && !st.old) {
@@ -1014,7 +1008,8 @@ function tileTunnels(X0, Z0, lines, Y0) {
     for (let s = Math.max(a, 0); s < b; s += 16) {
       L.at(s, p); L.at(Math.min(b, s + 16), q);
       if (Math.max(p.x, q.x) < X0 - 8 || Math.min(p.x, q.x) > X0 + T + 8 || Math.max(p.z, q.z) < Z0 - 8 || Math.min(p.z, q.z) > Z0 + T + 8) continue;
-      out.push({ type: L.single ? 'tube' : 'tube2', ax: p.x, az: p.z, ay: Math.round(p.y), bx: q.x, bz: q.z, by: Math.round(q.y), key: `${L.id}:${Math.round(s)}` });
+      const two = !L.single || L.stations.some(st2 => s > st2.s0 - 95 && s < st2.s1 + 95);
+      out.push({ type: 'bore', bed: two ? BED : 3.0, ax: p.x, az: p.z, ay: Math.round(p.y), bx: q.x, bz: q.z, by: Math.round(q.y), key: `${L.id}:${Math.round(s)}` });
     }
   }
   void Y0;
