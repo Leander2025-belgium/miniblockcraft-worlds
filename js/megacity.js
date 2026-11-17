@@ -12,7 +12,7 @@ export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 3, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -671,7 +671,14 @@ function metroColumn(x, z, col) {
   // station: eilandperron (o -2..3) tussen de sporen, hal 9 m hoog, tussenverdieping (alleen bij de toren)
   for (let y = G - 19; y <= G - 8; y++) col[y] = B.CONCRETE;
   if (tower && o === 8 && lx >= 61 && lx <= 66) { col[G - 13] = B.MARBLE; for (let y = G - 12; y <= G - 9; y++) col[y] = 0; return; }
-  if (o === -7 || o === 8 || lx === 16 || lx === 111) { if (lx % 8 === 0 && o !== -7 && o !== 8) col[G - 15] = B.SIGN; return; }
+  if (o === -7 || o === 8) { if (lx % 8 === 0) col[G - 15] = B.SIGN; return; }
+  if (lx === 16 || lx === 111) {
+    // einde van de perronhal: de sporen lopen door (tunnelprofiel), alleen het perron krijgt een eindwand
+    if (o >= -2 && o <= 3) return;
+    for (let y = G - 17; y <= G - 12; y++) col[y] = 0;
+    col[G - 18] = (o === -5 || o === -3 || o === 4 || o === 6) ? B.METAL : B.BALLAST;
+    return;
+  }
   for (let y = G - 17; y <= G - 9; y++) col[y] = 0;
   const plat = o >= -2 && o <= 3;
   if (plat) { col[G - 18] = B.CONCRETE; col[G - 17] = (o === -2 || o === 3) ? B.LINE_YELLOW : B.TILE; }

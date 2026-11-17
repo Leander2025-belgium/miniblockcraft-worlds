@@ -50,6 +50,12 @@ export class Underground {
     for (const sg of list) if (this.carves.add(sg)) added = true;
     if (added) { this.cache.clear(); for (const k of this.meshes.keys()) this.dirty.add(k); }
   }
+  // een tegel is (opnieuw) geladen: alles van de ondergrond onder die tegel opnieuw berekenen en tekenen
+  tileLoaded(x0, z0, size) {
+    const sx0 = Math.floor((x0 - 1) / S), sx1 = Math.floor((x0 + size) / S), sz0 = Math.floor((z0 - 1) / S), sz1 = Math.floor((z0 + size) / S);
+    for (const k of [...this.cache.keys()]) { const [sx, , sz] = k.split('_').map(Number); if (sx >= sx0 && sx <= sx1 && sz >= sz0 && sz <= sz1) this.cache.delete(k); }
+    for (const k of this.meshes.keys()) { const [sx, , sz] = k.split('_').map(Number); if (sx >= sx0 && sx <= sx1 && sz >= sz0 && sz <= sz1) this.dirty.add(k); }
+  }
   floorAt(x, z) { const f = Math.floor(this.spec.ref(x, z)) - DEPTH, t = this.carves.minY(x, z); return t !== null && t - 4 < f ? t - 4 : f; }
   // ---------- het gesteente op een plek ----------
   natural(x, y, z, ref = this.spec.ref(x, z)) {
@@ -99,7 +105,11 @@ export class Underground {
     if (c) { this.cache.delete(k); this.cache.set(k, c); return c; }
     c = new Uint8Array(S3);
     const ed = this.edits.get(k), X0 = sx * S, Y0 = sy * S, Z0 = sz * S;
+    let partial = false;
     for (let z = 0; z < S; z++) for (let x = 0; x < S; x++) {
+      // kolom van een tegel die nog niet geladen is: niets maken (vroeger: een geschatte bodem, en die rots bleef
+      // als muur in een tunnel staan als de tegel later met een diepere tunnel laadde)
+      if (this.spec.loaded && !this.spec.loaded(X0 + x, Z0 + z)) { partial = true; continue; }
       const top = this.spec.top(X0 + x, Z0 + z), ref = this.spec.ref(X0 + x, Z0 + z);
       for (let y = 0; y < S; y++) {
         const i = (y * S + z) * S + x;
@@ -107,6 +117,7 @@ export class Underground {
         c[i] = ed && ed[i] ? ed[i] - 1 : this.natural(X0 + x, Y0 + y, Z0 + z, ref);
       }
     }
+    if (partial) c.partial = true;
     this.cache.set(k, c);
     if (this.cache.size > 360) this.cache.delete(this.cache.keys().next().value);
     return c;

@@ -469,6 +469,8 @@ function railColumn1(x, z, col, top, ctx) {
   if (kind === 0 && ad <= bed + 0.5) { const rr = roadAt(x, z); if (rr && rr.r.farm && rr.d <= rr.r.hw + 0.5) { under(col, top, by, B.STONE); for (let y = top + 1; y < by; y++) col[y] = B.GRAVEL; for (let y = by + 1; y <= top + 1; y++) col[y] = 0; col[by] = B.ASPHALT; return by; } }
   // tunnel: uitgraven, de berg erboven blijft
   if (kind === 1) {
+    // enkelsporige tunnel: 6 m breed (vroeger 5,2 m: door afronding op blokken raakte een rijtuig soms de wand)
+    const bed = single && !two ? 3.0 : BED;
     if (ad > bed + 1.2) return -1;
     if (top <= by + 7) { // portaal: open sleuf tot aan de berg
       if (ad <= bed) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad < bed - 0.7 ? B.BALLAST : B.GRAVEL; col[by - 1] = B.STONE; return by; }
@@ -478,7 +480,7 @@ function railColumn1(x, z, col, top, ctx) {
       col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE;
       for (let y = by + 1; y <= by + 6; y++) col[y] = 0;
       col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE;
-      if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP;
+      if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; // lamp hoog tegen de wand, buiten het vrijprofiel
       // portaal (betonnen kader in de bergwand)
       if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE;
       return top;

@@ -771,6 +771,7 @@ export class Game {
         const w = new World({ size: T, H, y0, edge }, vox);
         w.ox = tx * T; w.oz = tz * T; w.under = this.under;
         if (tunnels && this.under) this.under.addCarves(tunnels);
+        this.under?.tileLoaded(tx * T, tz * T, T); // ondergrond onder deze tegel opnieuw (geen oude rots in tunnels)
         const src = { w, ox: tx * T, oz: tz * T, key: 't' + k, tx, tz, dirty: false, paths };
         const intr = td.spec.interiorFor && td.spec.interiorFor(tx, tz);
         if (intr) src.interior = { ...intr };
@@ -1538,6 +1539,7 @@ export class Game {
     p.vel.z += (wz + (p.escalator ? p.escalator[1] * 1.6 : 0) - p.vel.z) * Math.min(1, acc * dt);
 
     const up = k.has('Space') || this.touchUp;
+    const groundedBefore = p.onGround; // voor de lift: stond je op de grond vóór je sprong?
     const down = (k.has('ShiftLeft') || k.has('KeyC')) && p.fly || this.touchDown;
     if (p.fly) {
       p.vel.y = (up ? speed * 0.8 : down ? -speed * 0.8 : 0) - fz * Math.sin(p.pitch) * speed;
@@ -1577,8 +1579,10 @@ export class Game {
     {
       const goUp = up && !this.upWas, goDown = (k.has('ShiftLeft') || this.touchDown) && !this.downWas;
       this.upWas = up; this.downWas = k.has('ShiftLeft') || this.touchDown;
-      if ((goUp || goDown) && p.onGround && !p.fly) {
-        const X = Math.floor(p.pos.x), Z = Math.floor(p.pos.z), Y = Math.floor(p.pos.y - 0.5);
+      if ((goUp || goDown) && (p.onGround || groundedBefore) && !p.fly) {
+        const X = Math.floor(p.pos.x), Z = Math.floor(p.pos.z);
+        let Y = Math.floor(p.pos.y - 0.5);
+        if (this.world.get(X, Y, Z) !== B.ELEVATOR && this.world.get(X, Y - 1, Z) === B.ELEVATOR) Y--; // al even opgesprongen
         if (this.world.get(X, Y, Z) === B.ELEVATOR) {
           const dir = goUp ? 1 : -1;
           for (let yy = Y + dir * 2; Math.abs(yy - Y) < 320; yy += dir) {

@@ -508,10 +508,12 @@ function railColumn(x, z, col, top, ctx, only) {
     return by;
   } }
   if (kind === 1) {
+    // enkelsporige tunnel: 6 m breed (vroeger 5,2 m: door afronding op blokken raakte een rijtuig soms de wand)
+    const bed = L.single && !two ? 3.0 : BED;
     if (ad > bed + 1.2) return -1;
     if (top - by >= 13) { deepTunnels.push([L, q, bed]); return -1; } // diepe tunnel: eerst straat en gebouwen erboven, daarna uitgraven
     if (top <= by + 7) { if (ad <= bed) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad < bed - 0.7 ? B.BALLAST : B.GRAVEL; col[by - 1] = B.STONE; return by; } for (let y = by + 1; y <= Math.max(top, by + 9); y++) col[y] = B.CONCRETE; return Math.max(top, by + 9); }
-    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8); }
+    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; if (top - by < 14) for (let y = by + 9; y <= top; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8); }
     for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE; return Math.max(top, by + 8);
   }
   // perrons (ook gedeelde: in Munkbay Central liggen de lijnen 15 m uit elkaar, perrons tussen twee lijnen versmelten)
@@ -1069,7 +1071,7 @@ function fillColumn(x, z, col, slope, ctx, h) {
   if (busStopGrid().at(x, z).length) t = busShelter(x, z, col, t, Math.round(G + h));
   for (const [L, q, bed] of deepTunnels) {
     const by = Math.round(q.y), ad = q.d;
-    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 1 && Math.round(q.s) % 24 === 0) col[by + 5] = B.LAMP; }
+    if (ad <= bed) { col[by - 1] = B.CONCRETE; col[by] = ad < bed - 0.7 ? B.BALLAST : B.CONCRETE; for (let y = by + 1; y <= by + 6; y++) col[y] = 0; col[by + 7] = B.CONCRETE; col[by + 8] = B.CONCRETE; if (ad > bed - 0.6 && Math.round(q.s) % 24 === 0) col[by + 6] = B.LAMP; }
     else for (let y = by - 1; y <= by + 8; y++) col[y] = B.CONCRETE;
     t = Math.max(t, by + 8);
   }

@@ -12,10 +12,12 @@ const checks = [
   ['Greenisland: spoor, gebouwen, wegen, naden', 'tools/check-green.mjs'],
   ['Megatower: 1.000 m, kamers bereikbaar, deuren, liften, snelreizen', 'tools/check-megatower.mjs'],
   ['Megatower City: lanen, gaten, bruggen, sporen, determinisme', 'tools/check-megacity.mjs'],
+  ['Diepe ondergrond: geen achtergebleven rots in tunnels', 'tools/check-underground.mjs'],
+  ['Tunnels Megatower City: vrijprofiel van de metro', 'tools/check-tunnels.mjs', ['megatower']],
 ];
 let fail = 0;
-for (const [name, file] of checks) {
-  const t = Date.now(), r = spawnSync(process.execPath, [file], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname });
+for (const [name, file, extra] of checks) {
+  const t = Date.now(), r = spawnSync(process.execPath, [file, ...(extra || [])], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname });
   const ok = r.status === 0;
   if (!ok) fail++;
   console.log(`${ok ? '✓' : '✗'} ${name} (${((Date.now() - t) / 1000).toFixed(0)} s)\n   ${(r.stdout || '').trim().split('\n').slice(0, ok ? 2 : 12).join('\n   ')}${r.stderr && !ok ? '\n   ' + r.stderr.trim().split('\n').slice(0, 5).join('\n   ') : ''}`);
