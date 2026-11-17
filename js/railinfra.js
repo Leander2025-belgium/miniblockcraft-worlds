@@ -20,6 +20,9 @@ export class RailInfra {
     this.sw = mk(new THREE.BoxGeometry(0.9, 0.5, 1.4).translate(0, 0.25, 0), new THREE.MeshBasicMaterial({ color: 0x3b4a5a }), 200);
     this.swLamp = mk(new THREE.BoxGeometry(0.35, 0.35, 0.35), new THREE.MeshBasicMaterial({ color: 0xfff2c0 }), 200);
     this.swSign = mk(new THREE.BoxGeometry(0.06, 0.6, 0.6), new THREE.MeshBasicMaterial({ color: 0xf2f2f2 }), 200);
+    // wisseltongen: twee per wissel, ze schuiven naar de kant van de trein die eraan komt
+    this.blade = mk(new THREE.BoxGeometry(0.09, 0.14, 9).translate(0, 0, 4.5), new THREE.MeshBasicMaterial({ color: 0xb8bec6 }), 400);
+    this.switches = [];
     this.wireGeo = new THREE.BufferGeometry();
     this.wires = new THREE.LineSegments(this.wireGeo, new THREE.LineBasicMaterial({ color: 0x1c1d1f })); this.wires.frustumCulled = false; this.group.add(this.wires);
     this.at = null; this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.s = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0);
@@ -31,6 +34,7 @@ export class RailInfra {
     if (this.at && Math.hypot(p.x - this.at.x, p.z - this.at.z) < 200) return;
     this.at = { x: p.x, z: p.z };
     let nm = 0, na = 0, ns = 0;
+    this.switches = [];
     const wires = [], q = {}, q2 = {};
     for (const L of this.lines) {
       // snel overslaan: is de lijn ergens in de buurt?
@@ -69,6 +73,9 @@ export class RailInfra {
         this.put(this.sw, ns, q.x + nx * 2.4, q.y + 1, q.z + nz * 2.4, yaw);
         this.put(this.swLamp, ns, q.x + nx * 2.4, q.y + 1.8, q.z + nz * 2.4, yaw);
         this.put(this.swSign, ns, q.x + nx * 3.4, q.y + 2.2, q.z + nz * 3.4, yaw);
+        // de tongen wijzen naar het station (daar splitst het spoor)
+        const into = s0 < st.s0 ? 1 : -1;
+        this.switches.push({ L, s: s0, x: q.x, y: q.y, z: q.z, nx, nz, yaw: yaw + (into < 0 ? Math.PI : 0), throw: 0, target: 0 });
         ns++;
       }
     }
@@ -77,6 +84,29 @@ export class RailInfra {
     this.wireGeo.setAttribute('position', new THREE.Float32BufferAttribute(wires, 3));
     this.wireGeo.computeBoundingSphere();
     this.counts.masten = nm; this.counts.wissels = ns; this.counts.draad = wires.length / 6;
+  }
+  // wissels omzetten: voor de dichtstbijzijnde trein die eraan komt (een trein in richting +1 rijdt op het spoor aan
+  // de ene kant van het kruisingsspoor, in richting -1 aan de andere kant); de tongen schuiven in ±2 s om
+  animate(dt, trains) {
+    let n = 0;
+    for (const sw of this.switches) {
+      let best = 1e9, side = sw.target;
+      for (const t of trains) {
+        if (t.L !== sw.L) continue;
+        const d = (sw.s - t.s) * t.dir;
+        if (d > -t.len && d < 2500 && d < best) { best = d; side = t.dir; }
+      }
+      sw.target = side;
+      const step = dt * 0.5; sw.throw += Math.max(-step, Math.min(step, sw.target - sw.throw));
+      for (const k of [-1, 1]) {
+        if (n >= 400) break;
+        // tong ligt tegen de buitenste spoorstaaf van de kant waar de trein niet heen gaat
+        const lat = k * 0.72 - sw.throw * 0.11;
+        this.put(this.blade, n++, sw.x + sw.nx * lat, sw.y + 1.06, sw.z + sw.nz * lat, sw.yaw);
+      }
+    }
+    this.blade.count = n; this.blade.instanceMatrix.needsUpdate = true;
+    this.counts.tongen = n;
   }
   // seinpaal en seinkast voor elke seinlamp (rail.js geeft de plekken)
   setSignals(list) {

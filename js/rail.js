@@ -491,7 +491,18 @@ export class AlpRail {
       const x = (fx + bx) / 2, z = (fz + bz) / 2, y = (fy + by) / 2;
       c.body.setPose(x, y, z, yaw, pitch);
       c.grp.position.set(x, y, z); c.grp.rotation.set(-pitch, yaw, 0);
-      if (c.shell) { c.shell.g.position.set(x, y, z); c.shell.g.rotation.set(-pitch, yaw, 0); }
+      if (c.shell) {
+        c.shell.g.position.set(x, y, z); c.shell.g.rotation.set(-pitch, yaw, 0);
+        // draaistellen volgen het spoor: hoek tussen de spoorrichting op het draaistel en de bak
+        if (c.shell.g.visible && c.shell.bogies && Math.abs(x - this.g.player.pos.x) < 400 && Math.abs(z - this.g.player.pos.z) < 400) {
+          for (const b of c.shell.bogies) {
+            L.at(sc + dir * (c.flip ? -b.userData.z : b.userData.z), q);
+            let ty = Math.atan2(q.tx * dir, q.tz * dir) + (c.flip ? Math.PI : 0), d = ty - yaw;
+            d = ((d + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+            b.rotation.y = Math.max(-0.35, Math.min(0.35, d));
+          }
+        }
+      }
       off += c.d.L + GAP;
     }
     void line;
@@ -535,6 +546,12 @@ export class AlpRail {
       const hp = pt.L.at(pt.s);
       if (!g.drive && !(g.aboard && g.aboard.train === pt.tr) && Math.hypot(hp.x - p.x, hp.z - p.z) > 1500) { this.dropTrain(pt.tr); this.trains.delete(pt.tr.id); this.player = null; }
       else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || (!!g.drive && !['chase', 'side'].includes(g.drive.cam)), dt, pt.doors ? 1 : 0); }
+    }
+    if (this.infra && this.infra.switches.length) {
+      const list = [];
+      for (const a of act) if (a.s !== undefined) list.push({ L: a.run.pr.L, s: a.s, dir: a.run.dir, len: a.run.pr.len || 200 });
+      if (this.player) list.push({ L: this.player.L, s: this.player.s, dir: this.player.dir, len: 200 });
+      this.infra.animate(dt, list);
     }
     const pt = this.player;
     if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: 'train', out: ['chase', 'side'].includes(g.drive.cam) };

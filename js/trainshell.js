@@ -23,11 +23,15 @@ export function shellParts(d, liv) {
   const cab = CAB.has(type), freight = type === 'box' || type === 'tank' || type === 'flat';
   // onderstel, draaistellen met wielen, koppelingen
   P.box('trim', 3.2, 0.5, L - 1.6, 0, 0.7, 0, DARK);
-  for (const bz of [hz - 3, -hz + 3]) {
-    P.box('trim', 2.9, 0.45, 2.9, 0, 0.55, bz, BOGIE);
-    for (const wz of [0.95, -0.95]) for (const wx of [1.05, -1.05]) P.wheel(0.48, 0.16, wx, 0.5, bz + wz, 0x3a3d42, 14);
-    P.box('trim', 0.12, 0.3, 2.6, 1.45, 0.62, bz, STEEL).box('trim', 0.12, 0.3, 2.6, -1.45, 0.62, bz, STEEL); // veren
+  // draaistel apart (draait in bochten mee met het spoor): frame, 4 wielen met asdozen, veren, remblokken
+  const B = new Parts();
+  B.box('trim', 2.9, 0.4, 2.9, 0, 0.58, 0, BOGIE);
+  for (const wz of [0.95, -0.95]) {
+    for (const wx of [1.05, -1.05]) { B.wheel(0.48, 0.16, wx, 0.5, wz, 0x3a3d42, 14); B.box('trim', 0.22, 0.26, 0.3, wx * 1.32, 0.5, wz, 0x1c1d20); }
+    B.box('trim', 2.3, 0.1, 0.1, 0, 0.5, wz, STEEL);                                   // as
   }
+  for (const sx of [1.45, -1.45]) { B.box('trim', 0.12, 0.3, 2.6, sx, 0.66, 0, STEEL); for (const z of [-0.45, 0.45]) B.box('trim', 0.16, 0.26, 0.16, sx, 0.9, z, 0x5c6168); } // veren
+  const bogieZ = [hz - 3, -hz + 3];
   P.box('trim', 0.4, 0.35, 0.8, 0, 0.85, hz + 0.1, DARK).box('trim', 0.4, 0.35, 0.8, 0, 0.85, -hz - 0.1, DARK); // koppelingen
   if (freight) {
     if (type === 'tank') {
@@ -41,7 +45,7 @@ export function shellParts(d, liv) {
       P.box('trim', 3.9, 0.3, L - 0.4, 0, 1.1, 0, 0x5a4632);
       P.box('paint', 3.6, 2.8, 6, 0, 2.65, -3.2, hexOf(25)); P.box('paint', 3.6, 2.8, 6, 0, 2.65, 3.4, 0xe07a1f); // containers
     }
-    s = { body: P.done(), door: null, doorsZ: [], key };
+    s = { body: P.done(), door: null, doorsZ: [], key, bogie: B.done(), bogieZ };
     cache.set(key, s); return s;
   }
   // bak: onderste band in de hoofdkleur, ramenband, bovenste band, afgerond dak
@@ -88,7 +92,7 @@ export function shellParts(d, liv) {
   } else if (type !== 'panorama') P.box('trim', 1.0, 0.35, 2.0, 0, 5.65, 0, 0x7d838a); // ventilatie
   // schuifdeur (één helft; links en rechts, beide kanten van de bak worden in de game geplaatst)
   const D = new Parts(); D.box('paint', 0.06, 2.35, 0.82, 0, 0, 0, 0xffffff); D.box('trim', 0.07, 0.9, 0.55, 0, 0.35, 0, GLASS);
-  s = { body: P.done(), door: D.done(), doorsZ, key, c1 };
+  s = { body: P.done(), door: D.done(), doorsZ, key, c1, bogie: B.done(), bogieZ };
   cache.set(key, s);
   return s;
 }
@@ -105,6 +109,11 @@ export class TrainShells {
     g.rotation.order = 'YXZ';
     for (const k of ['paint', 'trim']) if (sp.body[k]) g.add(new THREE.Mesh(sp.body[k], this.mat));
     if (sp.body.light) g.add(new THREE.Mesh(sp.body.light, this.matLight));
+    const bogies = [];
+    for (const bz of sp.bogieZ || []) {
+      const b = new THREE.Group(); for (const k of ['paint', 'trim']) if (sp.bogie[k]) b.add(new THREE.Mesh(sp.bogie[k], this.mat));
+      b.position.z = bz; b.userData.z = bz; g.add(b); bogies.push(b);
+    }
     const doors = [];
     if (sp.door) for (const dz of sp.doorsZ) for (const sx of [1, -1]) for (const half of [-1, 1]) {
       const m = new THREE.Mesh(sp.door.paint, this.mat); const t = new THREE.Mesh(sp.door.trim, this.mat);
@@ -114,7 +123,7 @@ export class TrainShells {
     // de kleur van de deuren = bijkleur van het rijtuig
     void livHex;
     this.group.add(g);
-    return { g, doors, open: 0 };
+    return { g, doors, bogies, open: 0 };
   }
   setDoors(s, f) { if (Math.abs(s.open - f) < 1e-3) return; s.open = f; for (const h of s.doors) h.position.z = h.userData.z + h.userData.half * f * 0.8; }
   update(day) { const l = 0.25 + 0.75 * day; this.mat.color.setScalar(l); }
