@@ -3,13 +3,13 @@
 // twee luchthavens, een rivier, parken, stadswijken en voorsteden.
 // Alles is deterministisch: elke tegel van 128 m kan los gemaakt worden en past op zijn buren.
 import { B } from './blocks.js';
-import { hash, noise, placeTree } from './city.js';
+import { hash, noise, placeTree, placeTreeVariety } from './city.js';
 
 export const MW = 25000, ML = 30000, G = 12, T = 128;
 export const META = {
   id: 'metropool', name: 'Nova Metropool', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 4, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
+  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
 };
 const CBD = [12500, 13500];
 export const PLACES = [
@@ -281,7 +281,7 @@ function towerColumn(x, z, t, col) {
       if (k <= (t.podH || 0)) col[y] = k % 4 === 0 ? t.frame : B.GLASS;            // winkels/lobby
       else if (k > t.h - 3) col[y] = B.LAMP;                                         // verlichte kroon
       else col[y] = k % 4 === 0 ? t.frame : t.glass;                                 // glasvlak per verdieping
-    } else col[y] = k % 4 === 0 ? B.TILE : 0;
+    } else col[y] = k <= (t.podH || 8) ? (k % 4 === 0 ? B.TILE : 0) : k > t.h - 1 ? B.CONCRETE : B.ROOM_FILL; // erboven: verlichte kamers achter het glas (veel lichter om te tekenen)
     top = y;
   }
   // spits/antenne in het midden
@@ -314,7 +314,7 @@ function blockColumn(x, z, L, col) {
   for (let k = 1; k <= L.h; k++) {
     const y = G + k, lev = k % 3;
     if (edge) col[y] = k <= 4 ? (k === 4 ? L.wall : (t % 5 ? B.GLASS : L.wall)) : (lev !== 0 && t % 3 !== 0 ? B.GLASS : L.wall);
-    else col[y] = lev === 0 ? B.TILE : 0;
+    else col[y] = k <= 4 ? (lev === 0 ? B.TILE : 0) : B.ROOM_FILL;
   }
   col[G + L.h + 1] = edge ? L.wall : B.CONCRETE;
   if (!edge && hash(x, z, 14) < 0.01) { col[G + L.h + 2] = B.METAL; return G + L.h + 2; }
@@ -530,7 +530,7 @@ export function generateTile(tx, tz) {
     const i = (z * T + x) * H + y;
     if (!vox[i] || force) vox[i] = b;
   };
-  for (let i = 0; i < trees.length; i += 3) placeTree(trees[i], trees[i + 1], trees[i + 2], 5 + Math.floor(hash(trees[i] + X0, trees[i + 1] + Z0, 44) * 4), null, set);
+  for (let i = 0; i < trees.length; i += 3) placeTreeVariety(trees[i], trees[i + 1], trees[i + 2], (trees[i] + X0) * 31 + trees[i + 1] + Z0, set, false);
   return { vox, H, ground: G, paths: makePaths(X0, Z0) };
 }
 

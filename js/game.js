@@ -25,7 +25,7 @@ let MV = null;
 const SKY = new THREE.Color(0.62, 0.80, 0.96);
 const REAL_CLOUD_Y = 320;
 const SKY_RAW = [0.62, 0.80, 0.96];
-const SEC = 32; // hoogte van een verticale sectie (torens met interieur)
+const SEC = 8; // hoogte van een verticale sectie (torens met interieur): 2 verdiepingen
 
 const VERT = `
 attribute vec2 tile;
@@ -131,11 +131,13 @@ void main() {
   // hemel- en grondlicht
   vec3 ambientC = mix(vec3(0.42, 0.40, 0.36), mix(fogColor, skyTop, 0.5) * 0.95 + 0.12, upF);
   // binnenruimtes (Megatower): de mesher telt 2 op bij het licht; daar warm kunstlicht, weinig zon
+  // het lichtniveau van de lampen zit erbij (2 + 2 × niveau); lampen uit = donkere kamer
   float indoor = step(1.5, vLight);
-  float vl = vLight - 2.0 * indoor;
+  float lampLv = indoor > 0.5 ? floor((vLight - 2.0) * 0.5 + 0.001) : 0.0;
+  float vl = indoor > 0.5 ? vLight - 2.0 - 2.0 * lampLv : vLight;
   float ao = clamp(vl, 0.22, 1.0);
   vec3 light = ambientC * (0.5 + 0.4 * daylight) * daylight * ao + sunColor * (0.78 * sunF * sh * day) * (0.55 + 0.45 * ao);
-  if (indoor > 0.5) light = vec3(1.0, 0.95, 0.86) * (0.5 + 0.42 * ao) + ambientC * 0.18 * daylight * ao;
+  if (indoor > 0.5) { float lf = clamp(lampLv / 2.4, 0.0, 1.0); light = vec3(1.0, 0.95, 0.86) * (0.06 + 0.86 * lf) * (0.55 + 0.45 * ao) + ambientC * 0.3 * daylight * ao; }
   if (isUnder > 0.5) light = vec3(1.0, 0.82, 0.6) * vl * 1.25 + vec3(0.035, 0.038, 0.048); // ondergronds: lampen
   // zaklamp
   if (flashOn > 0.5) {
@@ -164,7 +166,11 @@ void main() {
     float frw = pow(1.0 - clamp(abs(dot(wn, viewDir)), 0.0, 1.0), 3.0);
     vec3 r = reflect(-viewDir, wn);
     vec3 sky = mix(fogColor, skyTop, clamp(r.y, 0.0, 1.0)) * daylight;
-    col = mix(col, sky, 0.22 + 0.62 * frw);
+    // dieper water: blauwgroen, met fijne golfjes en glinstering
+    float w3 = sin(vWorld.x * 1.9 + time * 2.3) * sin(vWorld.z * 1.7 - time * 1.9);
+    col = mix(col, vec3(0.04, 0.22, 0.3) * (0.35 + 0.65 * daylight), 0.35);
+    col = mix(col, sky, 0.22 + 0.62 * frw + w3 * 0.04);
+    col += sunColor * step(0.985, fract(sin(dot(floor(vWorld.xz * 3.0), vec2(12.9898, 78.233)) + floor(time * 4.0)) * 43758.5453)) * pow(max(dot(r, L), 0.0), 6.0) * 0.6 * day;
     col += sunColor * pow(max(dot(r, L), 0.0), 120.0) * 1.6 * day * sh;
     a = mix(a, 0.95, frw);
   } else if (isTrans > 0.5 && c.a < 0.97) {
@@ -598,7 +604,8 @@ export class Game {
       const lx = p.x - t.ox, lz = p.z - t.oz, ly = p.y - (t.w.y0 || 0);
       const dx = Math.max(I.x0 - lx, 0, lx - I.x1), dz = Math.max(I.z0 - lz, 0, lz - I.z1);
       let lo = -1, hi = -2;
-      if (Math.hypot(dx, dz) < 36) { lo = Math.max(0, Math.floor((ly - 12) / SEC)); hi = Math.min(I.nsec - 1, Math.floor((ly + 14) / SEC)); }
+      if (Math.hypot(dx, dz) < 36) { lo = Math.max(0, Math.floor((ly - 5) / SEC)); hi = Math.min(I.nsec - 1, Math.floor((ly + 9) / SEC)); }
+      if (I.pre && I.pre.until > now) for (let sct = I.pre.lo; sct <= I.pre.hi; sct++) { const F = I.full.get(sct); if (F) F.used = now; }
       I.lo = lo; I.hi = hi;
       for (let sct = lo; sct <= hi; sct++) {
         let F = I.full.get(sct);
@@ -607,13 +614,30 @@ export class Game {
       }
       // verdiepingen ver van de speler: meshes weg (de blokken blijven, terugkomen = opnieuw opbouwen uit het geheugen)
       for (const [sct, F] of I.full) {
-        if (sct >= lo - 1 && sct <= hi + 1) continue;
+        if (sct >= lo - 2 && sct <= hi + 2) continue;
         if (now - F.used < 4000) continue;
         I.full.delete(sct);
         this.queue = this.queue.filter(q => !(q[0] === t && q[3] === 'full' && q[4] === sct));
         for (const [k, c] of this.chunks) if (c.src === t && c.kind === 'full' && c.sec === sct) { for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); } this.chunks.delete(k); }
       }
     }
+  }
+  // verdiepingen vooraf opbouwen (bv. de bestemming van een lift), zodat je er niet in een lege ruimte aankomt
+  prefetchInterior(wx, wy, wz) {
+    const t = this.world && this.world.tileAt ? this.world.tileAt(wx, wz) : null, I = t && t.interior;
+    if (!I || !I.nsec) return;
+    const ly = wy - (t.w.y0 || 0), lo = Math.max(0, Math.floor((ly - 5) / SEC)), hi = Math.min(I.nsec - 1, Math.floor((ly + 9) / SEC)), now = performance.now();
+    I.pre = { lo, hi, until: now + 120000 };
+    for (let sct = lo; sct <= hi; sct++) if (!I.full.has(sct)) { I.full.set(sct, { built: 0, total: I.chunks.length, used: now }); for (const [cx, cz] of I.chunks) this.queue.push([t, cx, cz, 'full', sct]); }
+    this.sortQueue();
+  }
+  // in een toren en de verdieping rond je is nog niet opgebouwd? (dan even niet vallen of lopen)
+  interiorPending() {
+    const p = this.player.pos, t = this.world.tileAt(p.x, p.z), I = t && t.interior;
+    if (!I || !I.nsec) return false;
+    const lx = p.x - t.ox, lz = p.z - t.oz;
+    if (lx < I.x0 || lz < I.z0 || lx >= I.x1 || lz >= I.z1) return false;
+    return !this.readyHere();
   }
   sectionVisible(c) {
     const I = c.src.interior;
@@ -919,7 +943,7 @@ export class Game {
     if (!this.queue.length) return;
     const t0 = performance.now();
     let n = 0;
-    const budget = this.tiled && this.tiled.speed > 25 && !this.touch ? 16 : 12;
+    const budget = this.tiled && this.interiorPending() ? 45 : this.tiled && this.tiled.speed > 25 && !this.touch ? 16 : 12;
     while (this.queue.length && (performance.now() - t0 < budget || n === 0)) {
       const [src, cx, cz, kind, sct] = this.queue.pop();
       if (src.dead || !src.w.vox) continue;
@@ -942,7 +966,7 @@ export class Game {
     this.ui.loading.classList.toggle('minor', !!here);
     // wat er gebeurt: downloaden, uit de opslag halen, 3D voorbereiden, of klaar
     const net = this.netStatus;
-    const phase = net ? `🌐 Nieuwe kaartgegevens downloaden: ${net}` : td.inFlight > 0 ? `💾 ${td.inFlight} stukken uit de lokale opslag halen of omzetten` : this.queue.length ? `🧱 3D-geometrie voorbereiden: ${this.queue.length} stukjes` : '✓ Alles klaar om te spelen';
+    const phase = this.interiorPending() ? '🏗 Verdieping wordt opgebouwd…' : net ? `🌐 Nieuwe kaartgegevens downloaden: ${net}` : td.inFlight > 0 ? `💾 ${td.inFlight} stukken uit de lokale opslag halen of omzetten` : this.queue.length ? `🧱 3D-geometrie voorbereiden: ${this.queue.length} stukjes` : '✓ Alles klaar om te spelen';
     if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : phase;
     else this.ui.loading.textContent = phase;
     this.loadPhase = phase;
@@ -1019,7 +1043,7 @@ export class Game {
     if (this.mega) this.mega.update(dt);
     if (this.lod) for (const m of this.lod.meshes.values()) if (ug) m.visible = false;
     if (this.lod?.groundMesh) this.lod.groundMesh.visible = !ug && !this.far;
-    this.clouds.visible = !ug;
+    this.clouds.visible = !ug && !(this.tiled && this.tiled.spec.megatower);
     if (this.traffic) this.traffic.group.visible = !ug;
     if (this.far) { this.far.gondolas.group.visible = !ug; this.far.lifts.group.visible = !ug; }
     this.avatar.group.visible = this.avatar.group.visible && true;
@@ -1196,6 +1220,7 @@ export class Game {
     if (w === 'auto') { const t = Math.floor(this.clock / 240) % 5; w = ['clear', 'cloudy', 'rain', 'clear', 'storm'][t]; }
     this.curWeather = w;
     const grey = { clear: 0, cloudy: 0.35, rain: 0.55, storm: 0.75, snow: 0.45 }[w] || 0;
+    if (this.sky) this.sky.cover = { clear: 0.38, cloudy: 0.7, rain: 0.85, storm: 0.95, snow: 0.8 }[w] ?? 0.45; // wolken aan de hemel
     if (grey) {
       const g = 0.62 * env.day + 0.05;
       env.sky = env.sky.map(v => v * (1 - grey) + g * grey);
@@ -1482,6 +1507,7 @@ export class Game {
       if (near !== !!this.nearStation) { this.nearStation = near; document.getElementById('t-ride')?.classList.toggle('show', near); if (near) this.toast(this.touch ? '🚡 Tik op 🚡 om met de kabelbaan te gaan' : '🚡 Druk op G om met de kabelbaan te gaan'); }
     }
     if (this.tiled && !this.world.tileAt(p.pos.x, p.pos.z)) { this.updateTarget(); this.updateHud(); return; }
+    if (this.tiled && !p.fly && this.interiorPending()) { p.vel.set(0, 0, 0); this.updateHud(); return; } // verdieping wordt nog opgebouwd
     let fx = 0, fz = 0;
     if (k.has('KeyW') || k.has('ArrowUp')) fz -= 1;
     if (k.has('KeyS') || k.has('ArrowDown')) fz += 1;

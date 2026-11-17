@@ -28,23 +28,51 @@ export class SkyDome {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 1, 4000);
     this.camera.rotation.order = 'YXZ';
+    // hemel: atmosfeer (blauw naar de horizon toe lichter), gloed rond de zon, rood-oranje zonsopkomst en -ondergang,
+    // maan en fonkelende sterren, en een wolkenlaag (fbm-ruis op 1,6 km hoogte) die meedrijft en door de zon belicht wordt
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { horizon: { value: new THREE.Vector3() }, top: { value: new THREE.Vector3() }, sunDir: { value: new THREE.Vector3() }, sunColor: { value: new THREE.Vector3() }, night: { value: 0 } },
+      uniforms: { horizon: { value: new THREE.Vector3() }, top: { value: new THREE.Vector3() }, sunDir: { value: new THREE.Vector3() }, sunColor: { value: new THREE.Vector3() }, night: { value: 0 },
+        time: { value: 0 }, cover: { value: 0.45 }, camXZ: { value: new THREE.Vector2() }, clouds: { value: 1 } },
       vertexShader: `varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * viewMatrix * vec4(position + cameraPosition, 1.0); }`,
-      fragmentShader: `uniform vec3 horizon; uniform vec3 top; uniform vec3 sunDir; uniform vec3 sunColor; uniform float night; varying vec3 vDir;
+      fragmentShader: `uniform vec3 horizon; uniform vec3 top; uniform vec3 sunDir; uniform vec3 sunColor; uniform float night; uniform float time; uniform float cover; uniform vec2 camXZ; uniform float clouds; varying vec3 vDir;
         float h(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+        float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n2(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), f.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), f.x), f.y); }
+        float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * n2(p); p = p * 2.03 + vec2(17.1, 9.3); a *= 0.5; } return v; }
         void main() {
-          vec3 d = normalize(vDir);
+          vec3 d = normalize(vDir), L = normalize(sunDir);
           float y = max(d.y, 0.0);
-          vec3 c = mix(horizon, top, pow(y, 0.55));
+          // atmosfeer: lichter en warmer aan de horizon
+          vec3 c = mix(horizon, top, pow(y, 0.5));
+          c = mix(c, horizon * 1.08 + vec3(0.03), exp(-y * 9.0) * 0.5);
           if (d.y < 0.0) c = horizon * (1.0 + d.y * 0.25);
-          float s = max(dot(d, normalize(sunDir)), 0.0);
+          float s = max(dot(d, L), 0.0);
+          // zonsopkomst/-ondergang: oranje band aan de horizon in de richting van de zon
+          float low = 1.0 - smoothstep(-0.05, 0.35, L.y);
+          c += vec3(1.0, 0.42, 0.12) * low * pow(s, 3.0) * exp(-y * 4.0) * 0.6 * (1.0 - night * 0.7);
           c += sunColor * (pow(s, 8.0) * 0.28 + pow(s, 64.0) * 0.35) * (1.0 - night * 0.8);
-          c = mix(c, sunColor * 1.6, smoothstep(0.9993, 0.9997, s) * step(-0.05, sunDir.y));
-          // sterren
+          c = mix(c, sunColor * 1.6, smoothstep(0.9993, 0.9997, s) * step(-0.05, L.y));
+          // maan (tegenover de zon) en sterren
+          float m = max(dot(d, -L), 0.0);
+          c += vec3(0.85, 0.88, 0.95) * smoothstep(0.99955, 0.9998, m) * night;
+          c += vec3(0.35, 0.4, 0.55) * pow(m, 60.0) * 0.25 * night;
           vec3 q = floor(d * 380.0);
-          float hq = h(q), st = step(0.9984, hq) * night * smoothstep(0.0, 0.25, d.y) * (0.4 + 0.6 * fract(hq * 97.0));
+          float hq = h(q), tw = 0.6 + 0.4 * sin(time * 2.0 + hq * 60.0);
+          float st = step(0.9984, hq) * night * smoothstep(0.0, 0.25, d.y) * (0.4 + 0.6 * fract(hq * 97.0)) * tw;
           c += vec3(st) * 0.9;
+          // wolken
+          if (clouds > 0.5 && d.y > 0.02) {
+            vec2 uv = d.xz / d.y * 1.6 + camXZ / 1000.0 + vec2(time * 0.004, time * 0.0015);
+            float f = fbm(uv * 0.9);
+            float a = smoothstep(1.0 - cover - 0.12, 1.0 - cover + 0.25, f);
+            float shade = fbm(uv * 0.9 + L.xz * 0.06);
+            vec3 lit = mix(vec3(0.62, 0.66, 0.74), vec3(1.0), clamp(1.0 - (shade - f) * 4.0, 0.0, 1.0));
+            vec3 cc = lit * mix(vec3(1.0), sunColor, 0.35) * (1.0 - night * 0.82) + vec3(1.0, 0.5, 0.25) * low * 0.35 * pow(s, 2.0);
+            cc += sunColor * pow(s, 12.0) * 0.35 * (1.0 - night);
+            a *= smoothstep(0.02, 0.18, d.y);
+            c = mix(c, cc, a * 0.92);
+          }
           gl_FragColor = vec4(c, 1.0);
         }`,
       side: THREE.BackSide, depthWrite: false, depthTest: false,
@@ -60,6 +88,8 @@ export class SkyDome {
     const u = this.mat.uniforms;
     u.horizon.value.set(...env.sky); u.top.value.set(...env.top); u.sunDir.value.copy(env.sunTrue); u.sunColor.value.set(...env.sunColor);
     u.night.value = 1 - env.day;
+    u.time.value = performance.now() / 1000; u.camXZ.value.set(cam.position.x, cam.position.z);
+    u.cover.value = this.cover ?? 0.45;
     renderer.render(this.scene, c);
   }
 }

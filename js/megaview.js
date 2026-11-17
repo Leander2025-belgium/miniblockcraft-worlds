@@ -3,6 +3,7 @@
 // Wordt geladen door js/game.js als de wereld Megatower City is (spec.megatower).
 import * as THREE from 'three';
 import { B } from './blocks.js';
+import { buildingAt, interiorBlock } from './megacity.js';
 import { LIFTS, floorY, floorAt, floorLabel, roomAt, CX, CZ, zoneOf, ZONE_NAMES, inTowerBox, F_MIN } from './megatower.js';
 
 const FLOOR_NAMES = { '-25': 'Techniek', '-15': 'Parking', '-5': 'Logistiek', '-4': 'Metro', '-3': 'Metrohal', '-2': 'Winkels B2', '-1': 'Winkels B1', 0: 'Lobby', 1: 'Mezzanine', 20: 'Congres',
@@ -50,7 +51,7 @@ export class MegaView {
     this.leaves = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 1.98, 0.94), this.mats.leaf, 96);
     this.leaves.count = 0; this.leaves.frustumCulled = false; this.group.add(this.leaves);
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v3 = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1);
-    this.doorsDirty = true; this.doorT = 0; this.room = null; this.panelFor = null;
+    this.doorsDirty = true; this.doorT = 0; this.room = null; this.panelFor = null; this.opened = new Map();
     this.makePanel();
   }
   dispose() { this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.group.removeFromParent(); this.panel?.remove(); this.rideHud?.remove(); }
@@ -129,6 +130,7 @@ export class MegaView {
     if (near && (this.doorT <= 0 || this.doorsDirty)) { this.doorT = 0.5; this.doorsDirty = false; this.drawLeaves(); }
     if (!near) this.leaves.count = 0;
     this.updateRoom();
+    this.updateBuildings();
   }
   inCab(S) {
     const p = this.g.player.pos, { ci0, cj0 } = S.L.cells;
@@ -210,6 +212,7 @@ export class MegaView {
   choose(S, f) {
     if (f === S.f) { S.want = 1; S.hold = 8; return; }
     S.target = f; S.ride = true; this.riding = S; S.want = 0;
+    this.g.prefetchInterior(CX + S.L.cells.ci0 + 1.5, floorY(f) + 1, CZ + S.L.cells.cj0 + 1.5); // bestemming al opbouwen
     this.hidePanel();
     this.g.resume?.();
     this.rideHud.hidden = false;
@@ -229,6 +232,48 @@ export class MegaView {
   arrive(S) {
     S.ride = false; this.riding = null; this.rideHud.hidden = true;
     this.g.toast(`🛗 Verdieping ${floorLabel(S.f)} · ${FLOOR_NAMES[S.f] || ZONE_NAMES[zoneOf(S.f)]}`);
+  }
+  // ---------- torens en bouwblokken in de stad: binnen opbouwen rond de speler ----------
+  // De blokken boven het gelijkvloers zijn 'verlichte kamers' (licht om te tekenen). Ben je binnen, dan worden de
+  // verdiepingen rond jou (6 m eronder tot 10 m erboven) echte ruimtes; ga je weg, dan weer licht (niet bewaard,
+  // behalve wat je zelf bouwt).
+  updateBuildings() {
+    const g = this.g, p = g.player.pos, now = performance.now();
+    if (now - (this.bT || 0) < 300) return;
+    this.bT = now;
+    const bd = inTowerBox(p.x, p.z) ? null : buildingAt(Math.floor(p.x), Math.floor(p.z));
+    const want = bd && p.y > g.meta.ground - 1 ? { bd, lo: Math.floor(p.y) - 6, hi: Math.floor(p.y) + 10 } : null;
+    const cur = this.open;
+    if (cur && (!want || want.bd.key !== cur.bd.key)) { this.setRows(cur.bd, cur.lo, cur.hi, false); this.open = null; }
+    if (!want) return;
+    if (this.open) {
+      const o = this.open;
+      if (Math.abs(want.lo - o.lo) < 3) return; // kleine bewegingen: niets doen
+      this.setRows(o.bd, Math.max(o.lo, want.hi + 1), o.hi, false); this.setRows(o.bd, o.lo, Math.min(o.hi, want.lo - 1), false);
+      this.setRows(want.bd, Math.max(want.lo, o.hi + 1), want.hi, true); this.setRows(want.bd, want.lo, Math.min(want.hi, o.lo - 1), true);
+      o.lo = want.lo; o.hi = want.hi;
+    } else { this.setRows(want.bd, want.lo, want.hi, true); this.open = want; if (!this.toldBuilding) { this.toldBuilding = true; g.toast('🏢 Binnen: ga op het liftblok in de kern staan en spring om naar boven te gaan (Shift = omlaag)'); } }
+  }
+  setRows(bd, lo, hi, open) {
+    if (hi < lo) return;
+    const g = this.g, w = g.world, chunks = new Set();
+    for (let z = bd.z0; z < bd.z1; z++) for (let x = bd.x0; x < bd.x1; x++) {
+      const t = w.tileAt(x, z); if (!t || !t.w.vox) continue;
+      const lx = x - t.ox, lz = z - t.oz;
+      let touched = false;
+      for (let y = lo; y <= hi; y++) {
+        const b = t.w.get(lx, y, lz);
+        const key = (x * 10240 + z) * 4096 + y;
+        if (open) { if (b === B.ROOM_FILL) { const nb = interiorBlock(bd, x, y, z); t.w.set(lx, y, lz, nb); this.opened.set(key, nb); touched = true; } }
+        else if (this.opened.has(key)) { if (b === this.opened.get(key)) { t.w.set(lx, y, lz, B.ROOM_FILL); touched = true; } this.opened.delete(key); }
+      }
+      if (touched) chunks.add(t.key + '|' + Math.floor(lx / 16) + '|' + Math.floor(lz / 16));
+    }
+    for (const k of chunks) {
+      const [key, cx, cz] = k.split('|'); const t = [...w.tiles.values()].find(q => q.key === key); if (!t) continue;
+      t.w.recomputeTop(+cx, +cz);
+      g.queue.push([t, +cx, +cz]);
+    }
   }
   // ---------- waar ben ik ----------
   updateRoom() {

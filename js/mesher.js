@@ -3,6 +3,9 @@ import { B, IS_OPAQUE, IS_TRANSPARENT, IS_INVISIBLE } from './blocks.js';
 import { FACE_TILE, ATLAS_COLS } from './textures.js';
 
 export const CS = 16;
+// binnenlicht: hoe ver het licht van een lamp reikt (blokken)
+export const LMAX = 9;
+const DIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 // vloeiend terrein: bovenkanten van deze blokken worden schuine vlakken (stapjes van 1 blok verdwijnen)
 export const SMOOTH = new Uint8Array(256);
 for (const b of [B.GRASS, B.DIRT, B.SAND, B.GRAVEL, B.SNOW, B.STONE, B.ASPHALT, B.LINE_WHITE, B.LINE_YELLOW, B.SIDEWALK, B.COBBLE,
@@ -30,6 +33,31 @@ export function meshChunk(world, cx, cz, opt) {
   const dims = [sx, hy - YL, sz];
   // fill(x, y, z, blok) → vervangblok of 0 (binnen de gevel: verlichte kamer; stijlen in de gevel: glas)
   const fill = opt && opt.fill, indoor = opt && opt.indoor;
+  // binnen: lichtniveau per cel vanuit de lampen (0..LMAX, 1 minder per blok, muren houden het tegen)
+  let lightL = null;
+  if (indoor) {
+    const M = LMAX, LX0 = X0 - M, LZ0 = Z0 - M, LY0 = YL - M, LW = sx + 2 * M, LD = sz + 2 * M, LH = hy - YL + 2 * M;
+    const grid = new Int8Array(LW * LH * LD), q = [];
+    const idx = (x, y, z) => ((z - LZ0) * LW + (x - LX0)) * LH + (y - LY0);
+    const cellB = (x, y, z) => (x < 0 || z < 0 || x >= size || z >= size || y < 0 || y >= H) ? B.STONE : vox[(z * size + x) * H + y];
+    for (let z = LZ0; z < LZ0 + LD; z++) for (let x = LX0; x < LX0 + LW; x++) {
+      if (x < 0 || z < 0 || x >= size || z >= size) continue;
+      const base = (z * size + x) * H;
+      for (let y = Math.max(0, LY0); y < Math.min(H, LY0 + LH); y++) if (vox[base + y] === B.LAMP) { grid[idx(x, y, z)] = M; q.push(x, y, z); }
+    }
+    for (let h = 0; h < q.length; h += 3) {
+      const x = q[h], y = q[h + 1], z = q[h + 2], l = grid[idx(x, y, z)] - 1;
+      if (l <= 0) continue;
+      for (const [dx, dy, dz] of DIRS) {
+        const nx = x + dx, ny = y + dy, nz = z + dz;
+        if (nx < LX0 || ny < LY0 || nz < LZ0 || nx >= LX0 + LW || ny >= LY0 + LH || nz >= LZ0 + LD) continue;
+        const i = idx(nx, ny, nz);
+        if (grid[i] >= l || IS_OPAQUE[cellB(nx, ny, nz)]) continue;
+        grid[i] = l; q.push(nx, ny, nz);
+      }
+    }
+    lightL = (x, y, z) => (x < LX0 || y < LY0 || z < LZ0 || x >= LX0 + LW || y >= LY0 + LH || z >= LZ0 + LD) ? 0 : grid[idx(x, y, z)];
+  }
   let cell = null;
   if (fill) {
     // het hele gebied (met een rand van 1) één keer opzoeken: daarna gaat het meshen even snel als gewoon
@@ -160,7 +188,7 @@ export function meshChunk(world, cx, cz, opt) {
                 ao |= lvl << (q * 2);
               }
             } else ao = 0xff;
-            mask[n] = b | (ao << 8) | (indoor && indoor(c[0], c[1], c[2]) ? 0x10000 : 0);
+            mask[n] = b | (ao << 8) | (indoor && indoor(c[0], c[1], c[2]) ? (Math.ceil(lightL(c[0], c[1], c[2]) / 3) + 1) << 16 : 0);
           }
         }
         // greedy samenvoegen
@@ -179,7 +207,8 @@ export function meshChunk(world, cx, cz, opt) {
             }
             const b = m & 0xff, ao = (m >> 8) & 0xff;
             p[a] = i + (s > 0 ? 1 : 0); p[u] = j; p[v] = k;
-            emit(out, b, a, u, v, s, X0 + p[0], p[1] + YL, Z0 + p[2], w, h, ao, faceTile, shade, m & 0x10000 ? 2 : 0);
+            const li = (m >> 16) & 15;
+            emit(out, b, a, u, v, s, X0 + p[0], p[1] + YL, Z0 + p[2], w, h, ao, faceTile, shade, li ? 2 + 2 * (li - 1) : 0);
             for (let hh = 0; hh < h; hh++) for (let q = 0; q < w; q++) mask[n + q + hh * du] = 0;
             j += w; n += w;
           }

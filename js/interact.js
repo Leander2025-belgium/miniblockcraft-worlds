@@ -2,7 +2,7 @@
 // Deuren openen en sluiten, lichtschakelaars, tv's, zitten op stoelen en zetels, liggen in bed, slagbomen,
 // betaal- en ticketautomaten, laadpalen, borden, liftknoppen (Megatower, js/megaview.js).
 // De toestand van deuren, lampen en tv's zit in de blokken zelf: die wordt bewaard zoals elk bouwwerk.
-import { B, BLOCKS } from './blocks.js';
+import { B, BLOCKS, IS_SOLID } from './blocks.js';
 
 const SEAT = new Map(BLOCKS.filter(b => b.seat).map(b => [b.id, b.seat]));
 const isDoorShut = (b) => b === B.DOOR_SHUT || b === B.DOOR_SHUT_TOP;
@@ -55,22 +55,38 @@ function toggleDoor(g, t, open) {
   if (open && g.mega) { const r = g.mega.roomNear(t); if (r) g.toast('🚪 ' + r); }
 }
 function lightSwitch(g, t) {
-  // alle plafondlampen van de ruimte (zelfde verdieping, tot 9 m ver) samen aan of uit
-  const w = g.world, list = [];
+  // de lampen van de kamer achter de schakelaar (de kleinste ruimte aan een van beide kanten: kamer, niet de gang)
+  const w = g.world, IS = (b) => b && b !== B.DOOR_OPEN && b !== B.DOOR_OPEN_TOP && (IS_SOLID[b] || b === B.DOOR_OPEN);
+  const yF = t.y - 1; // vloerhoogte van de kamer (de schakelaar zit op ooghoogte)
+  const free = (x, z) => !IS(w.get(x, yF, z)) && !IS(w.get(x, yF + 1, z)) && !isDoorish(w.get(x, yF, z));
+  const area = (sx, sz) => {
+    if (!free(sx, sz)) return null;
+    const seen = new Set([sx + ',' + sz]), q = [[sx, sz]];
+    while (q.length) {
+      const [x, z] = q.pop();
+      if (seen.size > 900) return null;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = (x + dx) + ',' + (z + dz); if (!seen.has(k) && free(x + dx, z + dz)) { seen.add(k); q.push([x + dx, z + dz]); } }
+    }
+    return seen;
+  };
+  let best = null;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = area(t.x + dx, t.z + dz); if (a && (!best || a.size < best.size)) best = a; }
+  const list = [];
   let on = 0;
-  for (let y = t.y - 1; y <= t.y + 2; y++) for (let z = t.z - 9; z <= t.z + 9; z++) for (let x = t.x - 9; x <= t.x + 9; x++) {
-    const b = w.get(x, y, z);
-    if (b === B.LAMP || b === B.LAMP_OFF) { list.push([x, y, z]); if (b === B.LAMP) on++; }
-  }
-  if (!list.length) { g.toast('Geen lampen in de buurt'); return; }
-  const to = on > list.length / 2 ? B.LAMP_OFF : B.LAMP;
-  g.editY = [t.y - 1, t.y + 2];
-  const chunks = new Set();
-  for (const [x, y, z] of list) { w.set(x, y, z, to); chunks.add(Math.floor(x / 16) + ',' + Math.floor(z / 16)); }
-  for (const k of chunks) { const [cx, cz] = k.split(',').map(Number); g.remeshAround(cx * 16 + 8, cz * 16 + 8, t.y + 1); }
+  if (best) for (const k of best) { const [x, z] = k.split(',').map(Number); for (let y = yF + 1; y <= yF + 4; y++) { const b = w.get(x, y, z); if (b === B.LAMP || b === B.LAMP_OFF) { list.push([x, y, z]); if (b === B.LAMP) on++; break; } if (IS_SOLID[b] && b !== B.LAMP && b !== B.LAMP_OFF) break; } }
+  if (!list.length) { g.toast('Geen lampen in deze ruimte'); return; }
+  const to = on > 0 ? B.LAMP_OFF : B.LAMP;
+  let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  for (const [x, y, z] of list) { w.set(x, y, z, to); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+  // het licht reikt tot 9 blokken: de chunks errond ook opnieuw (binnenlicht)
+  g.editY = [yF - 1, yF + 5];
+  const done = new Set();
+  for (let x = x0 - 10; x <= x1 + 10; x += 8) for (let z = z0 - 10; z <= z1 + 10; z += 8) { const k = Math.floor(x / 16) + ',' + Math.floor(z / 16); if (done.has(k)) continue; done.add(k); const src = w.sourceAt ? w.sourceAt(x, z) : null; if (src) g.buildChunk(src, Math.floor((x - src.ox) / 16), Math.floor((z - src.oz) / 16)); }
   g.editY = null; g.dirty = true; g.lastEditAt = performance.now();
-  g.toast(to === B.LAMP ? `💡 Licht aan (${list.length} lampen)` : `💡 Licht uit (${list.length} lampen)`);
+  g.toast(to === B.LAMP ? `💡 Licht aan (${list.length} lampen)` : `💡 Licht uit (${list.length} lampen) · de kamer wordt donker`);
 }
+const isDoorish = (b) => b === B.DOOR_SHUT || b === B.DOOR_SHUT_TOP || b === B.DOOR_OPEN || b === B.DOOR_OPEN_TOP || b === B.DOOR || b === B.DOOR_TOP || b === B.DOOR_GLASS;
+
 function sit(g, t, kind) {
   const p = g.player;
   g.seat = { x: t.x + 0.5, y: t.y + (kind === 'bed' ? 1.0 : 0.55), z: t.z + 0.5, kind, from: p.pos.clone(), yaw: p.yaw };

@@ -559,3 +559,32 @@ export function generateRegion(x0, z0, size, onProgress) {
   for (let i = 0; i < trees.length; i += 4) placeTree(trees[i], trees[i + 1], trees[i + 2], trees[i + 3], null, set);
   return vox;
 }
+
+// Afwisselende bomen: eik, berk, spar en grote plataan (ronde kruin), elk met eigen hoogte en vorm.
+// seed bepaalt de soort; kind 3 = laanboom (geen sparren aan de straat).
+export function placeTreeVariety(x, z, groundY, seed, set, street) {
+  const r = hash(seed, seed * 7 + 3, 901), sort = street ? (r < 0.45 ? 0 : r < 0.75 ? 3 : 1) : (r < 0.35 ? 0 : r < 0.55 ? 1 : r < 0.8 ? 2 : 3);
+  const th = 4 + Math.floor(hash(seed, 5, 902) * 4);
+  if (sort === 0) return placeTree(x, z, groundY, th, null, set);
+  if (sort === 1) { // berk: slank, witte stam, smalle kruin
+    const h = th + 2;
+    for (let y = groundY + 1; y <= groundY + h; y++) set(x, y, z, B.BIRCH_LOG, true);
+    for (let dy = -3; dy <= 1; dy++) { const rad = dy >= 0 ? 1 : dy === -3 ? 1 : 2; for (let dx = -rad; dx <= rad; dx++) for (let dz = -rad; dz <= rad; dz++) { if (Math.abs(dx) + Math.abs(dz) > rad + 1 || (!dx && !dz && dy < 1)) continue; set(x + dx, groundY + h + dy, z + dz, B.BIRCH_LEAVES, false); } }
+    return;
+  }
+  if (sort === 2) { // spar: kegelvormig
+    const h = th + 4;
+    for (let y = groundY + 1; y <= groundY + h; y++) set(x, y, z, B.LOG, true);
+    for (let k = 0; k < h - 1; k++) { const y = groundY + h - k + 1, rad = Math.min(3, Math.floor(k / 2.2)); for (let dx = -rad; dx <= rad; dx++) for (let dz = -rad; dz <= rad; dz++) { if (dx * dx + dz * dz > rad * rad + 0.5 || (!dx && !dz && k > 0)) continue; set(x + dx, y, z + dz, B.SPRUCE, false); } }
+    return;
+  }
+  // plataan: dikke stam, grote ronde kruin
+  const h = th + 1;
+  for (let y = groundY + 1; y <= groundY + h; y++) set(x, y, z, B.LOG, true);
+  const cy = groundY + h + 1;
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
+    const d = dx * dx + dz * dz + dy * dy * 1.6;
+    if (d > 10.5 || (d > 7.5 && hash(x + dx, z + dz, 903 + dy) < 0.45)) continue;
+    set(x + dx, cy + dy, z + dz, B.LEAVES, false);
+  }
+}

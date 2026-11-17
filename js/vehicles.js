@@ -95,6 +95,15 @@ function carBase(P, { L, W, Hb, wheelR, cabin, cabinH, cabinBack, cabinFront, ro
   P.box('light', 0.32, 0.14, 0.05, W / 2 - 0.25, yb + Hb / 2 - 0.1, -L / 2 - 0.01, TAIL);
   P.box('light', 0.32, 0.14, 0.05, -W / 2 + 0.25, yb + Hb / 2 - 0.1, -L / 2 - 0.01, TAIL);
   for (const sz of [wheelBase / 2, -wheelBase / 2]) for (const sx of [W / 2 - 0.12, -W / 2 + 0.12]) P.wheel(wheelR, 0.24, sx, wheelR, sz, TYRE);
+  // detail: velgen, grille, deurnaden en -klinken, zijruiten-stijl, spatborden
+  for (const sz of [wheelBase / 2, -wheelBase / 2]) for (const sx of [W / 2 - 0.1, -W / 2 + 0.1]) P.wheel(wheelR * 0.62, 0.26, sx, wheelR, sz, 0xb8bec6, 10);
+  P.box('trim', W * 0.5, 0.16, 0.04, 0, yb + 0.02, L / 2 + 0.03, 0x22252a);                                     // grille
+  for (const sx of [W / 2 + 0.005, -W / 2 - 0.005]) {
+    P.box('trim', 0.02, Hb * 0.8, 0.03, sx, yb + 0.02, cabinBack + 0.15, 0x2a2d32);                              // deurnaad
+    P.box('trim', 0.03, 0.04, 0.16, sx + Math.sign(sx) * 0.01, yb + Hb * 0.25, cabinBack + 0.55, 0xc0c4c8);      // klink voor
+    P.box('trim', 0.03, 0.04, 0.16, sx + Math.sign(sx) * 0.01, yb + Hb * 0.25, cabinBack - 0.45, 0xc0c4c8);      // klink achter
+    P.box('trim', 0.03, cabinH * 0.9, 0.06, sx * 0.93, cy, cabinBack + 0.15, DARK);                               // B-stijl
+  }
 }
 const CAR_MODELS = {
   sedan: () => { const P = new Parts(); carBase(P, { L: 4.6, W: 1.82, Hb: 0.62, wheelR: 0.33, cabin: 2.5, cabinH: 0.52, cabinBack: -0.25, cabinFront: 0.55, roofLen: 1.45, wheelBase: 2.75 }); return P.done(); },

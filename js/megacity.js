@@ -5,14 +5,14 @@
 // een stadion, parken, een ziekenhuis, een universiteit, winkelcentra en wijken van hoog naar laag.
 // Alles is deterministisch: elke tegel kan apart gemaakt worden en sluit aan op zijn buren.
 import { B } from './blocks.js';
-import { hash, placeTree } from './city.js';
+import { hash, placeTree, placeTreeVariety } from './city.js';
 import { G, T, TOWER_TX, TOWER_TZ, Y0 as TOWER_Y0, TILE_H as TOWER_H, CX, CZ, writeTower, floorY } from './megatower.js';
 
 export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 1, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 2, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -288,6 +288,7 @@ function towerColumn(x, z, px, pz, L, col) {
   const [glass, frame] = L.look;
   let top = G - 1;
   const lobby = 8;
+  if (Math.abs(u) < 1 && Math.abs(v) < 1) col[G - 1] = B.ELEVATOR; // lift in de kern (springen = omhoog)
   for (let k = 1; k <= L.h; k++) {
     const y = G - 1 + k;
     if (!towerInside(L, u, v, k)) { if (towerInside(L, u, v, k - 1)) { col[y] = frame; top = y; } continue; }
@@ -298,7 +299,7 @@ function towerColumn(x, z, px, pz, L, col) {
       else if (k > L.h - 3) col[y] = k === L.h ? frame : B.LAMP;
       else if (L.use === 'wonen' && k % 4 === 2 && along % 7 < 3) col[y] = B.GLASS; // balkons (ingebouwd)
       else col[y] = k % 4 === 0 ? frame : glass; // geen raamstijlen: grote glasvlakken (veel minder driehoeken)
-    } else col[y] = k === L.h ? B.CONCRETE : k < lobby ? (k === lobby - 1 && (x + z) % 9 === 0 ? B.LAMP : 0) : k === lobby ? B.TILE : B.ROOM_FILL; // boven de lobby: verlichte kantoren achter het glas (niet betreedbaar)
+    } else col[y] = k === L.h ? B.CONCRETE : k < lobby ? (k === lobby - 1 && (x + z) % 9 === 0 ? B.LAMP : 0) : k === lobby ? (Math.abs(u) < 1 && Math.abs(v) < 1 ? B.ELEVATOR : B.TILE) : B.ROOM_FILL; // boven de lobby: verlichte kamers achter het glas; binnen worden ze opgebouwd als je er bent (js/megaview.js)
     top = y;
   }
   // dakinstallaties en antenne
@@ -343,6 +344,8 @@ function midriseColumn(x, z, px, pz, L, col) {
     return top;
   }
   col[G - 1] = B.TILE;
+  const lift = MID_LIFT(px, pz);
+  if (lift) col[G - 1] = B.ELEVATOR;
   for (let k = 1; k <= hh; k++) {
     const y = G - 1 + k, lev = k % 3;
     if (facadeRow) {
@@ -353,7 +356,7 @@ function midriseColumn(x, z, px, pz, L, col) {
     else {
       // winkels op het gelijkvloers (betreedbaar), daarboven woningen/kantoren achter de ramen
       const nearFacade = px === i0 + 1 || pz === i0 + 1 || px === i1 - 1 || pz === i1 - 1;
-      col[y] = k <= 3 ? (k === 3 && (x + z) % 7 === 0 ? B.LAMP : 0) : k === 4 ? B.TILE : (nearFacade && lev !== 1 && along % 4 !== 0 ? B.GLASS : B.ROOM_FILL);
+      col[y] = k <= 3 ? (k === 3 && (x + z) % 7 === 0 && !lift ? B.LAMP : 0) : k === 4 ? (lift ? B.ELEVATOR : B.TILE) : (nearFacade && lev !== 1 && along % 4 !== 0 ? B.GLASS : B.ROOM_FILL);
     }
   }
   // dakrand en dakinstallaties
@@ -363,6 +366,65 @@ function midriseColumn(x, z, px, pz, L, col) {
   if (!facadeRow && (x + z * 3) % 29 === 0) { col[G + hh + 1] = B.SOLAR; return G + hh + 1; }
   return G + hh;
 }
+// liften in de bouwblokken: één per hoek van de ring
+const MID_LIFT = (px, pz) => (px === 6 || px === 37) && (pz === 6 || pz === 37);
+
+// ---------- binnen in de torens en bouwblokken (betreedbaar) ----------
+// Boven het gelijkvloers staan in de blokken 'verlichte kamers' (ROOM_FILL): licht om te tekenen. Loop je een
+// gebouw binnen, dan zet js/megaview.js de verdiepingen rond jou om in echte ruimtes met deze functie.
+export function buildingAt(x, z) {
+  const tx = Math.floor(x / T), tz = Math.floor(z / T), lx = x - tx * T, lz = z - tz * T;
+  const Lm = landmark(tx, tz);
+  if (Lm && Lm.id !== 'industry') return null;
+  if (off(x) !== null || off(z) !== null) return null;
+  if ((lx >= 58 && lx <= 69) || (lz >= 58 && lz <= 69)) return null;
+  const qx = tx * 2 + (lx < 58 ? 0 : 1), qz = tz * 2 + (lz < 58 ? 0 : 1);
+  const L = lotDesc(qx, qz);
+  if (L.type !== 'tower' && L.type !== 'block') return null;
+  const x0 = tx * T + (lx < 58 ? 14 : 70), z0 = tz * T + (lz < 58 ? 14 : 70);
+  return { key: qx + ',' + qz, L, kind: L.type, x0, z0, x1: x0 + 44, z1: z0 + 44 };
+}
+const USE_FLOOR = { kantoor: B.CARPET_GREY, wonen: B.PARQUET, hotel: B.CARPET_BLUE };
+export function interiorBlock(bd, x, y, z) {
+  const px = x - bd.x0, pz = z - bd.z0, k = y - (G - 1), L = bd.L;
+  if (bd.kind === 'tower') {
+    const u = px - 21.5, v = pz - 21.5, f = ((k % 4) + 4) % 4, au = Math.abs(u), av = Math.abs(v);
+    if (f === 0) return au < 1 && av < 1 ? B.ELEVATOR : (USE_FLOOR[L.use] || B.TILE);
+    // kern: lift in het midden, muren errond met een opening naar het zuiden
+    if (au < 3 && av < 3) { if (au < 2 && av < 2) return 0; return (f < 3 && v > 0 && au < 1) ? 0 : B.PANEL_DARK; }
+    if (f === 3) return (px % 5 === 2 && pz % 5 === 2) ? B.LAMP : 0;
+    if (au < 5 && av < 5) return 0; // gang rond de kern
+    return useFurniture(L.use, px, pz, f, x, z);
+  }
+  // bouwblok: verdiepingen van 3 m
+  const lev = ((k % 3) + 3) % 3;
+  if (lev === 1) return MID_LIFT(px, pz) ? B.ELEVATOR : B.TILE;
+  if (MID_LIFT(px, pz) || Math.abs(px - 6) + Math.abs(pz - 6) === 1 || Math.abs(px - 37) + Math.abs(pz - 37) === 1 || Math.abs(px - 6) + Math.abs(pz - 37) === 1 || Math.abs(px - 37) + Math.abs(pz - 6) === 1) return 0;
+  if (lev === 0) return (px % 5 === 3 && pz % 5 === 3) ? B.LAMP : 0;
+  return useFurniture('wonen', px, pz, lev === 2 ? 1 : 2, x, z);
+}
+function useFurniture(use, px, pz, f, x, z) {
+  // f = 1 (vloerhoogte) of 2 (erboven)
+  if (use === 'kantoor') {
+    const a = px % 6, b = pz % 6;
+    if (f === 1 && (a === 2 || a === 3) && b === 2) return B.TABLE;
+    if (f === 1 && a === 2 && b === 3) return B.CHAIR;
+    if (f === 2 && a === 2 && b === 2) return B.TV;
+    if (f === 1 && a === 5 && b === 5 && (x + z) % 3 === 0) return B.PLANTER;
+    return 0;
+  }
+  // woningen en hotelkamers: kamers van 8 × 8 met tussenmuren en deuren, bed, zetel, tafel, keuken
+  const R = use === 'hotel' ? 6 : 8, a = px % R, b = pz % R, h = hash(Math.floor(x / R), Math.floor(z / R), 880);
+  if (a === 0 || b === 0) return ((a === 0 && b === Math.floor(R / 2)) || (b === 0 && a === Math.floor(R / 2))) ? 0 : (h < 0.5 ? B.PLASTER : B.PAINT_WHITE);
+  if (f === 2) return (a === R - 1 && b === 2) ? B.TV : 0;
+  if (a === 1 && (b === 2 || b === 3)) return b === 2 ? B.PILLOW : B.BED;
+  if (a === 2 && (b === 2 || b === 3)) return h < 0.4 ? B.BED_BLUE : B.BED;
+  if (a === R - 1 && b === 2) return B.TABLE;
+  if (use !== 'hotel' && a === R - 2 && b === R - 1) return h < 0.5 ? B.SOFA : B.SOFA_LEATHER;
+  if (use !== 'hotel' && b === 1 && a >= R - 3) return a === R - 1 ? B.FRIDGE : B.COUNTER;
+  return 0;
+}
+
 function supermarketColumn(x, z, px, pz, L, col) {
   // supermarkt van 1 verdieping met parking ervoor
   if (pz < 18) { col[G - 1] = (px % 4 === 0 && pz > 2 && pz < 16) ? B.LINE_WHITE : B.ASPHALT; if (pz === 1 && px % 8 === 4) kind = 3; return G - 1; }
@@ -710,7 +772,7 @@ export function generateTile(tx, tz) {
     const p = kind === 1 ? 0.45 : kind === 2 ? 0.3 : kind === 3 ? 1 : 0;
     if (p) {
       const ok = kind === 3 || (((gx % 9) === Math.floor(hash(Math.floor(gx / 9), Math.floor(gz / 9), 41) * 9)) && ((gz % 9) === Math.floor(hash(Math.floor(gx / 9), Math.floor(gz / 9), 42) * 9)) && hash(gx, gz, 43) < p);
-      if (ok) trees.push(x, z, top);
+      if (ok) trees.push(x, z, top, kind === 3 ? 1 : 0);
     }
   }
   const H = tower ? TOWER_H : Math.ceil((maxTop - y0) / 8) * 8;
@@ -722,10 +784,7 @@ export function generateTile(tx, tz) {
     const i = (z * T + x) * H + ly;
     if (!vox[i] || force) vox[i] = b;
   };
-  for (let i = 0; i < trees.length; i += 3) {
-    const th = 4 + Math.floor(hash(trees[i] + X0, trees[i + 1] + Z0, 44) * 4);
-    placeTree(trees[i], trees[i + 1], trees[i + 2], th, null, set);
-  }
+  for (let i = 0; i < trees.length; i += 4) placeTreeVariety(trees[i], trees[i + 1], trees[i + 2], (trees[i] + X0) * 31 + (trees[i + 1] + Z0), set, trees[i + 3]);
   if (tower) writeTower(vox, H, y0);
   const res = { vox, H, y0, ground: G, paths: makePaths(tx, tz) };
   if (tower) res.interior = { x0: 16, z0: 16, x1: 112, z1: 112 };
