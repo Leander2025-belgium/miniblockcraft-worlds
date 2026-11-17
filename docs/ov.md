@@ -52,11 +52,42 @@
   - Elke bus heeft ruiten met stijlen, een bestemmingsscherm, spiegels op armen, richtingaanwijzers, stoelen, een chauffeursplaats en deuren die opengaan aan de halte.
 - **Trams**: deuren gaan open aan de halte.
 
+## Ronde 2 (versie 2026-11-17a)
+
+- **Metrostations**
+  - In Greenisland:
+    - een lift van het perron naar de stoep, aan het andere uiteinde dan de trap (op het liftblok springen = omhoog);
+    - roltrapbanden op de trappen;
+    - ticketautomaten en afvalbakken;
+    - vertrekborden: E op een bord toont de volgende vertrekken met lijn, bestemming, spoor en vertraging. M opent de OV-kaart en de routekaart.
+  - In Megatower City: een lift naar de middenberm, vertrekborden, afvalbakken en ticketautomaten.
+- **Treinen in Megatower City**
+  - Stoelen 2+2 met hoofdsteunen en tafeltjes, bagagerekken, plafondverlichting, infoschermen, toilet en tussendeuren.
+  - Dubbeldekstreinen hebben dit op beide verdiepingen.
+  - Meerijden kan met J.
+- **Bestuurdersmodus (trein)**
+  - Een cabinedashboard met een snelheidsmeter als wijzerplaat, een tractie- en remhendel, een seinlamp, het snelheidsbord en de afstand tot het stopbord ("goed gestopt").
+  - V wisselt tussen 4 camera's: cabine, achter de trein, buiten langs het spoor en bij de passagiers. Bij de buitencamera's zie je de gladde buitenkant van je eigen trein.
+- **Dienstregeling: spits, dal, avond, nacht**
+  - Spits (7–9 u, 16–19 u): alle ritten.
+  - Daluren (9–16 u en 19–22 u): de helft bij lijnen die minstens om het halfuur rijden.
+  - Vroege ochtend (5–7 u): de helft bij lijnen die minstens om het halfuur rijden.
+  - Avond (22–24 u): een derde.
+  - Nacht (0–5 u): een kwart. Diensten met eigen uren, zoals nachtbussen, zijn uitgezonderd.
+  - Treinen, vertrekborden en reisplanner gebruiken dezelfde regel.
+- **Reisplanner** (OV-kaart → 🧭 Reisplanner)
+  - Je kiest van, naar en het vertrekuur, voor trein, metro, tram en bus samen.
+  - Overstappen te voet tussen stations en haltes binnen 700 m.
+  - Per stap: lijn, perron of spoor, vertrek, aankomst en duur. Daarnaast de totale reisduur, het aantal overstappen en hoeveel meter je wandelt.
+  - Navigatie: een pijl en de afstand naar het vertrekstation bovenaan het scherm.
+  - In een test met 40 willekeurige reizen werd voor elke reis een verbinding gevonden.
+- **Spoor in 3D** (`js/railinfra.js`, rond de speler)
+  - Bovenleidingmasten met uitleggers, en de rijdraad boven elk spoor (ook in tunnels).
+  - Seinpalen met seinkast en achterplaat; de lamp toont rood, geel of groen.
+  - Wissels bij de kruisingssporen van enkelsporige lijnen: wisselmotor, lantaarn en wisselbord.
+
 ## Nog niet gedaan
 
-- Nieuwe metrostations met roltrappen, liften, vertrekborden en routekaart. De bestaande stations hebben perrons, trappen naar de straat, borden en banken.
-- Volledige interieurs voor de verkeerstreinen in Megatower City en de echte kaarten. Die zijn (nog) niet betreedbaar; de metro wel.
-- Nieuwe bestuurdersmodus met hendels en camera's. De bestaande treinbestuurder heeft al snelheid, tractie, rem, noodrem, deuren, seinen en de volgende halte.
-- Spits- en daldienstregelingen, en een reisplanner voor alle vervoersvormen samen. De bestaande dienstregeling en reisplanner voor trein en metro (OV-kaart) blijven.
-- Wissels en seinen als 3D-modellen, bovenleiding langs het hele spoor, en LOD voor voertuigen.
-- Buschauffeur zijn met een eigen bus-dashboard. Zelf rijden met een bus kan al via het bestaande rijden.
+- Wissels tussen verschillende lijnen, met bewegende tongen. Er zijn alleen wisselmotoren bij kruisingssporen.
+- Een eigen bus-dashboard.
+- De dienstregeling van het verkeer in Megatower City volgt spits en dal nog niet: de metro rijdt daar continu. Het vertrekbord zegt wel hoe vaak de metro in elke periode rijdt.
