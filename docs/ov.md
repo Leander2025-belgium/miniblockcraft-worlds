@@ -1,4 +1,4 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-17a)
+# Openbaar vervoer — stand van zaken (versie 2026-11-17b, Blokstad 12)
 
 ## Fase 1 — tunnels (af)
 
@@ -86,8 +86,80 @@
   - Seinpalen met seinkast en achterplaat; de lamp toont rood, geel of groen.
   - Wissels bij de kruisingssporen van enkelsporige lijnen: wisselmotor, lantaarn en wisselbord.
 
+## Blokstad 12 (versie 2026-11-17b)
+
+### Dienstregeling ook op het wegen- en sporennet (`js/service.js`, `js/traffic.js`)
+- Megatower City, Nova Metropool en de steden volgen nu dezelfde periodes als de treinen: spits (7–9 u, 16–19 u), daluren (5–7 u, 9–16 u, 19–22 u), avond (22–24 u) en nacht (0–5 u). Het uur is het speluur.
+- Per periode rijden minder voertuigen. Spits = alles. Daluren: 60 % van metro, tram en bus, 75 % van de auto's. Avond: ongeveer 40 %. Nacht: 25 % (auto's 20 %).
+- **Interval**: een nieuwe metro, tram of bus komt in dienst om de 2 / 4 / 6 / 10 min (metro: spits / dal / avond / nacht).
+- **Uit dienst**: overtollige voertuigen gaan buiten zicht of aan een halte uit dienst, nooit midden op straat voor je ogen.
+- **Haltetijd**: per periode anders (metro: 24 s in de spits, 14 s 's nachts). De deuren gaan open na het stoppen en sluiten 1,5 s voor vertrek.
+- Het vertrekbord in de metrostations van Megatower City toont het echte interval, de haltetijd en hoeveel metro's in de buurt in dienst zijn.
+
+### Bus zelf besturen (`js/drive.js`)
+- Dashboard met:
+  - snelheidsmeter;
+  - stuur dat meedraait;
+  - gas- en rempedaal;
+  - richtingaanwijzers (Z/C) en alarmlichten (X);
+  - deuren (Q, alleen stilstaand; met open deuren geeft de bus geen gas);
+  - omroep (N);
+  - het verkeerslicht vóór je met zijn echte kleur en afstand;
+  - de volgende bushalte met afstand.
+- **Rood licht**: rijd je door rood, dan krijg je een melding en telt het dashboard het.
+- **Deuren**: de deurpanelen van je bus zijn echt open of dicht in beeld.
+- **Gelede bus**: de achterwagen hangt aan een scharnier en knikt in bochten (max. 50°). Het dashboard toont de knikhoek.
+- **Rijgedrag**: elk bustype heeft zijn eigen eigenschappen. Vroeger reden de nieuwe bustypes als een gewone auto (fout hersteld).
+- **Telefoon en tablet**: knoppen voor richtingaanwijzers, deuren en omroep.
+- **Nieuwe bustypes**: dubbeldekker (bovenverdieping met stoelen, trap, panoramaruit) en streekbus (bagagerekjes).
+
+### Treinen
+- **Draaistellen**: ze zijn aparte onderdelen en draaien in bochten mee met het spoor. In de Alpen is dat tot ongeveer 1°, wat klopt voor een rijtuig van 26 m in een ruime bocht.
+- **Treingeluid** (`js/sound.js`, zonder geluidsbestanden):
+  - tractiemotor die hoger gaat met de snelheid;
+  - rolgeluid;
+  - railvoegen (dubbele tik om de 25 m);
+  - piepende remmen bij lage snelheid;
+  - sissende lucht bij het stilstaan.
+  - Je hoort het als bestuurder en als passagier, in treinen, metro's en trams.
+- **Wissels bij kruisingssporen**: de wisseltongen schuiven om naar de kant van de trein die eraan komt.
+
+### Tunnels: gecontroleerd op het echte voertuigprofiel
+- **Nieuwe controle**: de tunnelcontrole gebruikte een profiel van 3 m breed en 4 m hoog. De treinen zijn echter 4,06 m breed, met een dak op 5,5 m en een stroomafnemer tot 6,85 m.
+- **Gevonden met het echte profiel**: 1.784 raakpunten in Greenisland en 721 in de Alpen.
+  - De dubbelsporige tunnel was 10 blokken breed: na afronding stond een wand soms 2,0 m van het spoor, terwijl de bak 2,03 m breed is aan elke kant.
+  - Het plafond lag 6 m boven de spoorstaaf en verspringt op hellingen een blok.
+  - De lampen hingen in de bovenhoek van het profiel.
+  - De diepe ondergrond had een enkelsporige tunnel van maar 4 m hoog.
+- **Opgelost met één tunnelprofiel** (`js/carve.js`: `boreBlock`/`boreColumn`), voor de tegels én de diepe ondergrond zodat alles naadloos aansluit:
+  - 1 m breder per kant, met een verhoogd dienstpad;
+  - 8 m vrije hoogte;
+  - een kabelgoot langs de wand;
+  - lampen hoog tegen de wand, buiten het profiel.
+  - Ook de metrotunnels tussen de stations gebruiken dit profiel.
+- **Kruisingen**:
+  - Een tunnel onder een ander spoor wordt nu tot zijn buitenwand uitgegraven. Bij Munkbay stond eerst een halve tunnelwand van rots.
+  - Ligt er een metro vlak boven een tunnel, dan rust de metro op zijn bedding en hangt er geen extra betonplaat in de tunnel eronder.
+- **Bovenleiding**: de rijdraad hangt nu op de hoogte van de stroomafnemer (6,85 m boven de spoorstaaf), niet meer 0,85 m lager. In de tunnels blijft hij onder het plafond.
+- **Resultaat** (`tools/check-tunnels.mjs`, volledige controle):
+
+  | Wereld | Meetpunten | Geblokkeerd |
+  |---|---|---|
+  | Greenisland | 137.297 | 0 |
+  | Alpen | 58.520 | 0 |
+  | Megatower City (profiel van de metro daar) | 1.424 | 0 |
+
+  - Greenisland en de Alpen staan nu ook in `tests/run-all.mjs`.
+  - Bij een tunnelkruising (ICEA/ICEF met metro M6, bij 131300,27500 en 134000,25600) ligt het plafond op een paar plekken 6–7 m boven de spoorstaaf. Het dak van de trein past, alleen de stroomafnemer zou raken. De controle meldt dat apart als "laag plafond". Oplossen kan alleen door de lijnen zelf te verleggen.
+- De kaartversies zijn verhoogd (Greenisland 6, Alpen 10). Tegels worden opnieuw gemaakt; je eigen bouwwerk blijft bewaard.
+
+### FPS-meter
+- In de instellingen of met F3. Hij toont beelden per seconde, het traagste frame, tekenopdrachten, driehoeken, geheugen (waar de browser het geeft), resolutie, laadtijd en wachtrij.
+
 ## Nog niet gedaan
 
-- Wissels tussen verschillende lijnen, met bewegende tongen. Er zijn alleen wisselmotoren bij kruisingssporen.
-- Een eigen bus-dashboard.
-- De dienstregeling van het verkeer in Megatower City volgt spits en dal nog niet: de metro rijdt daar continu. Het vertrekbord zegt wel hoe vaak de metro in elke periode rijdt.
+- **Wissels tussen verschillende lijnen.** Elke lijn rijdt op haar eigen spoor. Er zijn alleen werkende wissels bij de kruisingssporen.
+- **Stations 3.0.** Grote stationshallen met winkels, restaurants en wachtruimtes, verschillend per wereld, zijn er nog niet. De bestaande stations zijn wel te voet bereikbaar.
+- **Ventilatieschachten en ronde tunnelvormen.** De tunnels zijn rechthoekig (blokken).
+- **Busverkeer.** De bussen van het verkeer stoppen aan haltes en verkeerslichten en verlenen voorrang (dat bestond al). Bij zelf rijden met de bus houdt alleen het dashboard bij of je door rood rijdt.
+- **Prestaties.** De FPS-meter meet ze, maar op echte telefoons is er niet getest: de tests draaien in een softwarebrowser zonder grafische kaart.
