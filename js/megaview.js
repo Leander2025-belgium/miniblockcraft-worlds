@@ -249,17 +249,20 @@ export class MegaView {
     if (!want) return;
     if (this.open) {
       const o = this.open;
-      if (Math.abs(want.lo - o.lo) < 3) return; // kleine bewegingen: niets doen
+      // kleine bewegingen: niets doen, behalve als een tegel van het gebouw pas later geladen werd (of opnieuw):
+      // dan de open verdiepingen opnieuw openen (anders blijven de kamers dicht en kan de lift niet omhoog)
+      if (Math.abs(want.lo - o.lo) < 3) { if (o.partial || now - (o.t || 0) > 2000) { o.t = now; o.partial = this.setRows(o.bd, o.lo, o.hi, true); } return; }
       this.setRows(o.bd, Math.max(o.lo, want.hi + 1), o.hi, false); this.setRows(o.bd, o.lo, Math.min(o.hi, want.lo - 1), false);
       this.setRows(want.bd, Math.max(want.lo, o.hi + 1), want.hi, true); this.setRows(want.bd, want.lo, Math.min(want.hi, o.lo - 1), true);
       o.lo = want.lo; o.hi = want.hi;
-    } else { this.setRows(want.bd, want.lo, want.hi, true); this.open = want; if (!this.toldBuilding) { this.toldBuilding = true; g.toast('🏢 Binnen: ga op het liftblok in de kern staan en spring om naar boven te gaan (Shift = omlaag)'); } }
+    } else { want.partial = this.setRows(want.bd, want.lo, want.hi, true); want.t = now; this.open = want; if (!this.toldBuilding) { this.toldBuilding = true; g.toast('🏢 Binnen: ga op het liftblok in de kern staan en spring om naar boven te gaan (Shift = omlaag)'); } }
   }
   setRows(bd, lo, hi, open) {
     if (hi < lo) return;
     const g = this.g, w = g.world, chunks = new Set();
+    let missing = false;
     for (let z = bd.z0; z < bd.z1; z++) for (let x = bd.x0; x < bd.x1; x++) {
-      const t = w.tileAt(x, z); if (!t || !t.w.vox) continue;
+      const t = w.tileAt(x, z); if (!t || !t.w.vox) { missing = true; continue; }
       const lx = x - t.ox, lz = z - t.oz;
       let touched = false;
       for (let y = lo; y <= hi; y++) {
@@ -275,6 +278,7 @@ export class MegaView {
       t.w.recomputeTop(+cx, +cz);
       g.queue.push([t, +cx, +cz]);
     }
+    return missing; // true: een deel van het gebouw was nog niet geladen
   }
   // ---------- waar ben ik ----------
   updateRoom() {
