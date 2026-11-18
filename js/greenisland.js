@@ -536,7 +536,24 @@ function railColumn(x, z, col, top, ctx, only) {
         col[by + 5] = Math.round(q.s) % 7 === 0 ? B.METAL : B.GLASS; t = by + 5;
         if (Math.abs(ad - (pOut - 1.2)) < 0.5 && Math.round(q.s) % 8 === 0) for (let y = by + 2; y < by + 5; y++) col[y] = B.POST;
       }
-      if (Math.abs(ad - (pIn + 2.2)) < 0.5 && Math.round(q.s) % 40 === 20) { col[by + 2] = B.POST; col[by + 3] = B.PAINT_GREEN; col[by + 4] = B.PAINT_GREEN; t = Math.max(t, by + 4); } // vertrekbord
+      if (Math.abs(ad - (pIn + 2.2)) < 0.5 && Math.round(q.s) % 40 === 20) { col[by + 2] = B.POST; col[by + 3] = B.SIGN; col[by + 4] = B.PAINT_GREEN; t = Math.max(t, by + 4); } // vertrekbord (E: vertrektijden)
+      // Stations 3.0 (modern): glazen wachtruimte met banken, kiosk, ticketautomaten op elk perron
+      if (!st.central && st.len > 60) {
+        const ds = q.s - mid, sh = ds - st.len * 0.18, ki = ds + st.len * 0.18, a0 = pIn + 1.7, a1 = pOut - 0.5;
+        if (Math.abs(sh) <= 3.5 && ad >= a0 && ad <= a1) {
+          const edge = Math.abs(sh) > 3 || ad < a0 + 0.5 || ad > a1 - 0.5, doorGap = ad < a0 + 0.5 && Math.abs(sh) < 1;
+          if (edge && !doorGap) { col[by + 2] = B.GLASS; col[by + 3] = B.GLASS; }
+          else if (ad > a1 - 1.3 && !edge) col[by + 2] = B.CHAIR_RED;
+          col[by + 4] = B.GLASS; t = Math.max(t, by + 4);
+          if (Math.abs(sh) < 0.5 && ad > a1 - 0.6) col[by + 3] = B.SIGN;
+        }
+        if (Math.abs(ki) <= 2.5 && ad >= a0 && ad <= a1) {
+          if (ad > a1 - 0.8) { col[by + 2] = B.SHELF; col[by + 3] = B.SHELF; }
+          else if (ad > a1 - 2 && Math.abs(ki) < 2) col[by + 2] = B.COUNTER;
+          col[by + 4] = B.PANEL_DARK; t = Math.max(t, by + 4);
+        }
+        if (ad > pOut - 0.9 && ad <= pOut - 0.3 && Math.round(q.s) % 40 === 30) { col[by + 2] = B.TICKET; t = Math.max(t, by + 2); }
+      }
       if (Math.abs(ad - (pOut - 1.2)) < 0.5 && Math.round(q.s) % 16 === 8) col[by + 2] = B.DARK_PLANKS; // bank
       return t;
     }

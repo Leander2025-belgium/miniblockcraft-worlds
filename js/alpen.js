@@ -15,6 +15,7 @@ export const TOFF = OX / T; // 140 tegels
 export { META } from './alpen-meta.js';
 import { META } from './alpen-meta.js';
 import { boreColumn, ventShaft, BORE_W, BORE_H } from './carve.js';
+import { hallBlock, hallFloor } from './stationhall.js';
 const O = OLDM._internal;
 const inOld = (x, z) => x >= OX && z >= OZ && x < OX + OLD && z < OZ + OLD;
 const dOld = (x, z) => Math.hypot(Math.max(OX - x, 0, x - (OX + OLD)), Math.max(OZ - z, 0, z - (OZ + OLD)));
@@ -616,7 +617,9 @@ function buildingColumn(b, x, z, col, top) {
   const face = b.face, along = face[0] === 'x' ? z - b.z0 : x - b.x0;
   const onFace = (face === 'x0' && x === b.x0) || (face === 'x1' && x === b.x1) || (face === 'z0' && z === b.z0) || (face === 'z1' && z === b.z1);
   const midFace = face[0] === 'x' ? Math.round((b.z0 + b.z1) / 2) : Math.round((b.x0 + b.x1) / 2), doorPos = face[0] === 'x' ? z : x;
-  const door = onFace && Math.abs(doorPos - midFace) <= (b.kind === 'hbf' ? 6 : b.kind === 'hotel' || b.kind === 'station' || b.kind === 'church' ? 1 : 0);
+  const onBack = (face === 'x0' && x === b.x1) || (face === 'x1' && x === b.x0) || (face === 'z0' && z === b.z1) || (face === 'z1' && z === b.z0);
+  const door = (onFace && Math.abs(doorPos - midFace) <= (b.kind === 'hbf' ? 6 : b.kind === 'hotel' || b.kind === 'station' || b.kind === 'church' ? 1 : 0))
+    || (b.kind === 'station' && onBack && Math.abs(doorPos - midFace) <= 1); // stations: ook een deur naar de perrons
   // kerktoren aan de voorkant
   if (b.kind === 'church') {
     const tx = face[0] === 'x' ? (face === 'x0' ? b.x0 + 3 : b.x1 - 3) : midFace, tz = face[0] === 'z' ? (face === 'z0' ? b.z0 + 3 : b.z1 - 3) : midFace;
@@ -670,6 +673,15 @@ function buildingColumn(b, x, z, col, top) {
     if (gable) for (let y = wallTop; y < roofY; y++) col[y] = (y - wallTop) % 3 === 1 && dEdge === Math.floor(depth / 2) ? B.GLASS : b.uf;
     col[roofY] = b.roof; t = roofY;
     if ((b.kind === 'hotel' || b.kind === 'chalet') && hash(x, z, 77) < 0.012 && dEdge > 2) { col[roofY + 1] = B.BRICK; col[roofY + 2] = B.BRICK; t = roofY + 2; }
+  }
+  // stationshal (Stations 3.0): wachtruimte, loketten, kiosk, café, toiletten, verlichting
+  if (inCore && b.kind === 'station') {
+    const fz = face[0] === 'z', W = fz ? b.x1 - b.x0 : b.z1 - b.z0, D = fz ? b.z1 - b.z0 : b.x1 - b.x0;
+    const u = fz ? x - b.x0 : z - b.z0, v = face === 'z0' ? z - b.z0 : face === 'z1' ? b.z1 - z : face === 'x0' ? x - b.x0 : b.x1 - x;
+    col[F] = hallFloor(u, v, W, D);
+    for (let ly = 1; ly < fh; ly++) { const bl = hallBlock(u, v, W, D, ly, 'alpen'); if (bl >= 0) col[F + ly] = bl; }
+    if (u % 5 === 2 && v % 4 === 2) col[F + fh] = B.LAMP;
+    return Math.max(t, top);
   }
   // binnen: tafels, bedden, toonbanken, trap
   if (inCore) {
