@@ -14,7 +14,7 @@ export const T = 128, MW = W, ML = W;
 export const TOFF = OX / T; // 140 tegels
 export { META } from './alpen-meta.js';
 import { META } from './alpen-meta.js';
-import { boreColumn, BORE_W, BORE_H } from './carve.js';
+import { boreColumn, ventShaft, BORE_W, BORE_H } from './carve.js';
 const O = OLDM._internal;
 const inOld = (x, z) => x >= OX && z >= OZ && x < OX + OLD && z < OZ + OLD;
 const dOld = (x, z) => Math.hypot(Math.max(OX - x, 0, x - (OX + OLD)), Math.max(OZ - z, 0, z - (OZ + OLD)));
@@ -479,8 +479,8 @@ function railColumn1(x, z, col, top, ctx) {
     }
     const t = boreColumn(col, by, ad, bed, q.s);
     // portaal (betonnen kader in de bergwand)
-    if (top - by < 15) for (let y = t + 1; y <= top; y++) col[y] = B.CONCRETE;
-    return Math.max(top, t);
+    if (top - by < 15) { for (let y = t + 1; y <= top; y++) col[y] = B.CONCRETE; return Math.max(top, t); }
+    return Math.max(t, ventShaft(col, by, top, ad, bed, q.s));
   }
   // perrons
   if (st && !st.old) {

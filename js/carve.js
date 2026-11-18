@@ -9,18 +9,33 @@ import { B } from './blocks.js';
 // dak op 5,5 m, stroomafnemer tot 6,1 m boven de spoorstaaf):
 // - de spoorbedding (ballast) tot 'bed' van de as, daarnaast 1 m dienstpad (verhoogd) tot de wand;
 // - 8 blokken vrije hoogte boven de bedding (ook op hellingen waar het plafond een blok verspringt), plafond en dak in beton;
-// - een kabelgoot langs de wand, lampen hoog tegen de wand (buiten het vrijprofiel) om de 24 m.
+// - een gewelf (afgeronde bovenkant), een kabelgoot en lampen langs de wand (buiten het vrijprofiel) om de 24 m;
+// - ventilatieschachten om de 600 m naar de oppervlakte (ventShaft).
 export const BORE_W = 1.0, BORE_H = 8;
 // blok op afstand d van de tunnelas, op hoogte y (ty = bovenkant van de bedding); -1 = buiten de tunnel
 export function boreBlock(d, y, ty, bed, s) {
   const wall = bed + BORE_W;
   if (d > wall + 1.2 || y < ty - 1 || y > ty + BORE_H + 2) return -1;
   if (d > wall || y === ty - 1 || y > ty + BORE_H) return B.CONCRETE;
+  // gewelf: boven 4 m een halve ellips (ruim boven het profiel van dak en stroomafnemer, zie tools/check-tunnels.mjs)
+  const h = y - ty;
+  if (h > 4) { const e = (h - 4) / (BORE_H - 2.5); if ((d / (wall + 0.6)) ** 2 + e * e > 1) return B.CONCRETE; }
   if (y === ty) return d <= bed ? (d < bed - 0.7 ? B.BALLAST : B.CONCRETE) : B.CONCRETE;
   if (d > bed + 0.4 && y === ty + 1) return B.CONCRETE;                             // dienstpad (een halve meter van de bak)
   if (d > wall - 0.6 && y === ty + 3) return B.METAL;                                // kabelgoot
-  if (d > wall - 0.6 && y === ty + BORE_H && Math.round(s) % 24 === 0) return B.LAMP; // lamp
+  if (d > wall - 0.4 && y === ty + 4 && Math.round(s) % 24 === 0) return B.LAMP;    // lamp tegen de wand
   return 0;
+}
+// ventilatieschacht om de 600 m (naast het dienstpad, 3 × 2 m) tot aan de oppervlakte, met een rooster en een
+// betonnen kraag erboven. Alleen onder natuurlijk terrein (geen straat of gebouw) en niet dieper dan 400 m.
+export const SHAFT_EVERY = 600;
+const NATURAL = new Set([B.GRASS, B.DIRT, B.STONE, B.SNOW, B.SAND].filter(v => v !== undefined));
+export function ventShaft(col, by, top, ad, bed, s) {
+  const wall = bed + BORE_W, u = ((s % SHAFT_EVERY) + SHAFT_EVERY) % SHAFT_EVERY - SHAFT_EVERY / 2;
+  if (top - by > 400 || top <= by + BORE_H + 2 || Math.abs(u) > 2.6 || ad < wall - 2.6 || ad > wall + 0.6 || !NATURAL.has(col[top])) return top;
+  const inner = Math.abs(u) <= 1.5 && ad >= wall - 2 && ad <= wall;
+  if (inner) { for (let y = by + 2; y <= top; y++) col[y] = 0; col[top + 1] = B.METAL; return top + 1; }   // schacht + rooster
+  col[top + 1] = B.CONCRETE; col[top + 2] = B.CONCRETE; return top + 2;                                    // kraag
 }
 // tunnelkolom in een tegel: bedding op 'by', alles tot het plafond; geeft de bovenkant terug
 // (ligt er vlak onder een andere tunnel, dan blijft diens luchtruimte open: geen extra betonplaat onder de bedding)

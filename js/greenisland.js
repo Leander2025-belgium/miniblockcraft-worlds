@@ -20,7 +20,7 @@ export { MW, ML, G, LINES, LINE, STATIONS_ALL, TRACK, trackOffset, ALL_PLACES };
 export const T = 128;
 export { META } from './greenisland-meta.js';
 import { META } from './greenisland-meta.js';
-import { boreColumn, BORE_W, BORE_H } from './carve.js';
+import { boreColumn, ventShaft, BORE_W, BORE_H } from './carve.js';
 import { buildCrossovers, crossoverNear } from './crossover.js';
 // overloopwissels tussen evenwijdige lijnen (dezelfde als in js/rail.js)
 const XO = buildCrossovers(LINES, trackOffset);
@@ -517,7 +517,8 @@ function railColumn(x, z, col, top, ctx, only) {
     if (ad > wall + 1.2) return -1;
     if (top - by >= 13) { deepTunnels.push([L, q, bed]); return -1; } // diepe tunnel: eerst straat en gebouwen erboven, daarna uitgraven
     if (top <= by + BORE_H) { if (ad <= wall) { for (let y = by + 1; y <= top; y++) col[y] = 0; col[by] = ad <= bed ? (ad < bed - 0.7 ? B.BALLAST : B.GRAVEL) : B.CONCRETE; col[by - 1] = B.STONE; if (ad > bed + 0.4) col[by + 1] = B.CONCRETE; return by + (ad > bed + 0.4 ? 1 : 0); } for (let y = by + 1; y <= Math.max(top, by + BORE_H + 2); y++) col[y] = B.CONCRETE; return Math.max(top, by + BORE_H + 2); }
-    return Math.max(top, boreColumn(col, by, ad, bed, q.s));
+    const tb = boreColumn(col, by, ad, bed, q.s);
+    return Math.max(tb, ventShaft(col, by, top, ad, bed, q.s));
   }
   // perrons (ook gedeelde: in Munkbay Central liggen de lijnen 15 m uit elkaar, perrons tussen twee lijnen versmelten)
   if (st) {
@@ -1073,7 +1074,7 @@ function fillColumn(x, z, col, slope, ctx, h) {
   deepTunnels.length = 0;
   let t = fillColumnSurface(x, z, col, slope, ctx, h);
   if (busStopGrid().at(x, z).length) t = busShelter(x, z, col, t, Math.round(G + h));
-  for (const [L, q, bed] of deepTunnels) t = Math.max(t, boreColumn(col, Math.round(q.y), q.d, bed, q.s));
+  for (const [L, q, bed] of deepTunnels) { const by = Math.round(q.y), top0 = t; t = Math.max(t, boreColumn(col, by, q.d, bed, q.s)); t = Math.max(t, ventShaft(col, by, top0, q.d, bed, q.s)); }
   // verbindingsspoor van een overloopwissel: ballast in een S-bocht van het ene spoor naar het andere
   const xo = XO.length ? crossoverNear(XO, x + 0.5, z + 0.5, 2.6) : null;
   if (xo) {
