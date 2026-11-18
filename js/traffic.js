@@ -246,12 +246,13 @@ export class Traffic {
       paint: new THREE.MeshBasicMaterial({ vertexColors: true }),
       trim: new THREE.MeshBasicMaterial({ vertexColors: true }),
       light: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      win: new THREE.MeshBasicMaterial({ vertexColors: true }),
       rail: new THREE.MeshBasicMaterial({ vertexColors: true }),
     };
     this.meshes = {};
     for (const [k, max] of Object.entries(MAX)) {
       const parts = this.models[k], set = {};
-      for (const kind of ['paint', 'trim', 'light']) {
+      for (const kind of ['paint', 'trim', 'light', 'win']) {
         if (!parts[kind]) continue;
         const m = new THREE.InstancedMesh(parts[kind], this.mats[kind], max);
         m.count = 0; m.frustumCulled = false;
@@ -524,6 +525,8 @@ export class Traffic {
     if (this.dirty && now - this.lastBuild > 1.5) { this.dirty = false; this.lastBuild = now; this.realBuild(); }
     const light = 0.18 + 0.82 * day;
     this.mats.paint.color.setScalar(light); this.mats.trim.color.setScalar(light); this.mats.rail.color.setScalar(light);
+    // ramen: overdag donker glas, 's avonds de binnenverlichting
+    { const n = Math.max(0, Math.min(1, (0.55 - day) / 0.35)); this.mats.win.color.setRGB(0.13 + 0.85 * n, 0.16 + 0.78 * n, 0.21 + 0.6 * n); }
     this.mats.light.color.setScalar(day > 0.6 ? 0.75 : 1.15);
     // hoeveel van elk
     const L = this.net.len;

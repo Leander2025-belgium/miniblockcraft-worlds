@@ -13,7 +13,7 @@ function shadeFor(nx, ny, nz) {
 }
 
 export class Parts {
-  constructor() { this.p = { paint: [], trim: [], light: [] }; }
+  constructor() { this.p = { paint: [], trim: [], light: [], win: [] }; } // win = passagiersramen ('s nachts verlicht)
   // doos (gecentreerd op x, y, z) — taper: bovenkant smaller/korter (voor ruiten en neuzen)
   box(kind, w, h, l, x, y, z, color = 0xffffff, taper = null) {
     const g = new THREE.BoxGeometry(w, h, l);
@@ -73,6 +73,7 @@ function merge(list) {
 }
 
 const GLASS = 0x26323d, GLASS_LIGHT = 0x5d7487, TYRE = 0x161616, DARK = 0x2b2d30, GREY = 0x8a8f95, CHROME = 0xc3c7cc;
+const WINLIT = 0xffe9c4; // passagiersramen: overdag donker getint (materiaal), 's nachts warm verlicht
 const HEAD = 0xfff4d6, TAIL = 0xd2151c, AMBER = 0xffb02e;
 
 // ---------- auto's ----------
@@ -153,7 +154,7 @@ const CAR_MODELS = {
 function busModel() {
   const P = new Parts(), L = 12, W = 2.55;
   P.box('paint', W, 1.05, L, 0, 0.88, 0);                                  // onderkant
-  P.box('trim', W + 0.02, 1.2, L - 0.6, 0, 2.0, -0.2, GLASS);               // ramenband
+  P.box('win', W + 0.02, 1.2, L - 0.6, 0, 2.0, -0.2, WINLIT);               // ramenband
   P.box('paint', W, 0.38, L, 0, 2.79, 0);                                   // boven de ramen
   P.box('trim', W * 0.96, 0.2, L * 0.94, 0, 3.07, -0.2, 0xe9ebee);          // dak
   P.box('trim', 1.6, 0.3, 2.4, 0, 3.3, -2.2, 0xd5d8dc);                     // airco
@@ -182,7 +183,7 @@ function busBody(o) {
   // ruiten met stijlen (niet over de deuren)
   for (const sx of [1, -1]) for (let z = -hz + 0.6; z < hz - (o.front ? 1.6 : 0.6); z += 1.55) {
     if ((o.doors || []).some(dz => Math.abs(z + 0.65 - dz) < 1.1)) continue;
-    P.box('trim', 0.04, wh, 1.35, sx * (W / 2 + 0.01), wy, z + 0.65, o.coach ? 0x1a2230 : GLASS);
+    P.box('win', 0.04, wh, 1.35, sx * (W / 2 + 0.01), wy, z + 0.65, WINLIT);
     P.box('trim', 0.05, wh + 0.05, 0.12, sx * (W / 2 + 0.015), wy, z + 1.4, DARK);
   }
   P.box('paint', W, H - wy - wh / 2 + 0.05, L, 0, (H + wy + wh / 2) / 2, 0);                  // boven de ramen
@@ -215,7 +216,7 @@ function busBody(o) {
     const y2 = 2.55, wy2 = 3.55;
     P.box('trim', W - 0.1, 0.12, L - 0.6, 0, y2, 0, 0x3a3e45);
     for (const sx of [1, -1]) for (let z = -hz + 0.5; z < hz - 0.5; z += 1.55) {
-      P.box('trim', 0.04, 0.95, 1.35, sx * (W / 2 + 0.01), wy2, z + 0.65, GLASS);
+      P.box('win', 0.04, 0.95, 1.35, sx * (W / 2 + 0.01), wy2, z + 0.65, WINLIT);
       P.box('trim', 0.05, 1.0, 0.12, sx * (W / 2 + 0.015), wy2, z + 1.4, DARK);
     }
     if (o.front) P.box('trim', W - 0.2, 0.9, 0.06, 0, wy2, hz + 0.01, GLASS);               // panoramaruit boven
@@ -250,7 +251,7 @@ function tramSection(cab) {
   const P = new Parts(), L = cab ? 7.6 : 7.0, W = 2.4;
   const zc = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L;
   P.box('paint', W, 0.95, Lb, 0, 0.78, zc);                                    // onderkant
-  P.box('trim', W + 0.02, 1.35, Lb - 0.3, 0, 1.92, zc, GLASS);                  // ramen
+  P.box('win', W + 0.02, 1.35, Lb - 0.3, 0, 1.92, zc, WINLIT);                  // ramen
   P.box('paint', W, 0.55, Lb, 0, 2.87, zc);                                     // boven de ramen
   P.box('trim', W * 0.9, 0.22, Lb, 0, 3.25, zc, 0xb8bcc2);                      // dak
   P.box('trim', 0.05, 2.15, 1.3, W / 2 + 0.01, 1.4, zc + 0.5, GLASS_LIGHT);      // deur
@@ -283,12 +284,12 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
   P.box('trim', W - 0.4, 0.55, Lb - 1, 0, 0.55, zb, 0x33363a);                   // onderbak
   if (doubleDeck) {
     P.box('paint', W, H - 1.0, Lb, 0, 0.8 + (H - 1.0) / 2, zb);
-    P.box('trim', W + 0.02, 0.85, Lb - 2.4, 0, 1.55, zb, GLASS);                  // onderste ramen
-    P.box('trim', W + 0.02, 0.85, Lb - 2.4, 0, 3.15, zb, GLASS);                  // bovenste ramen
+    P.box('win', W + 0.02, 0.85, Lb - 2.4, 0, 1.55, zb, WINLIT);                  // onderste ramen
+    P.box('win', W + 0.02, 0.85, Lb - 2.4, 0, 3.15, zb, WINLIT);                  // bovenste ramen
     P.box('trim', W * 0.86, 0.3, Lb, 0, H - 0.05, zb, 0x9ea3a8, { sx: 0.8 });
   } else {
     P.box('paint', W, H - 1.2, Lb, 0, 0.8 + (H - 1.2) / 2, zb);
-    P.box('trim', W + 0.02, 0.95, Lb - 2.6, 0, 2.35, zb, GLASS);                  // ramenband
+    P.box('win', W + 0.02, 0.95, Lb - 2.6, 0, 2.35, zb, WINLIT);                  // ramenband
     P.box('trim', W * 0.9, 0.35, Lb, 0, H - 0.25, zb, 0xc6cacf, { sx: 0.82 });   // dak
   }
   if (stripe) P.box('trim', W + 0.03, 0.22, Lb - 0.6, 0, 1.35, zb, stripe);
@@ -349,7 +350,7 @@ function metroCar(cab, doorsOnly) {
   }
   // buitenkant
   P.box('paint', W, 0.9, Lb, 0, 0.95, zb);                                  // onderkant (lijnkleur)
-  P.box('trim', W + 0.02, 1.15, Lb - 0.4, 0, 1.95, zb, GLASS);               // ramen
+  P.box('win', W + 0.02, 1.15, Lb - 0.4, 0, 1.95, zb, WINLIT);               // ramen
   P.box('paint', W, 0.55, Lb, 0, 2.8, zb);                                  // boven de ramen
   P.box('trim', W * 0.9, 0.25, Lb, 0, 3.2, zb, 0xc0c4c9);                    // dak
   P.box('trim', W - 0.4, 0.5, Lb - 2, 0, 0.3, zb, 0x26282b);                 // onderstel

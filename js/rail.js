@@ -467,7 +467,7 @@ export class AlpRail {
       for (const [geo, mat] of d.geos) { const m = new THREE.Mesh(geo, mat); m.position.set(-d.W / 2, 0, -d.L / 2); m.layers.enable(1); if (mat === this.g.matTrans) m.renderOrder = 1; grp.add(m); }
       this.group.add(grp);
       const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'tram');
-      const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE);
+      const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE, null, `${sv.id} ${a.run.pr.last.name}`);
       tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip, shell });
     }
     return tr;

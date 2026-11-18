@@ -59,7 +59,7 @@ export function shellParts(d, liv) {
   for (const sx of [1, -1]) {
     for (let z = z0 + 1.2; z < z1 - 1.2; z += 2.2) {
       if (doorsZ.some(dz => Math.abs(z + 0.9 - dz) < 1.6)) continue;
-      P.box('trim', 0.05, 1.05, 1.8, sx * 2.04, 3.55, z + 0.9, GLASS);
+      P.box('win', 0.05, 1.05, 1.8, sx * 2.04, 3.55, z + 0.9, 0xffe9c4);
       P.box('trim', 0.06, 1.15, 0.12, sx * 2.04, 3.55, z + 1.9, PILLAR);
     }
     // deurkozijnen
@@ -97,18 +97,33 @@ export function shellParts(d, liv) {
   return s;
 }
 
+const signCache = new Map(), signGeo = new THREE.PlaneGeometry(1.96, 0.3);
 // Alle buitenkanten van een treinset: één groep per rijtuig, met de deurpanelen apart (die schuiven open)
 export class TrainShells {
   constructor(scene) {
     this.mat = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.matLight = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.matWin = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.group = new THREE.Group(); scene.add(this.group);
   }
-  make(d, liv, livHex) {
+  // bestemmingsbord met tekst (lijn en eindbestemming), gedeelde textuur per tekst
+  sign(text) {
+    let t = signCache.get(text);
+    if (t) return t;
+    const c = document.createElement('canvas'); c.width = 512; c.height = 80;
+    const x = c.getContext('2d'); x.fillStyle = '#0b0b0c'; x.fillRect(0, 0, 512, 80);
+    x.fillStyle = '#ffb22a'; x.font = 'bold 46px monospace'; x.textBaseline = 'middle';
+    let f = 46; while (x.measureText(text).width > 496 && f > 20) { f -= 2; x.font = `bold ${f}px monospace`; }
+    x.fillText(text, 8, 42);
+    t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; signCache.set(text, t);
+    return t;
+  }
+  make(d, liv, livHex, label) {
     const sp = shellParts(d, liv), g = new THREE.Group();
     g.rotation.order = 'YXZ';
     for (const k of ['paint', 'trim']) if (sp.body[k]) g.add(new THREE.Mesh(sp.body[k], this.mat));
     if (sp.body.light) g.add(new THREE.Mesh(sp.body.light, this.matLight));
+    if (sp.body.win) g.add(new THREE.Mesh(sp.body.win, this.matWin));
     const bogies = [];
     for (const bz of sp.bogieZ || []) {
       const b = new THREE.Group(); for (const k of ['paint', 'trim']) if (sp.bogie[k]) b.add(new THREE.Mesh(sp.bogie[k], this.mat));
@@ -122,10 +137,15 @@ export class TrainShells {
     }
     // de kleur van de deuren = bijkleur van het rijtuig
     void livHex;
+    if (label && CAB.has(d.type) && typeof document !== 'undefined') {
+      if (!this.signMats) this.signMats = new Map();
+      let m = this.signMats.get(label); if (!m) { m = new THREE.MeshBasicMaterial({ map: this.sign(label) }); this.signMats.set(label, m); }
+      const pl = new THREE.Mesh(signGeo, m); pl.position.set(0, 4.85, d.L / 2 - 0.965); g.add(pl);
+    }
     this.group.add(g);
     return { g, doors, bogies, open: 0 };
   }
   setDoors(s, f) { if (Math.abs(s.open - f) < 1e-3) return; s.open = f; for (const h of s.doors) h.position.z = h.userData.z + h.userData.half * f * 0.8; }
-  update(day) { const l = 0.25 + 0.75 * day; this.mat.color.setScalar(l); }
+  update(day) { const l = 0.25 + 0.75 * day; this.mat.color.setScalar(l); const n = Math.max(0, Math.min(1, (0.55 - day) / 0.35)); this.matWin.color.setRGB(0.13 + 0.85 * n, 0.16 + 0.78 * n, 0.21 + 0.6 * n); }
   dispose() { this.group.traverse(o => { if (o.geometry && !o.geometry.userData.shared) { /* gedeelde geometrie blijft in de cache */ } }); this.group.removeFromParent(); }
 }

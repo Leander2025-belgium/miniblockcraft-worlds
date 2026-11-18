@@ -92,8 +92,18 @@ export class MegaView {
     this.g.toast(`🛗 ${S.L.name} komt eraan van verdieping ${floorLabel(S.f)} · ±${secs} s`);
   }
   // ---------- per frame ----------
+  // navigatie van de reisplanner (js/megaplan.js): pijl en afstand bovenaan
+  updateNav() {
+    const el = document.getElementById('nav-hud'); if (!el) return;
+    if (!this.navTo) { if (this.navShown) { el.hidden = true; this.navShown = false; } return; }
+    const p = this.g.player.pos, dx = this.navTo.x - p.x, dz = this.navTo.z - p.z, d = Math.hypot(dx, dz);
+    if (d < 25) { this.g.toast(`🚉 Je bent bij ${this.navTo.name}`); this.navTo = null; el.hidden = true; return; }
+    const ang = Math.atan2(dx, -dz) - (-this.g.player.yaw), arrows = ['⬆', '↗', '➡', '↘', '⬇', '↙', '⬅', '↖'], k = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+    el.hidden = false; this.navShown = true; el.textContent = `🧭 ${this.navTo.name}: ${arrows[k]} ${d > 1000 ? (d / 1000).toFixed(1) + ' km' : Math.round(d) + ' m'}`;
+  }
   update(dt) {
     const g = this.g, p = g.player.pos;
+    this.updateNav();
     const near = inTowerBox(p.x, p.z) || Math.hypot(p.x - CX, p.z - CZ) < 120;
     for (let i = 0; i < this.S.length; i++) {
       const S = this.S[i], L = S.L;
