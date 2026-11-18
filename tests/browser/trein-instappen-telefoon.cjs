@@ -22,7 +22,10 @@ const fs = require('fs');
   const toast = await p.evaluate(() => [...document.querySelectorAll('.toast, #toast')].map(e => e.innerText).join(' | '));
   console.log('melding', toast.slice(0, 300));
   let ok = false;
-  for (let i = 0; i < 48 && !ok; i++) { await p.waitForTimeout(5000); ok = await p.evaluate(() => !!window.blokGame().aboard); }
+  // de klok 25 s per controle vooruitzetten (buiten de spits rijden er minder treinen: tot 15 min wachten),
+  // maar niet meer zodra er een trein aan het perron staat (dan moet de speler gewoon instappen)
+  await p.evaluate(() => { if (window.__off === undefined) { window.__off = 0; const rn = Date.now; Date.now = () => rn() + window.__off; } });
+  for (let i = 0; i < 60 && !ok; i++) { await p.waitForTimeout(5000); ok = await p.evaluate(() => { const g = window.blokGame(); if (!g.aboard && !(g.alpRail.nearestDoor && g.alpRail.nearestDoor(40))) window.__off += 25000; return !!g.aboard; }); }
   console.log('aan boord', ok, await p.evaluate(() => { const g = window.blokGame(); return g.aboard ? g.aboard.train.name : ''; }));
   console.log('fouten:', errs.length ? errs.join('\n') : 'geen');
   await b.close();
