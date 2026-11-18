@@ -74,6 +74,18 @@ function build() {
   // (treinen zijn 6 m hoog, met brugdek en marge: minstens 10,5 m tussen de twee sporen)
   const need = crossings.filter(c => Math.abs(c.a.at(c.sa).y - c.b.at(c.sb).y) < 10.5);
   for (const c of need) { const ya = c.a.at(c.sa).y; if (c.b.metro) { const yb = c.b.at(c.sb).y, cov = c.b.cover[c.b.idx(c.sb)], okU = ya - 10.5 >= 5, okO = cov - (ya + 10.5) >= 9; c.under = okU && okO ? yb < ya : !okO; } c.y = c.under ? ya - 10.5 : ya + 10.5; /* de metro gaat over een diepere lijn heen, nooit onder zeeniveau */ c.b.anchors.push({ s: c.sb, y: c.y }); }
+  // Blokstad 13: ook naast het kruispunt, zolang de twee tunnels elkaar zijdelings raken (scherpe hoek, < 16 m), de
+  // scheiding van 10,5 m vasthouden (anders ligt een lijn 36 m verder nog maar 8,5 m boven de andere: laag plafond)
+  for (const c of need) {
+    const off = c.y - c.a.at(c.sa).y;
+    for (let ds = -160; ds <= 160; ds += 8) {
+      if (!ds) continue;
+      const sb = c.sb + ds; if (sb < 0 || sb > c.b.len) continue;
+      const p = c.b.at(sb), r = c.a.near(Math.floor(p.x), Math.floor(p.z), 16);
+      if (!r || c.b.stationAt(sb)) continue;
+      c.b.anchors.push({ s: sb, y: r.y + off });
+    }
+  }
   const touched = new Set(need.map(c => c.b));
   for (const L of touched) { L.profile(levels); L.buildGrid(); }
   for (const L of trams) L.buildGrid();

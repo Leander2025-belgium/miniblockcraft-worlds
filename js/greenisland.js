@@ -598,12 +598,16 @@ function railColumnAll(x, z, col, top, ctx) {
   if (yh - yl < 6) return railColumn(x, z, col, top, ctx);
   if (ql.kind === 1) { // tunnel eronder: eerst uitgraven, dan het bovenste spoor gewoon bouwen
     railColumn(x, z, col, top, ctx, Lo);
-    return Math.max(railColumn(x, z, col, top, ctx, Lh), yh);
+    const keep = []; for (let y = yl + 1; y <= yl + BORE_H; y++) if (col[y] === 0) keep.push(y);
+    const t = Math.max(railColumn(x, z, col, top, ctx, Lh), yh);
+    // de ophoging onder het bovenste spoor mag niet in de tunnel eronder komen (alleen het brugdek blijft)
+    for (const y of keep) if (y < yh - 1) col[y] = 0;
+    return t;
   }
   const t = railColumn(x, z, col, top, ctx);
   for (let y = Math.max(1, yl - 3); y < yl; y++) if (!col[y]) col[y] = B.STONE;
   col[yl] = ql.d < (Lo.single ? 2 : BED - 0.7) ? B.BALLAST : B.GRAVEL;
-  for (let y = yl + 1; y <= Math.min(yl + 6, yh - 4); y++) col[y] = 0;
+  for (let y = yl + 1; y <= Math.min(yl + 8, yh - 3); y++) col[y] = 0; // vrije hoogte onder de brug: volledig voertuigprofiel met stroomafnemer
   col[yh - 2] = B.CONCRETE; col[yh - 1] = B.CONCRETE; col[yh] = qh.d < (Lh.single ? 2 : BED - 0.7) ? B.BALLAST : B.CONCRETE;
   for (let y = yh + 1; y <= yh + 5; y++) if (col[y] !== B.LAMP) col[y] = 0;
   return Math.max(t, yh);

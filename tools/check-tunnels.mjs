@@ -110,4 +110,4 @@ console.log(`${world}: ${checked} punten langs ${tracks.length} lijnen gecontrol
 console.log(`vrije hoogte boven het spoor (blokken: aantal meetpunten): ${JSON.stringify(ceil)} · laagste: ${minCeil.h} (${minCeil.lijn} bij ${minCeil.x},${minCeil.y},${minCeil.z})`);
 if (blocked.length) console.log('raakpunten (hoogte@zijafstand):', JSON.stringify(hitStat));
 if (low.length) { const by = {}; for (const b of low) { const k = b.lijn + ' bij ' + Math.round(b.x / 100) * 100 + ',' + Math.round(b.z / 100) * 100; by[k] = (by[k] || 0) + 1; } console.log(`laag plafond (alleen de stroomafnemer, 6–7 m boven de spoorstaaf): ${low.length} meetpunten ${JSON.stringify(by)}`); }
-process.exitCode = blocked.length ? 1 : 0;
+process.exitCode = blocked.length || low.length ? 1 : 0; // sinds Blokstad 13: ook de stroomafnemer moet overal vrij zijn

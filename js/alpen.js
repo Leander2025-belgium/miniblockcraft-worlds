@@ -444,7 +444,7 @@ function railColumn(x, z, col, top, ctx) {
   if (yh - yl < 6 || ql.kind === 1) return t;
   for (let y = Math.max(1, yl - 3); y < yl; y++) if (!col[y]) col[y] = B.STONE;
   col[yl] = ql.d < (Lo.single ? 2 : BED - 0.7) ? B.BALLAST : B.GRAVEL;
-  for (let y = yl + 1; y <= Math.min(yl + 6, yh - 4); y++) col[y] = 0;
+  for (let y = yl + 1; y <= Math.min(yl + 8, yh - 3); y++) col[y] = 0; // vrije hoogte onder de brug: volledig voertuigprofiel met stroomafnemer
   // brugdek van het bovenste spoor
   const [Lh] = lines[lines.length - 1];
   col[yh - 2] = B.CONCRETE; col[yh - 1] = B.CONCRETE; col[yh] = qh.d < (Lh.single ? 2 : BED - 0.7) ? B.BALLAST : B.CONCRETE;
