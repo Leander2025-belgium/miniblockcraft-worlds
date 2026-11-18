@@ -616,6 +616,15 @@ export class AlpRail {
         list.push({ key: id, L: mine ? this.player.L : tr.L, dir: mine ? this.player.dir : tr.dir, s: mine ? this.player.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
       }
       this.pax.update(dt, p, LINES, list, periodOf(railClock()));
+      // stationsomroep: een trein staat klaar aan het perron waar de speler staat (niet aan boord)
+      if (!g.aboard && !g.drive) for (const it of list) {
+        const tr = this.trains.get(it.key); if (!tr || !it.open) { if (tr) tr.annAt = null; continue; }
+        if (tr.annAt) continue;
+        const S = [...this.pax.stations.values()].find(S => S.L === it.L && it.s > S.st.s0 - 20 && it.s < S.st.s1 + 20); if (!S) continue;
+        const q = it.L.at((S.st.s0 + S.st.s1) / 2); if (Math.hypot(q.x - p.x, q.z - p.z) > S.st.len / 2 + 30 || Math.abs(q.y - p.y) > 12) continue;
+        tr.annAt = S.st.name; this.annCount = (this.annCount || 0) + 1;
+        this.say(`${S.st.name}. ${tr.name.replace('→', 'naar')} staat klaar. Instappen, alstublieft.`);
+      }
       this.pax.setDay(day);
     }
     this.updateCrossings(act);

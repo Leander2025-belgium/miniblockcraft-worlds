@@ -15,6 +15,7 @@ import { Drive } from './drive.js';
 import { diag } from './diag.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
+import { Ambient } from './ambient.js';
 import { rleEncode, rleDecode } from './storage.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
@@ -1014,6 +1015,15 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day, this.settings.hour);
     }
+    // omgevingsgeluid (stad, wind, regen, galm ondergronds); start na de eerste toets of tik
+    if (this.settings.ambient !== false) {
+      if (!this.ambient) { this.ambient = new Ambient(); const go = () => { this.ambient?.start(); }; addEventListener('keydown', go, { once: true }); addEventListener('pointerdown', go, { once: true }); }
+      if ((this.ambT = (this.ambT || 0) + dt) > 0.5) {
+        this.ambT = 0;
+        let n = 0; if (this.traffic && this.traffic.agents) for (const a of this.traffic.agents) if (!a.dead && a.kind !== 'walk' && a.kind !== 'ship') n++;
+        this.ambient.update(0.5, { vehicles: Math.min(n, 60), height: p.pos.y - (this.meta && this.meta.ground || 0), weather: this.curWeather, under: ug, muted: this.paused || document.hidden });
+      }
+    } else if (this.ambient) { this.ambient.stop(); this.ambient = null; }
     if (this.ships) this.ships.update(dt);
     if (this.airports) this.airports.update(dt, env.day);
     if (this.alpRail) this.alpRail.update(dt, env.day);
@@ -1881,6 +1891,8 @@ export class Game {
         });
       }
     }
+    const ambEl = document.getElementById('set-ambient');
+    if (ambEl) { ambEl.checked = this.settings.ambient !== false; if (!ambEl.dataset.bound) { ambEl.dataset.bound = '1'; ambEl.addEventListener('change', () => { this.settings.ambient = ambEl.checked; saveSettings(this.settings); if (ambEl.checked) this.ambient?.start(); }); } }
     const fpsEl = document.getElementById('set-fps');
     if (fpsEl) { fpsEl.checked = !!this.settings.fps; if (!fpsEl.dataset.bound) { fpsEl.dataset.bound = '1'; fpsEl.addEventListener('change', () => { this.settings.fps = fpsEl.checked; saveSettings(this.settings); }); } }
     for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {

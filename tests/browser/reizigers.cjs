@@ -46,7 +46,8 @@ const SHOTS = process.env.SHOTS;
       check();
       window.__opens = opens;
       Date.now = rn;
-      return { station: window.__st, maxWachtend: maxW, ...Rl.pax.stats, stappenMetOpenDeuren: window.__opens, posGetest: getest, inMuurOfZwevend: slecht, voorbeelden: window.__bad };
+      const amb = g.ambient ? (g.ambient.start(), g.ambient.update(0.5, { vehicles: 20, height: 900, weather: 'rain', under: false }), { aan: g.ambient.on, ...g.ambient.levels }) : null;
+      return { omgevingsgeluid: amb, omroepen: Rl.annCount || 0, station: window.__st, maxWachtend: maxW, ...Rl.pax.stats, stappenMetOpenDeuren: window.__opens, posGetest: getest, inMuurOfZwevend: slecht, voorbeelden: window.__bad };
     });
     if (SHOTS) { await p.evaluate(() => { const g = window.blokGame(); g.running = true; g.loop && 0; }); await p.screenshot({ path: path.join(SHOTS, 'reizigers-' + world + '.png') }); }
     out[world] = R;
