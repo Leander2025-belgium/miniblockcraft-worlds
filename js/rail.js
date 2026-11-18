@@ -5,13 +5,18 @@ import * as THREE from 'three';
 import { TrainShells } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
+import { buildCrossovers } from './crossover.js';
 import { B } from './blocks.js';
 import { meshChunk } from './mesher.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
 // useNet(net) kiest het net van de wereld die gespeeld wordt.
 let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffset = () => 2.5, LIFTS = [], CROSSINGS = [], groundAt = () => 0, MW = 1, ML = 1, SERVICES = [];
 export let RUNS = [];
-export function netInfo() { return { LINES, STATIONS_ALL, trackOffset }; }
+export function netInfo() { return { LINES, STATIONS_ALL, trackOffset, JUNCTIONS }; }
+// ---------- wissels tussen lijnen ----------
+// Overloopwissels (js/crossover.js): verbindingssporen in een S-bocht tussen twee evenwijdige lijnen. Zelf besturen:
+// A/D zet de volgende wissel om; de trein rijdt dan over het verbindingsspoor naar de andere lijn.
+let JUNCTIONS = [];
 export function useNet(net) {
   NET = net;
   ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML } = net);
@@ -19,6 +24,8 @@ export function useNet(net) {
   if (net.liveries) Object.assign(LIVERY, net.liveries);
   if (!net._runs) { speedLimits(); net._runs = buildTimetable(); }
   RUNS = net._runs;
+  if (!net._junc) net._junc = buildCrossovers(LINES, trackOffset);
+  JUNCTIONS = net._junc;
 }
 // ---------- OV-beheer: eigen dienstregeling (frequentie, uren, aan/uit), bewaard op dit toestel ----------
 const ovKey = () => 'blokstad-ov-' + (NET && NET.id || 'net');
@@ -387,6 +394,7 @@ export class AlpRail {
     this.group = new THREE.Group(); game.scene.add(this.group);
     this.shells = new TrainShells(game.scene); // gladde buitenkant (van buiten), het blokinterieur aan boord
     this.infra = new RailInfra(game.scene, LINES, trackOffset, TRACK); // bovenleiding, seinpalen, wissels
+    this.infra.setJunctions(JUNCTIONS);
     this.designs = new Map(); this.trains = new Map(); this.t = 0;
     this.tmpV = new THREE.Vector3(); this.tmpW = new THREE.Vector3();
     this.announced = new Set();
@@ -477,14 +485,31 @@ export class AlpRail {
     for (const c of tr.cars) { c.grp.removeFromParent(); c.shell?.g.removeFromParent(); }
   }
   // plaats van alle rijtuigen van een trein
-  place(tr, L, sHead, dir, line) {
+  // punt op afstand 'dist' achter de kop; via = de vorige lijn (net over een wissel tussen lijnen gereden):
+  // wat verder achter de kop zit dan het wisselpunt, staat nog op de vorige lijn
+  pathPoint(L, sHead, dir, dist, via, out) {
+    let LL = L, sx = sHead - dir * dist, d = dir;
+    if (via && via.trail && via.trail.length) {
+      let rem = dist - (sHead - via.sIn) * dir;
+      if (rem > 0) for (const seg of via.trail) {
+        const avail = seg.sIn === undefined ? Infinity : (seg.sOut - seg.sIn) * seg.dir;
+        LL = seg.L; d = seg.dir; sx = seg.sOut - seg.dir * Math.min(rem, avail);
+        if (rem <= avail) break;
+        rem -= avail;
+      }
+    }
+    LL.at(sx, out);
+    const o = LL.connector ? 0 : trackOffset(LL, sx) * d;
+    out.px = out.x - out.tz * o; out.pz = out.z + out.tx * o; out.ty = Math.atan2(out.tx * d, out.tz * d);
+    return out;
+  }
+  place(tr, L, sHead, dir, via) {
     const p = {}, q = {};
     let off = 0;
     for (const c of tr.cars) {
       const sc = sHead - dir * (off + c.d.L / 2), sf = sc + dir * c.d.L / 2, sb = sc - dir * c.d.L / 2;
-      L.at(sf, p); L.at(sb, q);
-      const of1 = trackOffset(L, sf) * dir, of2 = trackOffset(L, sb) * dir;
-      const fx = p.x - p.tz * of1, fz = p.z + p.tx * of1, bx = q.x - q.tz * of2, bz = q.z + q.tx * of2;
+      this.pathPoint(L, sHead, dir, off, via, p); this.pathPoint(L, sHead, dir, off + c.d.L, via, q);
+      const fx = p.px, fz = p.pz, bx = q.px, bz = q.pz;
       const fy = p.y + 1, by = q.y + 1;
       let yaw = Math.atan2(fx - bx, fz - bz), pitch = Math.atan2(fy - by, Math.hypot(fx - bx, fz - bz));
       if (c.flip) { yaw += Math.PI; pitch = -pitch; }
@@ -496,8 +521,8 @@ export class AlpRail {
         // draaistellen volgen het spoor: hoek tussen de spoorrichting op het draaistel en de bak
         if (c.shell.g.visible && c.shell.bogies && Math.abs(x - this.g.player.pos.x) < 400 && Math.abs(z - this.g.player.pos.z) < 400) {
           for (const b of c.shell.bogies) {
-            L.at(sc + dir * (c.flip ? -b.userData.z : b.userData.z), q);
-            let ty = Math.atan2(q.tx * dir, q.tz * dir) + (c.flip ? Math.PI : 0), d = ty - yaw;
+            this.pathPoint(L, sHead, dir, off + c.d.L / 2 - (c.flip ? -b.userData.z : b.userData.z), via, q);
+            let ty = q.ty + (c.flip ? Math.PI : 0), d = ty - yaw;
             d = ((d + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
             b.rotation.y = Math.max(-0.35, Math.min(0.35, d));
           }
@@ -505,7 +530,6 @@ export class AlpRail {
       }
       off += c.d.L + GAP;
     }
-    void line;
   }
   update(dt, day) {
     const g = this.g, p = g.player.pos;
@@ -545,13 +569,13 @@ export class AlpRail {
       if (!g.drive) { pt.v = Math.max(0, pt.v - 0.9 * dt); pt.s += pt.dir * pt.v * dt; pt.s = Math.max(5, Math.min(pt.L.len - 5, pt.s)); }
       const hp = pt.L.at(pt.s);
       if (!g.drive && !(g.aboard && g.aboard.train === pt.tr) && Math.hypot(hp.x - p.x, hp.z - p.z) > 1500) { this.dropTrain(pt.tr); this.trains.delete(pt.tr.id); this.player = null; }
-      else { this.place(pt.tr, pt.L, pt.s, pt.dir); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || (!!g.drive && !['chase', 'side'].includes(g.drive.cam)), dt, pt.doors ? 1 : 0); }
+      else { this.place(pt.tr, pt.L, pt.s, pt.dir, pt.trail ? pt : null); seen.add(pt.tr.id); this.dressTrain(pt.tr, !!(g.aboard && g.aboard.train === pt.tr) || (!!g.drive && !['chase', 'side'].includes(g.drive.cam)), dt, pt.doors ? 1 : 0); }
     }
-    if (this.infra && this.infra.switches.length) {
+    if (this.infra && (this.infra.switches.length || this.infra.jsw.length)) {
       const list = [];
       for (const a of act) if (a.s !== undefined) list.push({ L: a.run.pr.L, s: a.s, dir: a.run.dir, len: a.run.pr.len || 200 });
       if (this.player) list.push({ L: this.player.L, s: this.player.s, dir: this.player.dir, len: 200 });
-      this.infra.animate(dt, list);
+      this.infra.animate(dt, list, this.player);
     }
     const pt = this.player;
     if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: 'train', out: ['chase', 'side'].includes(g.drive.cam) };
@@ -825,7 +849,7 @@ export class AlpRail {
   }
   // de bestuurde trein bewegen
   drivePhys(dt) {
-    const pt = this.player, L = pt.L, k = this.g.keys, g = this.g;
+    let pt = this.player, L = pt.L; const k = this.g.keys, g = this.g;
     const up = k.has('KeyW') || k.has('ArrowUp') || g.padUp, down = k.has('KeyS') || k.has('ArrowDown') || g.padDown;
     if (up) { pt.throttle = Math.min(1, pt.throttle + dt * 0.8); pt.brake = Math.max(0, pt.brake - dt * 2); }
     if (down) { if (pt.throttle > 0) pt.throttle = Math.max(0, pt.throttle - dt * 1.5); else pt.brake = Math.min(1, pt.brake + dt * 0.9); }
@@ -848,7 +872,40 @@ export class AlpRail {
     // einde van de lijn
     const end = pt.dir > 0 ? L.len - 5 : 5;
     pt.s += pt.dir * pt.v * dt;
-    if ((pt.s - end) * pt.dir > 0) { pt.s = end; pt.v = 0; }
+    if (!L.connector && (pt.s - end) * pt.dir > 0) { pt.s = end; pt.v = 0; }
+    // overloopwissels voor de trein (A/D kiest): van lijn A naar B, of terug van B naar A
+    const opts = [];
+    for (const c of JUNCTIONS) {
+      if (L.connector) break;
+      if (c.A === L && c.aDir === pt.dir) { const ds = (c.sA - pt.s) * pt.dir; if (ds > -1 && ds < 3000) opts.push({ c, from: 'A', at: c.sA, ds, name: c.B.name || c.B.id }); }
+      if (c.B === L && -c.bdir === pt.dir) { const ds = (c.sBend - pt.s) * pt.dir; if (ds > -1 && ds < 3000) opts.push({ c, from: 'B', at: c.sBend, ds, name: c.A.name || c.A.id }); }
+    }
+    opts.sort((p1, p2) => p1.ds - p2.ds);
+    const next = opts[0] || null;
+    if (!next || !pt.jSel || pt.jSel.c !== next.c || pt.jSel.from !== next.from) { if (pt.jSel && (!next || pt.jSel.c !== next.c)) pt.jSel = null; }
+    pt.juncs = next ? [next] : []; pt.junction = pt.jSel;
+    const prev = pt.s - pt.dir * pt.v * dt;
+    const cross = (at) => (prev - at) * pt.dir < 0 && (pt.s - at) * pt.dir >= 0;
+    const enter = (newL, sIn, newDir, over) => {
+      (pt.trail || (pt.trail = [])).unshift({ L, sIn: pt.sIn, sOut: pt.dir > 0 ? Math.min(pt.s - pt.dir * over, L.len) : Math.max(pt.s - pt.dir * over, 0), dir: pt.dir });
+      pt.L = newL; pt.dir = newDir; pt.s = sIn + newDir * over; pt.sIn = sIn;
+    };
+    if (pt.jSel && next && cross(next.at)) {
+      const c = next.c, over = (pt.s - next.at) * pt.dir;
+      if (next.from === 'A') enter(c, 0, 1, over); else enter(c, c.len, -1, over);
+      pt.jSel = null; g.toast(`🔀 Over de wissel naar ${next.name} (max. 40 km/h)`);
+    } else if (L.connector && (pt.dir > 0 ? pt.s >= L.len : pt.s <= 0)) {
+      const c = L, over = pt.dir > 0 ? pt.s - c.len : -pt.s;
+      if (pt.dir > 0) enter(c.B, c.sBend, c.bdir, over); else enter(c.A, c.sA, -c.aDir, over);
+      this.say(`Wij rijden verder op ${pt.L.name || pt.L.id}.`);
+    }
+    // oude stukken achter de trein vergeten
+    if (pt.trail) {
+      const len = pt.tr.cars.reduce((acc, c) => acc + c.d.L + GAP, 0);
+      let cov = (pt.s - pt.sIn) * pt.dir;
+      for (let i = 0; i < pt.trail.length; i++) { if (cov > len + 10) { pt.trail.length = i; break; } const sg = pt.trail[i]; cov += sg.sIn === undefined ? Infinity : (sg.sOut - sg.sIn) * sg.dir; }
+      if (!pt.trail.length) pt.trail = null;
+    }
     // halte?
     const st = L.stations.find(q => Math.abs(pt.s - q.s) < q.len / 2);
     pt.atStation = st && pt.v < 0.3 ? st : null;
@@ -1163,6 +1220,10 @@ class TrainCab {
   }
   update(dt) {
     const r = this.r, pt = r.player; if (!pt) return;
+    // touchknoppen ◀ ▶: wissel omzetten
+    const gl = !!this.g.padLeft, gr = !!this.g.padRight;
+    if (gl && !this.plWas) this.key('KeyA'); if (gr && !this.prWas) this.key('KeyD');
+    this.plWas = gl; this.prWas = gr;
     r.drivePhys(dt);
     this.g.extVel = (() => { const c = pt.car.body; return new THREE.Vector3(Math.sin(c.yaw) * pt.v, 0, Math.cos(c.yaw) * pt.v); })();
     if (this.g.tiled) this.g.updateTiles();
@@ -1188,7 +1249,8 @@ class TrainCab {
         Tractie ${'▮'.repeat(Math.round(pt.throttle * 5)).padEnd(5, '▯')} · Rem ${'▮'.repeat(Math.round(pt.brake * 5)).padEnd(5, '▯')}${pt.emergency ? ' · <b style="color:#ff6a5a">NOODREM</b>' : ''}<br>
         Sein: <b style="color:${sg && sg.red ? '#ff4a3a' : '#4aff6a'}">${sg && sg.red ? 'ROOD' : 'GROEN'}</b>${sg && sg.ahead < 3000 ? ` (trein voor je op ${Math.round(sg.ahead)} m)` : ''}<br>
         ${ns ? `Volgende halte: <b>${ns.name}</b> over ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}` : 'Einde van de lijn'}${pt.atStation ? ` · 🚉 ${pt.atStation.name}: Q = deuren` : ''}${pt.doors ? ' · 🚪 deuren open' : ''}<br>
-        <span class="muted">W/S hendels · spatie noodrem · Q deuren · N omroep · R rijrichting · V camera (${{ cab: 'cabine', chase: 'achter', side: 'buiten', passenger: 'passagiers' }[this.cam || 'cab']}) · H verlaten</span></div>${stopInfo}`;
+        ${pt.L.connector ? `🔀 Op het verbindingsspoor naar <b>${pt.L.name}</b> · max 40 km/h<br>` : pt.juncs && pt.juncs.length ? `🔀 Wissel over ${Math.round(pt.juncs[0].ds)} m: <b>${pt.junction ? 'naar ' + pt.juncs[0].name : 'rechtdoor'}</b> · A/D omzetten<br>` : ''}
+        <span class="muted">W/S hendels · spatie noodrem · A/D wissel · Q deuren · N omroep · R rijrichting · V camera (${{ cab: 'cabine', chase: 'achter', side: 'buiten', passenger: 'passagiers' }[this.cam || 'cab']}) · H verlaten</span></div>${stopInfo}`;
     }
   }
   key(code) {
@@ -1202,8 +1264,17 @@ class TrainCab {
       return true;
     }
     if (code === 'KeyN') { const ns = pt.nextStop; r.say(ns ? `Volgende halte: ${ns.name}.` : 'Dit is het eindstation. Iedereen uitstappen, alstublieft.'); return true; }
+    if (code === 'KeyA' || code === 'KeyD') {
+      const n = (pt.juncs || []).length;
+      if (!n) { this.g.toast('Geen overloopwissel naar een andere lijn in de komende 3 km'); return true; }
+      const j = pt.juncs[0];
+      pt.jSel = pt.jSel ? null : j;
+      this.g.toast(pt.jSel ? `🔀 Wissel over ${Math.round(j.ds)} m gezet: naar ${j.name}` : '⬆ Wissel rechtdoor (deze lijn blijven volgen)');
+      return true;
+    }
     if (code === 'KeyR') {
       if (pt.v > 0.3) { this.g.toast('Eerst stoppen om van rijrichting te wisselen'); return true; }
+      if (pt.trail || pt.L.connector) { this.g.toast('Eerst helemaal voorbij de wissel rijden'); return true; }
       pt.dir = -pt.dir; pt.tr.cars.reverse(); for (const c of pt.tr.cars) c.flip = !c.flip;
       const cab = pt.tr.cars.find(c => c.d.cab && !c.flip) || pt.tr.cars[0]; pt.car = cab;
       // de kop zit nu aan de andere kant

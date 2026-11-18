@@ -21,6 +21,9 @@ export const T = 128;
 export { META } from './greenisland-meta.js';
 import { META } from './greenisland-meta.js';
 import { boreColumn, BORE_W, BORE_H } from './carve.js';
+import { buildCrossovers, crossoverNear } from './crossover.js';
+// overloopwissels tussen evenwijdige lijnen (dezelfde als in js/rail.js)
+const XO = buildCrossovers(LINES, trackOffset);
 
 class Grid {
   constructor(C) { this.C = C; this.m = new Map(); }
@@ -1071,6 +1074,14 @@ function fillColumn(x, z, col, slope, ctx, h) {
   let t = fillColumnSurface(x, z, col, slope, ctx, h);
   if (busStopGrid().at(x, z).length) t = busShelter(x, z, col, t, Math.round(G + h));
   for (const [L, q, bed] of deepTunnels) t = Math.max(t, boreColumn(col, Math.round(q.y), q.d, bed, q.s));
+  // verbindingsspoor van een overloopwissel: ballast in een S-bocht van het ene spoor naar het andere
+  const xo = XO.length ? crossoverNear(XO, x + 0.5, z + 0.5, 2.6) : null;
+  if (xo) {
+    const y = Math.round(xo.y);
+    if (col[y] !== B.BALLAST) { for (let k = y - 3; k < y; k++) if (!col[k]) col[k] = B.GRAVEL; col[y - 1] = B.GRAVEL; col[y] = xo.d < 1.9 ? B.BALLAST : B.GRAVEL; }
+    for (let k = y + 1; k <= y + 7; k++) if (col[k]) col[k] = 0;
+    t = Math.max(t, y);
+  }
   return ctx.metro && ctx.metro.length ? metroCarve(x, z, col, t, Math.round(G + h), ctx) : t;
 }
 // ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------
@@ -1329,6 +1340,13 @@ function tilePaths(X0, Z0, lines) {
       for (let s = s0; s <= s1 + 0.01; s += 4) { L.at(Math.min(s, s1), p); const off = trackOffset(L, s) * side, px = p.x - p.tz * off, pz = p.z + p.tx * off, q = L.near(Math.floor(px), Math.floor(pz), 40); pts.push([px, pz, Math.round(q ? q.y : p.y)]); }
       clipPush('train', pts);
     }
+  }
+  // rails van de overloopwissels
+  for (const c of XO) {
+    const b = c.box; if (b.x1 < X0 - 8 || b.x0 > X0 + T + 8 || b.z1 < Z0 - 8 || b.z0 > Z0 + T + 8) continue;
+    const pts = []; for (let i = 0; i < c.n; i += 2) pts.push([c.pts[i * 3], c.pts[i * 3 + 2], c.pts[i * 3 + 1]]);
+    pts.push([c.pts[c.n * 3 - 3], c.pts[c.n * 3 - 1], c.pts[c.n * 3 - 2]]);
+    clipPush('train', pts);
   }
   // nationale wegen: rechts rijden; snelwegen en N-wegen = hoofdwegen (bussen)
   const seen = new Set();
