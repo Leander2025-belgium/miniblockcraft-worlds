@@ -1,4 +1,4 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-17b, Blokstad 12)
+# Openbaar vervoer — stand van zaken (versie 2026-11-18a, Blokstad 12.1)
 
 ## Fase 1 — tunnels (af)
 
@@ -156,10 +156,71 @@
 ### FPS-meter
 - In de instellingen of met F3. Hij toont beelden per seconde, het traagste frame, tekenopdrachten, driehoeken, geheugen (waar de browser het geeft), resolutie, laadtijd en wachtrij.
 
+## Blokstad 12.1 (versie 2026-11-18a)
+
+### Wissels tussen lijnen (`js/crossover.js`)
+- **Overloopwissels**: waar twee dubbelsporige lijnen minstens 420 m naast elkaar liggen (8–22 m uit elkaar, op dezelfde hoogte, boven de grond en minstens 120 m van een perron), ligt nu een echt verbindingsspoor in een S-bocht, één per rijrichting.
+- **In Greenisland**: 4 stuks, IC1 ↔ S1 en IC2 ↔ S1.
+- **In de Alpen**: geen. Daar liggen de evenwijdige stukken in Reuzenberg Hauptbahnhof, en dat gebied blijft onveranderd.
+- **In de wereld**: het verbindingsspoor heeft ballast en vrije ruimte erboven, rails en dwarsliggers (via de spoorpaden), wisselmotoren, lantaarns, wisselborden en wisseltongen die omschuiven.
+- **Zelf rijden**:
+  - A/D (of ◀ ▶ op de telefoon) zet de volgende wissel binnen 3 km om. Het dashboard toont de wissel en de afstand.
+  - De trein rijdt over het verbindingsspoor naar de andere lijn, ook in omgekeerde richting.
+  - De rijtuigen erachter volgen het spoor over de wissel. In de test bleef de koppelafstand maximaal 0,75 m, dus er ontstonden geen gaten.
+  - Op de wissel geldt 40 km/h; de automatische remming grijpt in als je te hard rijdt.
+- **Beperking**: de treinen van de dienstregeling gebruiken de wissels niet; elke dienst rijdt op zijn eigen lijn.
+
+### Tunnels: gewelf en ventilatieschachten (`js/carve.js`)
+- **Gewelf**: de tunnels hebben een afgeronde bovenkant (halve ellips boven 4 m). Het voertuigprofiel blijft overal vrij volgens de controle.
+- **Lampen** hangen nu tegen de wand op 4 m.
+- **Ventilatieschachten** om de 600 m:
+  - een schacht van 3 × 2 m naast het dienstpad tot aan de oppervlakte, met een rooster en een betonnen kraag;
+  - alleen onder natuurlijk terrein, niet onder straten of gebouwen;
+  - in Greenisland: 46 schachten.
+- **Beperking**: in de Alpen liggen de tunnels onder de bodem van de tegels (diepe ondergrond). Daar zijn nog geen schachten.
+
+### Stations 3.0 (`js/stationhall.js`, `js/greenisland.js`)
+- **Alpen**: elk stationsgebouw (chaletstijl) heeft nu een ingerichte hal:
+  - wachtruimte achter een glazen wand met banken en een vertrekbord;
+  - loketten en ticketautomaten;
+  - kiosk met rekken en toonbank;
+  - café met tafels, stoelen, toog en koffiemachine;
+  - twee toiletten met wastafel;
+  - plafondverlichting en een tweede deur aan de andere kant.
+  - De vertrekborden tonen echte vertrektijden (E).
+- **Greenisland** (moderne stijl): elk perron (behalve Munkbay Central, dat al een grote hal heeft) krijgt:
+  - een glazen wachtruimte met banken en een vertrekbord;
+  - een kiosk;
+  - ticketautomaten.
+  - De bestaande vertrekpalen zijn nu ook leesbaar (E).
+- **Bereikbaarheid**: alle stations zijn te voet bereikbaar, zoals voorheen (perrons, pleinen, trappen; Munkbay Central met een reizigerstunnel).
+
+### Voertuigen
+- **Verlichte ramen**: de passagiersramen van treinen, metro's, trams en bussen zijn overdag donker getint glas en 's avonds warm verlicht (binnenverlichting).
+- **Bestemmingsborden** met tekst op de treinen en trams van Greenisland en de Alpen: lijn en eindbestemming, bijvoorbeeld "S1 Hemelpoort".
+
+### Megatower City: reisplanner (`js/megaplan.js`)
+- Pauzemenu → 🧭 Reisplanner. Je kiest van (je positie of een plek), naar en vertrekuur.
+- **Wat hij combineert**: wandelen, metro M1 (9 stations, met halte Megatower onder de toren en halte Luchthaven) en de trein van Megatower Centraal naar de Luchthaven.
+- **Dienstregeling**: intervallen en haltetijden volgens de periode (`js/service.js`). Metro: 2 / 4 / 6 / 10 min in spits / dal / avond / nacht. Trein: 10 / 15 / 20 / 30 min.
+- **Resultaat**: vertrek, aankomst, lijn, richting, perron, aantal haltes, reistijd, overstappen en wandelafstand.
+- **Navigatie**: een pijl naar de eerste halte. Sta je er al, dan zegt hij welke metro je neemt en wanneer die vertrekt.
+- **Beperking**: de planner rekent met de intervallen, niet met de afzonderlijke metrostellen van het verkeer rond de speler.
+
+### Telefoon en tablet (`tests/browser/mobiel.cjs`)
+- Getest met emulatie van een Pixel 7, een iPhone 13 en een iPad Mini: aanraakscherm, schermgrootte en tikken.
+  - Alle knoppen zijn minstens 40 px groot en liggen binnen het scherm.
+  - De pagina scrollt niet opzij.
+  - Het menu opent met een tik, net als de reisplanner, en past op het scherm.
+  - De minikaart is zichtbaar.
+  - De laadtijd van Megatower City was 8–10 s.
+- **Grenzen van deze test**: het is geen echte telefoon. De testbrowser rekent zonder grafische kaart (12 FPS hier), dus over de snelheid op een echt toestel zegt dit niets.
+
 ## Nog niet gedaan
 
-- **Wissels tussen verschillende lijnen.** Elke lijn rijdt op haar eigen spoor. Er zijn alleen werkende wissels bij de kruisingssporen.
-- **Stations 3.0.** Grote stationshallen met winkels, restaurants en wachtruimtes, verschillend per wereld, zijn er nog niet. De bestaande stations zijn wel te voet bereikbaar.
-- **Ventilatieschachten en ronde tunnelvormen.** De tunnels zijn rechthoekig (blokken).
-- **Busverkeer.** De bussen van het verkeer stoppen aan haltes en verkeerslichten en verlenen voorrang (dat bestond al). Bij zelf rijden met de bus houdt alleen het dashboard bij of je door rood rijdt.
-- **Prestaties.** De FPS-meter meet ze, maar op echte telefoons is er niet getest: de tests draaien in een softwarebrowser zonder grafische kaart.
+- **Wissels in de dienstregeling**: de treinen van de dienstregeling gebruiken de overloopwissels niet. In de Alpen zijn er geen wissels tussen lijnen.
+- **Ventilatieschachten in de Alpen**: die tunnels liggen in de diepe ondergrond.
+- **Grote stationshallen**: hallen met meerdere verdiepingen en winkelgalerijen zijn er niet. De Alpenstations hebben één ingerichte hal, Greenisland heeft voorzieningen op de perrons.
+- **Nieuwe 3D-modellen**: er zijn geen nieuwe modellen voor treinen, metro's en trams. Wel bijgekomen: verlichte ramen, bestemmingsborden met tekst, draaistellen en geluid. De metro's van Megatower City hebben nog een gekleurd bord zonder tekst.
+- **Mooiere werelden**: gebouwen, wegen en landschappen zijn in deze ronde niet aangepast.
+- **Echte telefoons**: de prestaties zijn alleen met emulatie getest, zonder grafische kaart.
