@@ -17,7 +17,9 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
     let tr = null; for (let i = 0; i < 100 && !tr; i++) { Rl.update(0.05, 1); tr = [...Rl.trains.values()].find(t => t.cars.some(c => c.d.cab) && t.a && !t.a.run.sv.freight && t.cars.length >= 3); if (!tr) off += 30000; }
     if (!tr) return { error: 'geen trein' };
     Rl.startDriving(tr, tr.cars.find(c => c.d.cab)); const pt = Rl.player, out = { trein: tr.name, ...rail.trainPhysics(tr) };
+    const start = { L: pt.L, s: pt.s, dir: pt.dir };
     const run = (w) => {
+      Object.assign(pt, start); pt.trail = null; // elke meting op dezelfde plek (zelfde helling)
       Rl.active = []; // geen andere treinen: geen rood sein (anders remt de treinbeïnvloeding)
       g.curWeather = w; pt.v = 0; pt.brake = 0; pt.throttle = 0; pt.emergency = false; pt.doors = false; pt.sandT = 0;
       g.keys.add('KeyW'); let t = 0, slip = false; for (; t < 150 && pt.v < 16.67; t += 0.1) { g.drive.update(0.1); slip = slip || pt.slip; } g.keys.delete('KeyW');

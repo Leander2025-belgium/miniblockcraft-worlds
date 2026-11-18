@@ -160,7 +160,7 @@
 
 ### Wissels tussen lijnen (`js/crossover.js`)
 - **Overloopwissels**: waar twee dubbelsporige lijnen minstens 420 m naast elkaar liggen (8–22 m uit elkaar, op dezelfde hoogte, boven de grond en minstens 120 m van een perron), ligt nu een echt verbindingsspoor in een S-bocht, één per rijrichting.
-- **In Greenisland**: 4 stuks, IC1 ↔ S1 en IC2 ↔ S1.
+- **In Greenisland**: 2 stuks, IC1 ↔ S1 (sinds Blokstad 13; daarvoor ook 2 tussen IC2 en S1). De betere scheiding bij de tunnelkruisingen veranderde het hoogteprofiel. IC2 en S1 liggen daar nu niet meer overal op dezelfde hoogte, dus de verbinding valt weg.
 - **In de Alpen**: geen. Daar liggen de evenwijdige stukken in Reuzenberg Hauptbahnhof, en dat gebied blijft onveranderd.
 - **In de wereld**: het verbindingsspoor heeft ballast en vrije ruimte erboven, rails en dwarsliggers (via de spoorpaden), wisselmotoren, lantaarns, wisselborden en wisseltongen die omschuiven.
 - **Zelf rijden**:
@@ -237,12 +237,14 @@ Zie ook `docs/audit-13.md` (technische audit van de hele game).
 - **Remmen**: begrensd door de kleefkracht (bedrijfsrem tot 1,15 m/s², noodrem tot 1,5 m/s²). Het dashboard toont de remweg bij de huidige snelheid.
 - **Weerstand**: rol- en luchtweerstand (een ICE is gestroomlijnd) en helling.
 - **Klikbare cabine**: de tractie- en remhendel kun je met muis of vinger slepen, met knoppen voor noodrem, zand en deuren.
-- **Gemeten** (`tests/browser/treinsim.cjs`, S-Bahn van 160 t, 79 m):
+- **Gemeten** (`tests/browser/treinsim.cjs`, S-Bahn van 160 t, 79 m, elke meting op dezelfde plek, licht bergop):
 
-  | | 0 → 60 km/h | Remweg vanaf 60 km/h | Wielslip |
+  | | 0 → 60 km/h | Remweg vanaf 60 km/h (berekend) | Wielslip |
   |---|---|---|---|
-  | Droog | 13,8 s | 127 m | nee |
-  | Sneeuw | 17,8 s | 134 m | ja (met zand niet) |
+  | Droog | 27,0 s | 120 m (121 m) | nee |
+  | Sneeuw | 29,2 s | 130 m (131 m) | ja (met zand niet) |
+
+  Op een vlak stuk: 13,8 s tot 60 km/h.
 
 ### Reizigers op de perrons (`js/passengers.js`)
 - **Wachten**: per stationskant 12 reizigers in de spits, 7 in de daluren, 4 's avonds en 1 's nachts. Ze kijken naar het spoor en schuifelen af en toe een stukje op.
