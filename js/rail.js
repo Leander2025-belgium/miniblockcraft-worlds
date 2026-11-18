@@ -6,7 +6,8 @@ import { TrainShells } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
 import { buildCrossovers } from './crossover.js';
-import { B } from './blocks.js';
+import { Passengers } from './passengers.js';
+import { B, IS_SOLID } from './blocks.js';
 import { meshChunk } from './mesher.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
 // useNet(net) kiest het net van de wereld die gespeeld wordt.
@@ -65,6 +66,17 @@ const LIVERY = {
   S1: [B.PAINT_WHITE, B.PAINT_BLUE], ICE: [B.PAINT_WHITE, B.PAINT_RED], PE: [B.PAINT_ORANGE, B.PAINT_WHITE], ZB: [B.PAINT_RED, B.PAINT_WHITE],
   ME: [B.PAINT_GREEN, B.PAINT_WHITE], G: [B.BRICK_DARK, B.PAINT_BLACK],
 };
+// massa (t), tractiekracht (kN) en vermogen (kW) per rijtuigsoort; aangedreven rijtuigen tellen mee voor de kleefkracht
+const CAR_PHYS = { loco: [86, 240, 6400], emuCab: [56, 70, 1600], emuMid: [48, 55, 1200], iceHead: [72, 150, 4000], ice: [52, 30, 800],
+  coach1: [46, 0, 0], coach2: [44, 0, 0], dining: [52, 0, 0], sleeper: [54, 0, 0], panorama: [42, 0, 0], rack: [32, 45, 900], rackLoco: [44, 70, 1400],
+  tram: [36, 45, 500], bus: [16, 0, 0], box: [58, 0, 0], tank: [72, 0, 0], flat: [40, 0, 0] };
+export function trainPhysics(tr) {
+  let M = 0, Md = 0, F = 0, P = 0, len = 0;
+  for (const c of tr.cars) { const [m, f, p] = CAR_PHYS[c.d.type] || [45, 0, 0]; M += m; if (f) { Md += m; F += f; P += p; } len += c.d.L + GAP; }
+  return { M, Md: Md || M * 0.3, F: F || 150, P: P || 1500, len: Math.round(len - GAP), aero: tr.cars.some(c => c.d.type === 'iceHead') ? 0.7 : 1 };
+}
+// kleefkracht wiel–rail: droog 0,30; regen 0,20; onweer 0,17; sneeuw 0,12
+export function adhesion(w) { return w === 'snow' ? 0.12 : w === 'storm' ? 0.17 : w === 'rain' ? 0.2 : 0.3; }
 const CAR_LEN = { loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
 function design(type, liv) {
   const L = CAR_LEN[type], W = 4, H = 6, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
@@ -395,6 +407,8 @@ export class AlpRail {
     this.shells = new TrainShells(game.scene); // gladde buitenkant (van buiten), het blokinterieur aan boord
     this.infra = new RailInfra(game.scene, LINES, trackOffset, TRACK); // bovenleiding, seinpalen, wissels
     this.infra.setJunctions(JUNCTIONS);
+    this.pax = new Passengers(game.scene, trackOffset, TRACK); // reizigers op de perrons
+    { const w = game.world; this.pax.free = (x, y, z) => !IS_SOLID[w.get(x, y, z)] && !IS_SOLID[w.get(x, y + 1, z)] && !!IS_SOLID[w.get(x, y - 1, z)]; }
     this.designs = new Map(); this.trains = new Map(); this.t = 0;
     this.tmpV = new THREE.Vector3(); this.tmpW = new THREE.Vector3();
     this.announced = new Set();
@@ -428,7 +442,7 @@ export class AlpRail {
   }
   dispose() {
     for (const tr of this.trains.values()) this.dropTrain(tr);
-    this.shells?.dispose(); this.infra?.dispose();
+    this.shells?.dispose(); this.infra?.dispose(); this.pax?.dispose();
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.group.removeFromParent();
     if (this.tunnel) this.tunnel.geometry.dispose();
@@ -591,6 +605,19 @@ export class AlpRail {
     this.updateSignals(act);
     this.infra?.update(p); this.infra?.setDay(day);
     this.updateNav();
+    // reizigers: treinen in de buurt met hun deuren (langs de lijn) en of de deuren open zijn
+    if (this.pax) {
+      const list = [], tmpv = new THREE.Vector3();
+      for (const [id, tr] of this.trains) {
+        if (!tr.L || Math.abs(tr.L.at(tr.s).x - p.x) > 400) continue;
+        const mine = this.player && this.player.tr === tr, open = mine ? (this.player.doors && this.player.v < 0.1) : (tr.a ? !!doorsOpenAt(tr.a) : false);
+        const doors = [];
+        if (open) for (const c of tr.cars) for (const dz of c.d.doors) { const w = c.body.toWorld(tmpv.set(c.d.W / 2, 1, dz + 0.5), new THREE.Vector3()); const r = tr.L.near(Math.floor(w.x), Math.floor(w.z), 12); if (r) doors.push(r.s); }
+        list.push({ key: id, L: mine ? this.player.L : tr.L, dir: mine ? this.player.dir : tr.dir, s: mine ? this.player.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
+      }
+      this.pax.update(dt, p, LINES, list, periodOf(railClock()));
+      this.pax.setDay(day);
+    }
     this.updateCrossings(act);
     this.updateTunnel(p);
     this.updateAboard(dt);
@@ -866,7 +893,21 @@ export class AlpRail {
     if (atp && !pt.atpWarn) { pt.atpWarn = true; g.toast('⚠ Automatische remming: sein op rood of te snel!'); }
     if (!atp) pt.atpWarn = false;
     const grade = L.at(pt.s).grade * pt.dir;
-    const acc = pt.throttle * 0.9 - pt.brake * 1.1 - (pt.emergency || atp ? 1.6 : 0) - 9.81 * grade * (L.rack ? 0.15 : 1) - 0.002 * pt.v * pt.v / 10;
+    // treinsimulatie: massa en tractie uit de echte rijtuigen, kleefkracht volgens het weer (wielslip), remmen
+    // begrensd door de kleefkracht, rij- en luchtweerstand, helling (tandradbanen: het tandrad neemt de helling op)
+    const ph = pt.phys || (pt.phys = trainPhysics(pt.tr));
+    if (pt.sandT > 0) pt.sandT -= dt;
+    const mu = adhesion(g.curWeather) + (pt.sandT > 0 ? 0.07 : 0), gN = 9.81, v = pt.v; // zand strooien: betere kleefkracht
+    const fMax = ph.F * 1000, fPow = v > 0.5 ? ph.P * 1000 / v : fMax;            // N
+    const fAdh = L.rack ? Infinity : mu * ph.Md * 1000 * gN;                      // N (aangedreven assen)
+    const fWant = pt.throttle * Math.min(fMax, fPow);
+    pt.slip = fWant > fAdh * 1.02 && v < 40;
+    const fTr = pt.slip ? fAdh * 0.8 : fWant;                                      // slippende wielen trekken minder
+    const bMax = Math.min(L.rack ? 1.4 : mu * gN * 0.9, 1.15);                     // bedrijfsrem, m/s²
+    const bEm = Math.min(L.rack ? 1.8 : mu * gN * 0.95, 1.5);                      // noodrem
+    const res = 0.012 + 0.0003 * v + 0.00009 * v * v * (ph.aero || 1);           // rol- en luchtweerstand, m/s²
+    const acc = fTr / (ph.M * 1000) - pt.brake * bMax - (pt.emergency || atp ? bEm : 0) - gN * grade * (L.rack ? 0.15 : 1) - (v > 0.05 ? res : 0);
+    pt.bMax = bMax; pt.mu = mu;
     pt.v = Math.max(0, pt.v + acc * dt);
     if (pt.v === 0) pt.emergency = false;
     // einde van de lijn
@@ -1191,7 +1232,26 @@ function legHtml(lg, esc) {
 
 // ---------- de cabine (zelf rijden) ----------
 class TrainCab {
-  constructor(rail) { this.r = rail; this.g = rail.g; this.t = 0; this.show(true); }
+  constructor(rail) {
+    this.r = rail; this.g = rail.g; this.t = 0; this.show(true);
+    // klikbare bediening: hendels slepen (boven = vol), knoppen voor noodrem, zand en deuren
+    const hud = rail.hud;
+    if (hud && !hud.dataset.cabBound) {
+      hud.dataset.cabBound = '1';
+      const lever = (e) => {
+        const el = e.target.closest && e.target.closest('.lever'); const pt = rail.player; if (!el || !pt || !(e.buttons || e.type === 'pointerdown')) return;
+        const r = el.getBoundingClientRect(), f = Math.max(0, Math.min(1, (r.bottom - e.clientY) / r.height));
+        if (el.dataset.k === 't') { pt.throttle = f; if (f > 0.05) pt.brake = 0; } else { pt.brake = f; if (f > 0.05) pt.throttle = 0; }
+        e.preventDefault();
+      };
+      hud.addEventListener('pointerdown', (e) => {
+        const b = e.target.closest && e.target.closest('.cab-btn');
+        if (b && rail.player && this.g.drive) { const k = b.dataset.k; if (k === 'nood') rail.player.emergency = true; else this.g.drive.key(k === 'zand' ? 'KeyZ' : 'KeyQ'); e.preventDefault(); return; }
+        lever(e);
+      });
+      hud.addEventListener('pointermove', lever);
+    }
+  }
   show(on) {
     const hud = this.r.hud, pad = document.getElementById('drive-pad');
     if (hud) hud.hidden = !on;
@@ -1240,17 +1300,19 @@ class TrainCab {
           <path d="M10 64 A50 50 0 0 1 110 64" stroke="${pt.v > pt.lim * 1.05 ? '#ff5a4a' : '#4ade80'}" stroke-width="8" fill="none" stroke-dasharray="${Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3)) * 157} 157"/>
           <line x1="60" y1="64" x2="${60 + 46 * Math.cos(Math.PI * (1 - Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3))))}" y2="${64 - 46 * Math.sin(Math.PI * (1 - Math.min(1, pt.v / Math.max(1, (pt.lim || 30) * 1.3))))}" stroke="#fff" stroke-width="3"/>
           <text x="60" y="52" fill="#fff" font-size="18" text-anchor="middle" font-weight="700">${sp}</text><text x="60" y="66" fill="#aab" font-size="8" text-anchor="middle">km/h · max ${lim}</text></svg>
-        <div class="lever" title="Tractiehendel (W / ▲)"><div class="lv-fill" style="height:${Math.round(pt.throttle * 100)}%;background:#4ade80"></div><span>T</span></div>
-        <div class="lever" title="Remhendel (S / ▼)"><div class="lv-fill" style="height:${Math.round(pt.brake * 100)}%;background:${pt.emergency ? '#ff3a2a' : '#fbbf24'}"></div><span>R</span></div>
+        <div class="lever" data-k="t" title="Tractiehendel (W / ▲, of klik en sleep)"><div class="lv-fill" style="height:${Math.round(pt.throttle * 100)}%;background:${pt.slip ? '#ff8a2a' : '#4ade80'}"></div><span>T</span></div>
+        <div class="lever" data-k="r" title="Remhendel (S / ▼, of klik en sleep)"><div class="lv-fill" style="height:${Math.round(pt.brake * 100)}%;background:${pt.emergency ? '#ff3a2a' : '#fbbf24'}"></div><span>R</span></div>
+        <button class="cab-btn" data-k="nood" title="Noodrem">⛔</button><button class="cab-btn" data-k="zand" title="Zand strooien (Z)">⏳</button><button class="cab-btn" data-k="deur" title="Deuren (Q)">🚪</button>
         <div class="sig-lamp" style="background:${sg && sg.red ? '#ff3a2a' : '#22e06a'}" title="Volgend sein"></div>
         <div class="lim-sign">${lim}</div></div>
         <div class="dh-speed" style="display:none">${sp}</div>
         <div class="small"><b>${pt.tr.sv.name}</b> · max <b>${lim}</b> km/h<br>
         Tractie ${'▮'.repeat(Math.round(pt.throttle * 5)).padEnd(5, '▯')} · Rem ${'▮'.repeat(Math.round(pt.brake * 5)).padEnd(5, '▯')}${pt.emergency ? ' · <b style="color:#ff6a5a">NOODREM</b>' : ''}<br>
+        ${pt.phys ? `${pt.phys.M} t · ${pt.phys.len} m · kleefkracht ${pt.mu.toFixed(2)}${pt.sandT > 0 ? ' (zand)' : ''} · remweg <b>${Math.round(pt.v * pt.v / (2 * Math.max(0.3, pt.bMax || 1)))} m</b>${pt.slip ? ' · <b style="color:#ff8a2a">WIELSLIP: minder tractie of Z = zand</b>' : ''}<br>` : ''}
         Sein: <b style="color:${sg && sg.red ? '#ff4a3a' : '#4aff6a'}">${sg && sg.red ? 'ROOD' : 'GROEN'}</b>${sg && sg.ahead < 3000 ? ` (trein voor je op ${Math.round(sg.ahead)} m)` : ''}<br>
         ${ns ? `Volgende halte: <b>${ns.name}</b> over ${dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : Math.round(dist) + ' m'}` : 'Einde van de lijn'}${pt.atStation ? ` · 🚉 ${pt.atStation.name}: Q = deuren` : ''}${pt.doors ? ' · 🚪 deuren open' : ''}<br>
         ${pt.L.connector ? `🔀 Op het verbindingsspoor naar <b>${pt.L.name}</b> · max 40 km/h<br>` : pt.juncs && pt.juncs.length ? `🔀 Wissel over ${Math.round(pt.juncs[0].ds)} m: <b>${pt.junction ? 'naar ' + pt.juncs[0].name : 'rechtdoor'}</b> · A/D omzetten<br>` : ''}
-        <span class="muted">W/S hendels · spatie noodrem · A/D wissel · Q deuren · N omroep · R rijrichting · V camera (${{ cab: 'cabine', chase: 'achter', side: 'buiten', passenger: 'passagiers' }[this.cam || 'cab']}) · H verlaten</span></div>${stopInfo}`;
+        <span class="muted">W/S hendels (of slepen) · spatie noodrem · Z zand · A/D wissel · Q deuren · N omroep · R rijrichting · V camera (${{ cab: 'cabine', chase: 'achter', side: 'buiten', passenger: 'passagiers' }[this.cam || 'cab']}) · H verlaten</span></div>${stopInfo}`;
     }
   }
   key(code) {
@@ -1264,6 +1326,7 @@ class TrainCab {
       return true;
     }
     if (code === 'KeyN') { const ns = pt.nextStop; r.say(ns ? `Volgende halte: ${ns.name}.` : 'Dit is het eindstation. Iedereen uitstappen, alstublieft.'); return true; }
+    if (code === 'KeyZ') { pt.sandT = 8; this.g.toast('⏳ Zand gestrooid: 8 s betere kleefkracht'); return true; }
     if (code === 'KeyA' || code === 'KeyD') {
       const n = (pt.juncs || []).length;
       if (!n) { this.g.toast('Geen overloopwissel naar een andere lijn in de komende 3 km'); return true; }
