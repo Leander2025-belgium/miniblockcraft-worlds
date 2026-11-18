@@ -1,4 +1,4 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-18a, Blokstad 12.1)
+# Openbaar vervoer — stand van zaken (versie 2026-11-18b, Blokstad 13.0)
 
 ## Fase 1 — tunnels (af)
 
@@ -216,11 +216,64 @@
   - De laadtijd van Megatower City was 8–10 s.
 - **Grenzen van deze test**: het is geen echte telefoon. De testbrowser rekent zonder grafische kaart (12 FPS hier), dus over de snelheid op een echt toestel zegt dit niets.
 
+## Blokstad 13.0 (versie 2026-11-18b)
+
+Zie ook `docs/audit-13.md` (technische audit van de hele game).
+
+### Tunnels: geen lage plafonds meer
+- **Kruising onder een scherpe hoek**: de scheiding van 10,5 m tussen twee kruisende lijnen werd alleen op het kruispunt zelf vastgelegd. Bij ICEA × M6 lag M6 36 m verder nog maar 8,5 m boven ICEA. Nu geldt de scheiding over het hele stuk waar de tunnels elkaar zijdelings raken (`js/green-net.js`).
+- **Talud boven een tunnel**: het talud van IC1 (3 blokken steen onder het spoor) kwam in het plafond van de ICEF-tunnel eronder. Nu blijft de tunnel eronder vrij en blijft alleen het brugdek over.
+- **Strengere controle**: de tunnelcontrole faalt nu ook als alleen de stroomafnemer zou raken. Resultaat:
+
+  | Wereld | Geblokkeerd | Laag plafond |
+  |---|---|---|
+  | Greenisland | 0 | 0 |
+  | Alpen | 0 | 0 |
+  | Megatower City | 0 | 0 |
+
+### Treinsimulatie (`js/rail.js`: `trainPhysics`, `adhesion`)
+- **Per trein**: massa, lengte, tractiekracht en vermogen volgen uit de echte rijtuigen. Locomotieven en motorwagens trekken, rijtuigen niet.
+- **Kleefkracht en wielslip**: kleefkracht 0,30 bij droog weer, 0,20 bij regen, 0,17 bij onweer en 0,12 bij sneeuw. Vraag je meer tractie dan de wielen kunnen overbrengen, dan slippen ze (melding op het dashboard) en trekt de trein minder. Met Z strooi je zand: 8 s betere kleefkracht.
+- **Remmen**: begrensd door de kleefkracht (bedrijfsrem tot 1,15 m/s², noodrem tot 1,5 m/s²). Het dashboard toont de remweg bij de huidige snelheid.
+- **Weerstand**: rol- en luchtweerstand (een ICE is gestroomlijnd) en helling.
+- **Klikbare cabine**: de tractie- en remhendel kun je met muis of vinger slepen, met knoppen voor noodrem, zand en deuren.
+- **Gemeten** (`tests/browser/treinsim.cjs`, S-Bahn van 160 t, 79 m):
+
+  | | 0 → 60 km/h | Remweg vanaf 60 km/h | Wielslip |
+  |---|---|---|---|
+  | Droog | 13,8 s | 127 m | nee |
+  | Sneeuw | 17,8 s | 134 m | ja (met zand niet) |
+
+### Reizigers op de perrons (`js/passengers.js`)
+- **Wachten**: per stationskant 12 reizigers in de spits, 7 in de daluren, 4 's avonds en 1 's nachts. Ze kijken naar het spoor en schuifelen af en toe een stukje op.
+- **Instappen**: staat er een trein met open deuren, dan lopen ze eerst naar de perronrand en dan erlangs naar de dichtste deur.
+- **Uitstappen**: bij het openen van de deuren stappen er reizigers uit en die lopen naar de uitgang.
+- **Nooit in een muur**: de perronrand wordt afgetast in de echte blokken (vaste vloer, lucht voor voeten en hoofd). Komt er een bank of paal in de weg, dan stappen ze opzij.
+- **Getest** (`tests/browser/reizigers.cjs`):
+  - Alpen en Greenisland: wachten, instappen en uitstappen werken.
+  - Bij elke controle: 0 reizigers in een muur of zwevend (honderden posities gecontroleerd).
+- **Beperking**: alleen in de spoorwerelden (Greenisland, Alpen), alleen op de perrons, niet in de stationshallen of aan bushaltes.
+
+### Geluid
+- **Omgevingsgeluid** (`js/ambient.js`, instelbaar):
+  - verkeersgeruis in de stad, luider met meer voertuigen;
+  - wind die aanzwelt, sterker hoog in de bergen en bij onweer;
+  - regen;
+  - een lage galm ondergronds.
+- **Stationsomroep**: staat er een trein klaar aan het perron waar je staat, dan hoor je een omroep, bijvoorbeeld "Gletsjerdal. S1 naar Hemelpoort staat klaar."
+
 ## Nog niet gedaan
 
+Van de opdracht Blokstad 13.0 is in deze ronde niet gebouwd:
+- **Treinen**: nieuwe treinmodellen (historisch, slaaptrein-buitenkant, bergtrein in een eigen stijl), LOD voor de buitenkant van treinen en bewegende stroomafnemers.
 - **Wissels in de dienstregeling**: de treinen van de dienstregeling gebruiken de overloopwissels niet. In de Alpen zijn er geen wissels tussen lijnen.
-- **Ventilatieschachten in de Alpen**: die tunnels liggen in de diepe ondergrond.
-- **Grote stationshallen**: hallen met meerdere verdiepingen en winkelgalerijen zijn er niet. De Alpenstations hebben één ingerichte hal, Greenisland heeft voorzieningen op de perrons.
-- **Nieuwe 3D-modellen**: er zijn geen nieuwe modellen voor treinen, metro's en trams. Wel bijgekomen: verlichte ramen, bestemmingsborden met tekst, draaistellen en geluid. De metro's van Megatower City hebben nog een gekleurd bord zonder tekst.
-- **Mooiere werelden**: gebouwen, wegen en landschappen zijn in deze ronde niet aangepast.
-- **Echte telefoons**: de prestaties zijn alleen met emulatie getest, zonder grafische kaart.
+- **Metro**: metro 4.0 (depots, keersporen, eigen seinbeveiliging) en metrostations met meerdere niveaus en tourniquets.
+- **Bus en tram**: bus 4.0 en tram 4.0 (nieuwe modellen, routebegeleiding, tramdepots).
+- **Reisplanner**: één reisplanner voor alle werelden samen met echte ritten van het verkeer.
+- **Stations**: stations 4.0 (grote hallen met verdiepingen), een betreedbaar centraal station in Megatower City.
+- **Tunnels**: nooduitgangen en tunnelbewegwijzering.
+- **Werelden**: nieuwe stadsarchitectuur, meer betreedbare gebouwen, Megatower City 2.0 en het herstellen van wereldgeneratiefouten. Er is geen nieuwe controle gedaan: de bestaande controles op zwevende huizen, naden en wegen slagen.
+- **Graphics**: graphics 4.0 (PBR-materialen, reflecties, wind).
+- **Voetgangers**: buiten de perrons (bushaltes, stationshallen).
+- **Interface**: een nieuw hoofdmenu met wereldpreviews en toetsenbordinstellingen.
+- **Prestaties**: niet gemeten op echte toestellen. De tests draaien zonder grafische kaart.
