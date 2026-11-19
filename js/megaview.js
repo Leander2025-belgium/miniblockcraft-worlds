@@ -3,7 +3,7 @@
 // Wordt geladen door js/game.js als de wereld Megatower City is (spec.megatower).
 import * as THREE from 'three';
 import { B } from './blocks.js';
-import { buildingAt, interiorBlock, metroStationAt, MEGA_HALL } from './megacity.js';
+import { buildingAt, interiorBlock, metroStationAt, MEGA_HALL, METRO_Z } from './megacity.js';
 import { centraalBoard } from './megaplan.js';
 import { periodOfHour, PERIOD_LABEL, DWELL, HEADWAY } from './service.js';
 import { LIFTS, floorY, floorAt, floorLabel, roomAt, CX, CZ, zoneOf, ZONE_NAMES, inTowerBox, F_MIN } from './megatower.js';
@@ -304,8 +304,12 @@ export class MegaView {
       if (name && /^(Kamer|Suite|Appartement|Woning|Duplex|Penthouse|Exclusieve|Studio)/.test(name)) this.g.toast(`🏠 ${name}${r.style ? ' · ' + r.style : ''}`);
     }
   }
+  // eindbestemming van metro M1 (west → Westpoort, oost → Luchthaven); dx, dz = rijrichting
+  lineDest(a, dx, dz) { if (a.kind !== 'metro') return null; return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 'Luchthaven' : 'Westpoort') : null; }
   hudText() {
-    const r = this.where;
+    const r = this.where, p = this.g.player.pos;
+    // ondergronds langs metrolijn M1: station of tunnel
+    if (!(r && r.inside) && p.y < this.g.meta.ground - 6 && Math.abs(p.z - METRO_Z) < 14) { const ms = metroStationAt(p.x, p.z); return ms ? `🚇 Metrostation ${ms.name} · M1` : '🚇 Metrotunnel M1'; }
     if (!r || !r.inside) return null;
     return `🏢 Verdieping ${r.label} · ${r.room}`;
   }

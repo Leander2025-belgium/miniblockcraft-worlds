@@ -435,7 +435,7 @@ export class Game {
     if (this.lod) this.lod.dispose();
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
-    this.traffic = new Traffic(this.scene, spec.ground);
+    this.traffic = new Traffic(this.scene, spec.ground); { const w = this.world; this.traffic.solidAt = (x, y, z) => w.solidAt(x, y, z); } // perronkant voor de deuren
     this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
     this.airports?.dispose(); this.airports = new Airports(this);
     this.dropMountain(); this.leaveVehicle();
@@ -1763,7 +1763,8 @@ export class Game {
       this.ui.coords.textContent = `x ${Math.floor(p.pos.x)} · z ${Math.floor(p.pos.z)} · hoogte ${h} m${this.gnmiNow && this.isGreen() ? ` · ${this.gnmiNow.icon} ${Math.round(this.gnmiNow.temp)} °C` : ''}${this.wallet && this.isGreen() ? ` · 💰 ${Math.round(this.wallet.balance)} VC` : ''}`;
       const zn = this.tiled && this.tiled.spec.zoneName ? this.tiled.spec.zoneName : zoneName;
       const mt = this.mega && this.mega.hudText();
-      this.ui.place.textContent = this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${mt || zn(p.pos.x, p.pos.z)} · kijkrichting ${dir}${fly}`;
+      const zt = mt || zn(p.pos.x, p.pos.z);
+      this.ui.place.textContent = hudSafe(this.ride ? this.rideInfo || '🚡 Kabelbaan' : `${zt && typeof zt === 'string' ? zt + ' · ' : ''}kijkrichting ${dir}${fly}`);
       return;
     }
     if (m.real) {
@@ -2139,6 +2140,8 @@ function freeArray() { this.array = null; }
 const FLY_SPEEDS = [12, 40, 120];
 const FLY_NAMES = ['normaal vliegen (12 m/s)', 'snel vliegen (40 m/s)', 'turbo (120 m/s)'];
 
+// nooit 'undefined', 'null', 'NaN' of '[object Object]' in de interface: zulke stukjes weglaten
+export function hudSafe(t) { return String(t ?? '').replace(/(^|\s·\s)(undefined|null|NaN|\[object Object\])(?=\s·\s|$)/g, '$1').replace(/\b(undefined|null|\[object Object\])\b/g, '').replace(/(\s·\s){2,}/g, ' · ').replace(/^\s*·\s*|\s*·\s*$/g, '').trim(); }
 function loadSettings() {
   const phone = matchMedia('(pointer: coarse)').matches;
   const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);

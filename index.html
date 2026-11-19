@@ -142,7 +142,7 @@
   .slot .num { position: absolute; left: 3px; top: 0; font-size: 10px; opacity: .8; }
   #loading { left: 50%; top: 38%; transform: translateX(-50%); background: rgba(0,0,0,.55); padding: 8px 16px; border-radius: 8px; font-weight: 600; }
   #loading.minor { top: auto; bottom: 92px; font-size: 12px; font-weight: 500; padding: 4px 10px; background: rgba(0,0,0,.4); }
-  #toast { right: 14px; top: 12px; background: rgba(0,0,0,.6); padding: 6px 12px; border-radius: 8px; font-size: 14px; white-space: pre-line; max-width: min(520px, 90vw); }
+  #toast { left: 50%; right: auto; transform: translateX(-50%); top: calc(64px + var(--st, 0px)); text-align: center; background: rgba(0,0,0,.6); padding: 6px 12px; border-radius: 8px; font-size: 14px; white-space: pre-line; max-width: min(520px, 90vw); }
   .ov { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8,12,18,.62); z-index: 20; padding: 16px; }
   /* minikaart klikbaar boven het pauzemenu en 'Klik om te spelen' (op een laptop zit de muis anders vast) */
   #game:has(#ov-pause:not([hidden])) #minimap, #game:has(#ov-start:not([hidden])) #minimap { z-index: 21; }
@@ -198,6 +198,10 @@
   .drive-hud .dh-speed { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
   .drive-hud .dh-speed small { font-size: 13px; font-weight: 600; }
   .drive-hud .dh-row { font-size: 13px; line-height: 1.5; }
+  .drive-hud .dh-row.muted { opacity: .75; font-size: 12px; }
+  /* tijdens het rijden: de laadmelding boven in het midden, niet over het rijpaneel */
+  .driving #loading.minor { top: calc(40px + var(--st, 0px)); bottom: auto; }
+  .driving #toast { top: calc(88px + var(--st, 0px)); }
   .drive-hud .warn { color: #ff8a7a; } .drive-hud .ok { color: #8be38b; }
   .driving #hotbar-wrap, .driving #crosshair, .driving #t-jump, .driving #t-down, .driving #t-break, .driving #t-place, .driving #t-fly, .driving #t-speed, .driving #t-inv { display: none !important; }
   .drive-pad { position: absolute; inset: 0; z-index: 7; pointer-events: none; }

@@ -63,7 +63,7 @@ function district(x, z) {
 }
 export function zoneName(x, z) {
   const tx = Math.floor(x / T), tz = Math.floor(z / T), l = landmark(tx, tz);
-  if (l) return { tower: 'The Megatower', river: 'Rivier en kades', park: 'Centraal Park', park2: 'Stadspark', stadium: 'Megatower Stadion', airport: 'Luchthaven', uni: 'Universiteitscampus', industry: 'Industriegebied', hospital: 'Ziekenhuis Sint-Elisabeth', busstation: 'Busstation Centraal', mall: 'Winkelcentrum' }[l.id];
+  if (l) { const n = { tower: 'The Megatower', river: 'Rivier en kades', park: 'Centraal Park', park2: 'Stadspark', stadium: 'Megatower Stadion', airport: 'Luchthaven', uni: 'Universiteitscampus', industry: 'Industriegebied', hospital: 'Ziekenhuis Sint-Elisabeth', busstation: 'Busstation Centraal', mall: 'Winkelcentrum' }[l.id]; if (n) return n; if (l.name) return l.name; } // onbekend oriëntatiepunt (bv. torenplein): naam van de wijk
   if (Math.abs(z - RAIL_Z) < 16 && x >= STATION_X0 && x < STATION_X1) return 'Station Megatower Centraal';
   return { core: 'Centrum', cbd: 'Zakendistrict', urban: 'Stadswijk', resid: 'Woonwijk', suburb: 'Buitenwijk' }[district(x, z)];
 }

@@ -341,36 +341,130 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
 }
 
 // ---------- metro (met interieur: je kan erin meerijden) ----------
+// ---------- gedeelde interieuronderdelen (metro, tram, bus, trein) ----------
+// Alle maten in m. Stoel: zitting, rugleuning en hoofdsteun (geen massief blok); face = richting waarin je kijkt.
+const FABRIC = 0x2f4d7a, FABRIC_DARK = 0x1d2e4b, PRIORITY = 0xa8323a, POLE = 0xd6dade, CEIL = 0xe9ecef, FLOOR = 0x3c424b;
+export function seat(P, x, z, floor, face, color = FABRIC, head = FABRIC_DARK) {
+  // face: 'x+', 'x-', 'z+', 'z-' (kijkrichting); de rugleuning zit aan de andere kant
+  const ax = face[0] === 'x', sg = face[1] === '+' ? 1 : -1;
+  const back = (d) => ax ? [x - sg * d, z] : [x, z - sg * d];
+  P.box('trim', ax ? 0.44 : 0.46, 0.09, ax ? 0.46 : 0.44, x, floor + 0.44, z, color);                  // zitting
+  const [bx, bz] = back(0.21); P.box('trim', ax ? 0.07 : 0.46, 0.58, ax ? 0.46 : 0.07, bx, floor + 0.79, bz, color); // rugleuning
+  const [hx, hz] = back(0.22); P.box('trim', ax ? 0.08 : 0.34, 0.16, ax ? 0.34 : 0.08, hx, floor + 1.17, hz, head);  // hoofdsteun
+  P.box('trim', ax ? 0.3 : 0.06, 0.38, ax ? 0.06 : 0.3, x, floor + 0.2, z, 0x6b7079);                // poot / steun
+}
+export function pole(P, x, z, y0, y1) { const g = new THREE.CylinderGeometry(0.022, 0.022, y1 - y0, 8); g.translate(x, (y0 + y1) / 2, z); P.add('trim', g, POLE); }
+export function rail(P, x, y, z0, z1) { const g = new THREE.CylinderGeometry(0.02, 0.02, Math.abs(z1 - z0), 8); g.rotateX(Math.PI / 2); g.translate(x, y, (z0 + z1) / 2); P.add('trim', g, POLE); }
+export function strap(P, x, y, z) { P.box('trim', 0.02, 0.16, 0.02, x, y - 0.08, z, 0x30343a); P.box('trim', 0.03, 0.09, 0.11, x, y - 0.21, z, 0xf2c94c); } // handgreep
+// ---------- metro (Megatower City, ook de andere verkeerswerelden) ----------
+// Holle bak (dunne wanden, ruiten tussen stijlen), vloer op 1,1 m, plafond met LED op 2,9 m, deuren als losse
+// schuivende deurbladen (METRO_LEAVES), interieur met afwisselende zitopstelling, rolstoelplaats, stangen,
+// handgrepen, deurknoppen, noodintercom, routekaarten, informatieschermen en tussendeuren.
+const M_L = 18, M_W = 2.8, M_FL = 0.9, M_CEIL = 3.05; // binnenhoogte 2,15 m
+function metroDoorZ(cab) { const Lb = cab ? M_L - 0.6 : M_L, zb = cab ? -0.3 : 0; return [-Lb / 2 + 3, 0, Lb / 2 - 3].map(z => z + zb); }
+export const METRO_LEAVES = {}; // per model: deurbladen { x, y, z, dir } (dicht); schuiven 0,62 m opzij
+// zitplaatsen voor de passagierscamera: lokale z (vooruit = +z), afstand tot de as en kijkrichting (x- = naar de overkant)
+export const SEAT_SPOTS = { metroMid: [{ z: -7.85, lat: 0.9 }, { z: 7.6, lat: 0.9 }], metroCab: [{ z: -7.85, lat: 0.9 }] };
 function metroCar(cab, doorsOnly) {
-  const P = new Parts(), L = 18, W = 2.8, H = 3.5, zb = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L;
-  const doorZ = [-Lb / 2 + 3, 0, Lb / 2 - 3];
-  if (doorsOnly) {
-    for (const dz of doorZ) for (const sx of [1, -1]) P.box('trim', 0.06, 2.0, 1.3, sx * (W / 2 + 0.01), 1.55, zb + dz, 0x9aa3ad);
-    return P.done().trim;
+  const P = new Parts(), L = M_L, W = M_W, hw = W / 2, zb = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L, z0 = zb - Lb / 2, z1 = zb + Lb / 2;
+  const doorZ = metroDoorZ(cab), DW = 1.32; // deuropening
+  if (doorsOnly) { const Q = new Parts(); for (const dz of doorZ) for (const sx of [1, -1]) Q.box('trim', 0.06, 2.0, 1.3, sx * (hw + 0.01), 2.1, dz, 0x9aa3ad); return Q.done().trim; }
+  const inDoor = (z, m = 0) => doorZ.some(dz => Math.abs(z - dz) < DW / 2 + m);
+  // ---- buitenkant: onderstel, draaistellen, vloer ----
+  P.box('trim', W - 0.4, 0.5, Lb - 2, 0, 0.55, zb, 0x26282b);
+  for (const bz of [Lb / 2 - 3, -Lb / 2 + 3]) { P.box('trim', 2.3, 0.35, 2.4, 0, 0.42, zb + bz, 0x303236); for (const wz of [0.9, -0.9]) for (const wx of [0.75, -0.75]) P.wheel(0.4, 0.12, wx, 0.4, zb + bz + wz, 0x3a3c40, 10); }
+  P.box('trim', W - 0.12, 0.12, Lb - 0.1, 0, M_FL - 0.06, zb, FLOOR);                                   // vloer
+  P.box('trim', 0.5, 0.005, Lb - 1, 0, M_FL + 0.003, zb, 0x4a515b);                                    // middenstrook
+  // ---- zijwanden: onder de ramen (lijnkleur), ruiten met stijlen, boven de ramen, dak ----
+  for (const sx of [1, -1]) {
+    const x = sx * (hw - 0.04);
+    // segmenten tussen de deuren
+    const cuts = [z0, ...doorZ.flatMap(dz => [dz - DW / 2, dz + DW / 2]), z1];
+    for (let i = 0; i + 1 < cuts.length; i += 2) {
+      const a = cuts[i], b = cuts[i + 1], len = b - a, c = (a + b) / 2; if (len < 0.2) continue;
+      P.box('paint', 0.08, 0.55, len, x, 1.22, c);                                                       // borstwering (lijnkleur)
+      P.box('trim', 0.02, 0.6, len, x - sx * 0.05, M_FL + 0.33, c, 0xdfe3e8);                            // binnenbekleding (licht)
+      P.box('trim', 0.06, 0.04, len, x - sx * 0.04, 1.52, c, 0xb9bec5);                                  // vensterbank
+      // ruiten van ± 1,6 m met stijlen
+      const n = Math.max(1, Math.round(len / 1.6)), pw = len / n;
+      for (let k = 0; k < n; k++) { const zc = a + pw * (k + 0.5); P.box('win', 0.03, 1.02, pw - 0.12, x + sx * 0.02, 2.06, zc, 0xffe9c4); P.box('trim', 0.09, 1.06, 0.1, x, 2.06, a + pw * k, 0x3a3f46); }
+      P.box('trim', 0.09, 1.06, 0.1, x, 2.06, b, 0x3a3f46);
+    }
+    P.box('paint', 0.08, 0.5, Lb, x, 2.84, zb);                                                          // boven de ramen / deuren
+    P.box('trim', 0.02, 0.47, Lb - 0.2, x - sx * 0.05, 2.82, zb, 0xdfe3e8);                              // binnenbekleding
+    P.box('trim', 0.1, 0.14, Lb, x, 3.12, zb, 0xc0c4c9);                                                 // dakrand
+    // deurkozijnen (binnen en buiten), deurknoppen, noodintercom
+    for (const dz of doorZ) {
+      for (const e of [-1, 1]) P.box('trim', 0.1, 2.12, 0.08, x, M_FL + 1.06, dz + e * (DW / 2 + 0.02), 0x2f3338);
+      P.box('trim', 0.1, 0.1, DW + 0.1, x, M_FL + 2.12, dz, 0x2f3338);
+      for (const e of [-1, 1]) P.box('light', 0.04, 0.09, 0.09, x - sx * 0.07, 1.95, dz + e * (DW / 2 + 0.14), 0x4ee07a); // deurknop
+      P.box('light', 0.03, 0.12, 0.08, x - sx * 0.07, 1.72, dz - DW / 2 - 0.32, 0xff3b30);                                // noodintercom
+      P.box('trim', 0.03, 0.12, 0.08, x - sx * 0.065, 1.55, dz - DW / 2 - 0.32, 0xf2c94c);
+    }
   }
-  // buitenkant
-  P.box('paint', W, 0.9, Lb, 0, 0.95, zb);                                  // onderkant (lijnkleur)
-  P.box('win', W + 0.02, 1.15, Lb - 0.4, 0, 1.95, zb, WINLIT);               // ramen
-  P.box('paint', W, 0.55, Lb, 0, 2.8, zb);                                  // boven de ramen
-  P.box('trim', W * 0.9, 0.25, Lb, 0, 3.2, zb, 0xc0c4c9);                    // dak
-  P.box('trim', W - 0.4, 0.5, Lb - 2, 0, 0.3, zb, 0x26282b);                 // onderstel
-  for (const bz of [Lb / 2 - 3, -Lb / 2 + 3]) for (const wz of [0.9, -0.9]) for (const wx of [0.75, -0.75]) P.wheel(0.4, 0.12, wx, 0.4, zb + bz + wz, 0x3a3c40, 10);
-  // interieur: vloer, banken langs de wanden, palen, plafondverlichting
-  P.box('trim', W - 0.2, 0.06, Lb - 0.4, 0, 1.42, zb, 0x4a4e55);
-  for (let z = -Lb / 2 + 1.6; z < Lb / 2 - 1; z += 1.1) {
-    if (doorZ.some(dz => Math.abs(z - dz) < 1)) continue;
-    for (const sx of [1, -1]) { P.box('trim', 0.5, 0.08, 0.5, sx * 1.05, 1.9, zb + z, 0x2e5c9e); P.box('trim', 0.08, 0.55, 0.5, sx * 1.3, 2.2, zb + z, 0x2e5c9e); }
-  }
-  for (const dz of doorZ) for (const sx of [0.6, -0.6]) P.box('trim', 0.05, 1.8, 0.05, sx, 2.35, zb + dz, 0xcfd3d8);
-  P.box('light', 0.3, 0.04, Lb - 1.4, 0.5, 3.08, zb, 0xf4f6ff); P.box('light', 0.3, 0.04, Lb - 1.4, -0.5, 3.08, zb, 0xf4f6ff);
+  // dak (afgerond), plafond met LED-lijnen
+  P.box('trim', W * 0.86, 0.12, Lb, 0, 3.32, zb, 0xc8ccd1); for (const sx of [1, -1]) P.box('trim', 0.3, 0.16, Lb, sx * (hw - 0.22), 3.2, zb, 0xc0c4c9);
+  P.box('trim', W - 0.16, 0.03, Lb - 0.3, 0, M_CEIL, zb, CEIL);
+  for (const sx of [0.55, -0.55]) P.box('light', 0.12, 0.02, Lb - 1, sx, M_CEIL - 0.025, zb, 0xf4f6ff);
+  for (let z = z0 + 1.5; z < z1 - 1; z += 3) P.box('trim', 0.6, 0.06, 0.5, 0, M_CEIL - 0.04, z, 0xd2d6db);   // ventilatieroosters
+  // ---- interieur: zitplaatsen per vak tussen de deuren ----
+  const bays = []; { const cuts = [z0 + (cab ? 2.6 : 0.35), ...doorZ.flatMap(dz => [dz - DW / 2 - 0.15, dz + DW / 2 + 0.15]), z1 - 0.35]; for (let i = 0; i + 1 < cuts.length; i += 2) bays.push([cuts[i], cuts[i + 1]]); }
+  bays.forEach(([a, b], bi) => {
+    const len = b - a, mid = (a + b) / 2;
+    const wheelchair = bi === 1; // rolstoel- en kinderwagenplaats in het tweede vak (bij de middendeur)
+    if (len > 3.6) {
+      // middenvakken: groepen van 4 tegenover elkaar (2 + 2), aan beide kanten; daartussen staanplaats
+      for (const sx of [1, -1]) {
+        if (wheelchair && sx < 0) { // rolstoelplaats: geen stoelen, wel klapstoel, leuning en vloermarkering
+          P.box('trim', 1.0, 0.012, 1.3, sx * 0.8, M_FL + 0.01, mid, 0x2f7fd0); P.box('trim', 0.04, 0.6, 1.2, sx * (hw - 0.12), M_FL + 0.7, mid, 0x5a6270);
+          rail(P, sx * (hw - 0.2), M_FL + 0.95, mid - 0.6, mid + 0.6); P.box('trim', 0.4, 0.06, 0.4, sx * (hw - 0.35), M_FL + 0.5, mid - 0.9, FABRIC); continue;
+        }
+        for (const c of [mid - 0.75, mid + 0.75]) {
+          const face = c < mid ? 'z+' : 'z-';
+          for (const lx of [hw - 0.42, hw - 0.9]) seat(P, sx * lx, c + (c < mid ? -0.25 : 0.25), M_FL, face, bi === 0 || bi === bays.length - 1 ? PRIORITY : FABRIC);
+        }
+        pole(P, sx * 0.62, mid, M_FL, M_CEIL);
+      }
+    } else {
+      // eindvakken: banken in de lengte langs de wand (kijken naar het middenpad)
+      for (const sx of [1, -1]) for (let z = a + 0.3; z < b - 0.2; z += 0.5) seat(P, sx * (hw - 0.36), z, M_FL, sx > 0 ? 'x-' : 'x+');
+    }
+    // horizontale stangen boven de stoelen met handgrepen
+    for (const sx of [1, -1]) { rail(P, sx * 0.7, M_FL + 1.78, a + 0.1, b - 0.1); for (let z = a + 0.35; z < b - 0.2; z += 0.55) strap(P, sx * 0.7, M_FL + 1.78, z); }
+    // routekaart boven de ramen (wit met de lijn in de lijnkleur)
+    for (const sx of [1, -1]) { P.box('trim', 0.02, 0.22, Math.min(1.6, len - 0.4), sx * (hw - 0.09), 2.8, mid, 0xf4f4f2); P.box('paint', 0.025, 0.03, Math.min(1.4, len - 0.6), sx * (hw - 0.1), 2.8, mid); }
+  });
+  // verticale stangen bij elke deur, informatieschermen boven de deuren
+  for (const dz of doorZ) { for (const sx of [1, -1]) pole(P, sx * 0.5, dz, M_FL, M_CEIL); P.box('trim', 0.7, 0.24, 0.06, 0, 2.82, dz, 0x16181c); for (const fz of [0.035, -0.035]) P.box('light', 0.62, 0.17, 0.005, 0, 2.82, dz + fz, 0x2b6cd8); }
+  // kopwanden met tussendeur (glas) naar het volgende rijtuig, balg aan de buitenkant
+  const endWall = (z, sgn) => {
+    for (const sx of [1, -1]) P.box('trim', 0.86, 2.0, 0.06, sx * 0.97, M_FL + 1.0, z, 0xd9dde2);
+    P.box('trim', W - 0.2, M_CEIL - M_FL - 2.0, 0.06, 0, M_FL + 2.0 + (M_CEIL - M_FL - 2.0) / 2, z, 0xd9dde2);
+    P.box('win', 1.0, 1.0, 0.02, 0, M_FL + 1.45, z, 0xffe9c4); P.box('trim', 1.04, 0.95, 0.04, 0, M_FL + 0.48, z, 0xa7adb5); // glazen tussendeur
+    P.box('trim', W - 0.3, 2.6, 0.25, 0, 1.9, z + sgn * 0.16, 0x222428);                                                   // balg
+  };
+  endWall(z0, -1); if (!cab) endWall(z1, 1);
   if (cab) {
-    P.box('paint', W, 1.4, 0.7, 0, 1.15, L / 2 - 0.35, 0xffffff, { sx: 0.92, front: 0.15 });
-    P.box('trim', W - 0.2, 1.3, 0.6, 0, 2.3, L / 2 - 0.4, GLASS, { sx: 0.9, front: 0.25 });
-    P.box('light', 1.6, 0.26, 0.05, 0, 3.0, L / 2 - 0.05, AMBER);           // bestemmingsscherm met lijnnummer
-    P.box('light', 0.3, 0.16, 0.05, 0.95, 0.9, L / 2 + 0.01, HEAD).box('light', 0.3, 0.16, 0.05, -0.95, 0.9, L / 2 + 0.01, HEAD);
-    P.box('trim', 0.9, 0.9, 0.5, 0.5, 1.9, L / 2 - 1.2, 0x30333a);           // bestuurderspult
+    // cabine vooraan: neus, voorruit, lichten, bestemmingsscherm; scheidingswand met deur en ruit
+    P.box('paint', W, 1.45, 0.7, 0, 1.25, L / 2 - 0.35, 0xffffff, { sx: 0.92, front: 0.15 });
+    P.box('trim', W - 0.2, 1.3, 0.6, 0, 2.35, L / 2 - 0.4, GLASS, { sx: 0.9, front: 0.25 });
+    P.box('paint', W * 0.9, 0.45, 0.5, 0, 3.1, L / 2 - 0.45);
+    P.box('light', 1.6, 0.26, 0.05, 0, 3.02, L / 2 - 0.05, AMBER);
+    P.box('light', 0.3, 0.16, 0.05, 0.95, 0.95, L / 2 + 0.01, HEAD).box('light', 0.3, 0.16, 0.05, -0.95, 0.95, L / 2 + 0.01, HEAD);
+    P.box('trim', 1.6, 0.85, 0.6, 0, M_FL + 0.45, L / 2 - 1.1, 0x30333a);   // bestuurderspult
+    P.box('trim', 0.5, 0.5, 0.5, 0.45, M_FL + 0.3, L / 2 - 1.8, 0x1f2328); // stoel bestuurder
+    const pz = z1; for (const sx of [1, -1]) P.box('trim', 0.9, M_CEIL - M_FL, 0.06, sx * 0.95, (M_FL + M_CEIL) / 2, pz, 0xd9dde2);
+    P.box('win', 1.0, 0.8, 0.02, 0, M_FL + 1.5, pz, 0xffe9c4); P.box('trim', 1.0, 1.0, 0.05, 0, M_FL + 0.5, pz, 0x7b818a); P.box('trim', 1.0, 0.4, 0.05, 0, M_CEIL - 0.2, pz, 0xd9dde2);
   }
-  P.box('trim', W - 0.3, 2.6, 0.25, 0, 1.9, zb - Lb / 2 - 0.12, 0x222428);   // overgang
+  // deurbladen (los, schuivend): twee per deur per kant
+  METRO_LEAVES[cab ? 'metroCab' : 'metroMid'] = doorZ.flatMap(dz => [1, -1].flatMap(sx => [{ x: sx * (hw - 0.02), z: dz - DW / 4, dir: -1, side: sx }, { x: sx * (hw - 0.02), z: dz + DW / 4, dir: 1, side: sx }]));
+  return P.done();
+}
+function metroLeaf() {
+  const P = new Parts();
+  P.box('trim', 0.05, 2.02, 0.64, 0, M_FL + 1.01, 0, 0xb3bac2);                // deurblad
+  P.box('win', 0.055, 1.0, 0.44, 0, M_FL + 1.45, 0, 0xffe9c4);                // ruit in de deur
+  P.box('trim', 0.06, 0.03, 0.5, 0, M_FL + 0.9, 0, 0xffd400);                 // waarschuwingsstreep
   return P.done();
 }
 
@@ -405,7 +499,7 @@ export function buildModels() {
   M.iceCoach = trainCar({ L: 26.4, stripe: 0xd4121c, H: 3.85 });
   M.regioCab = trainCar({ L: 26.8, cab: true, doubleDeck: true, H: 4.6 });
   M.regioCoach = trainCar({ L: 26.8, doubleDeck: true, H: 4.6 });
-  M.metroCab = metroCar(true); M.metroMid = metroCar(false);
+  M.metroCab = metroCar(true); M.metroMid = metroCar(false); M.metroLeaf = metroLeaf();
   M.metroDoorsCab = { trim: metroCar(true, true) }; M.metroDoorsMid = { trim: metroCar(false, true) };
   M.person = personParts();
   return M;

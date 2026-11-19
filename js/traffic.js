@@ -3,7 +3,7 @@
 // slaan af op kruispunten, houden afstand, bussen stoppen aan haltes, trams en treinen aan perrons.
 // Trams en treinen bestaan alleen waar er echt sporen liggen.
 import * as THREE from 'three';
-import { buildModels, CAR_COLORS, BUS_COLORS, TRAM_COLORS, METRO_COLORS, SHIRTS, PANTS, SKIN, HAIR } from './vehicles.js';
+import { METRO_LEAVES, buildModels, CAR_COLORS, BUS_COLORS, TRAM_COLORS, METRO_COLORS, SHIRTS, PANTS, SKIN, HAIR } from './vehicles.js';
 
 const NET_OF = { car: 'road', carM: 'road', walk: 'walk', tram: 'tram', train: 'rail', boat: 'water', boatL: 'water', sea: 'sea', metro: 'metro' };
 import { SHIP_TYPES, shipTypeFor } from './vessel.js';
@@ -230,7 +230,7 @@ function consist(kind, r) {
   if (em) return { secs: [{ m, len, off: len / 2, beacon: em === 'police' ? 'Car' : em === 'ambulance' ? 'Van' : 'Truck' }], L: len, emergency: em };
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
-const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
+const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
@@ -249,7 +249,7 @@ export class Traffic {
       paint: new THREE.MeshBasicMaterial({ vertexColors: true }),
       trim: new THREE.MeshBasicMaterial({ vertexColors: true }),
       light: new THREE.MeshBasicMaterial({ vertexColors: true }),
-      win: new THREE.MeshBasicMaterial({ vertexColors: true }),
+      win: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.35, depthWrite: false }), // ruiten: doorzichtig
       rail: new THREE.MeshBasicMaterial({ vertexColors: true }),
     };
     this.meshes = {};
@@ -276,7 +276,7 @@ export class Traffic {
     }
     this.PMAX = PMAX;
     this.rail = null;
-    this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(0, 0, 0, 'YXZ');
+    this.m4 = new THREE.Matrix4(); this.m4b = new THREE.Matrix4(); this.tmpM = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.e = new THREE.Euler(0, 0, 0, 'YXZ');
     this.v = new THREE.Vector3(); this.s = new THREE.Vector3(1, 1, 1); this.c = new THREE.Color();
     this.tmpA = {}; this.tmpB = {}; this.clock = 0;
     this.parked = [];   // auto's die de speler zelf bestuurt of liet staan
@@ -373,6 +373,16 @@ export class Traffic {
     for (const o of this.rail) this.group.add(o);
   }
 
+  // aan welke kant ligt het perron? (de deuren gaan alleen daar open) — gemeten in de blokken naast het voertuig
+  platformSide(a) {
+    if (!this.solidAt || a.kind === 'car') return null;
+    const h = this.behind(a, a.L / 2, {}), b = this.behind(a, a.L / 2 + 2, {}), dx = h.x - b.x, dz = h.z - b.z, l = Math.hypot(dx, dz) || 1;
+    const rx = dz / l, rz = -dx / l, half = a.kind === 'metro' ? 1.4 : a.kind === 'tram' ? 1.2 : 1.28;
+    const hit = (sg) => { for (const o of [half + 0.6, half + 1.1]) for (const dy of [0, 1]) if (this.solidAt(Math.floor(h.x + rx * o * sg), Math.floor(h.y + dy), Math.floor(h.z + rz * o * sg))) return true; return false; };
+    const r = hit(1), l2 = hit(-1);
+    if (r === l2) return null; // beide of geen: beide kanten open
+    return r ? [rx, rz] : [-rx, -rz];
+  }
   // ---------- agenten ----------
   spawn(kind, player, far) {
     const net = kind === 'walk' ? 'walk' : kind === 'tram' ? 'tram' : kind === 'train' ? 'rail' : kind === 'ship' ? 'ship' : kind === 'metro' ? 'metro' : 'road';
@@ -529,7 +539,8 @@ export class Traffic {
     const light = 0.18 + 0.82 * day;
     this.mats.paint.color.setScalar(light); this.mats.trim.color.setScalar(light); this.mats.rail.color.setScalar(light);
     // ramen: overdag donker glas, 's avonds de binnenverlichting
-    { const n = Math.max(0, Math.min(1, (0.55 - day) / 0.35)); this.mats.win.color.setRGB(0.13 + 0.85 * n, 0.16 + 0.78 * n, 0.21 + 0.6 * n); }
+    // overdag licht getint en doorzichtig, 's avonds warm verlicht (binnenverlichting), iets minder doorzichtig
+    { const n = Math.max(0, Math.min(1, (0.55 - day) / 0.35)); this.mats.win.color.setRGB(0.35 + 0.63 * n, 0.42 + 0.52 * n, 0.5 + 0.3 * n); this.mats.win.opacity = 0.28 + 0.32 * n; }
     this.mats.light.color.setScalar(day > 0.6 ? 0.75 : 1.15);
     // hoeveel van elk
     const L = this.net.len;
@@ -627,7 +638,7 @@ export class Traffic {
             const goal = Math.max(0.5, Math.min(e.len - 0.5, sd + half * r.dir));
             const dist = (goal - a.d) * r.dir;
             if (dist < -1 || dist > 120) continue;
-            if (dist < 0.6) { a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0; break; }
+            if (dist < 0.6) { a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0; break; }
             target = Math.min(target, Math.sqrt(2 * 1.1 * dist) + 0.3);
           }
         }
@@ -666,6 +677,22 @@ export class Traffic {
     const left = r.dir > 0 ? e.len - a.d : a.d;
     for (const n of e.next[r.dir > 0 ? 1 : 0]) look(n.e, n.dir, left, n.dir > 0 ? 0 : n.e.len);
     return best;
+  }
+  // volgende halte verder vooruit (tot ± 4 km): langs de meest rechte voortzetting van de route, zoals terminus()
+  nextStopFar(a, maxD = 4000) {
+    let r = a.route[0], e = r.e, dir = r.dir, d = a.d, base = 0, guard = 0;
+    while (e && guard++ < 80 && base < maxD) {
+      let best = null;
+      (e.stops || []).forEach((sd, i) => { const ds = dir > 0 ? sd - d : d - sd; if (ds > (guard === 1 ? -a.L * 0.5 : -1) && (!best || ds < best.ds)) best = { ds, name: (e.stopNames && e.stopNames[i]) || 'Station' }; });
+      if (best) return { dist: base + best.ds, name: best.name };
+      base += dir > 0 ? e.len - d : d;
+      const opts = e.next[dir > 0 ? 1 : 0]; if (!opts.length) break;
+      const out = dir > 0 ? e.t1 : [-e.t0[0], -e.t0[1]];
+      let nb = opts[0], bs = -2;
+      for (const o of opts) { const inn = o.dir > 0 ? o.e.t0 : [-o.e.t1[0], -o.e.t1[1]], sc = out[0] * inn[0] + out[1] * inn[1]; if (sc > bs) { bs = sc; nb = o; } }
+      e = nb.e; dir = nb.dir; d = dir > 0 ? 0 : e.len;
+    }
+    return null;
   }
   // eindbestemming: laatste halte als je rechtdoor blijft rijden (voor het bestemmingsscherm)
   terminus(a) {
@@ -770,8 +797,9 @@ export class Traffic {
       const lift = a.kind === 'train' || a.kind === 'metro' ? 0.2 : a.kind === 'tram' ? 0.05 : 0;
       if (a.emergency === undefined) a.emergency = a.secs && a.secs[0] && ['police', 'ambulance', 'fire'].includes(a.secs[0].m) ? a.secs[0].m : null;
       // deuren open bij een halte (AI) of als de bestuurder ze opent
-      const doorsOpen = (a.kind === 'metro' || a.kind === 'bus' || a.kind === 'tram') && (a.player ? a.player.doors : (a.atStop !== false && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5));
-      a.doorsOpen = doorsOpen;
+      // deuren: alleen open als het voertuig stilstaat (nooit tijdens het rijden); doorF schuift rustig open en dicht
+      const doorsOpen = (a.kind === 'metro' || a.kind === 'bus' || a.kind === 'tram') && (a.v || 0) < 0.1 && (a.player ? a.player.doors : (a.atStop !== false && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5));
+      a.doorsOpen = doorsOpen; a.doorF = Math.max(0, Math.min(1, (a.doorF || 0) + (doorsOpen ? 1 : -1) * (this.dt || 0.016) / 1.4));
       for (const s of a.secs) {
         const M = this.meshes[s.m];
         if (M.n >= M.max) continue;
@@ -791,7 +819,17 @@ export class Traffic {
           if (kind === 'paint') m.setColorAt(i, this.c.setHex(a.color));
         }
         if (s.beacon) { const side = Math.floor(this.clock * 5) % 2 ? 'L' : 'R', Bm = this.meshes['beacon' + s.beacon + side]; if (Bm && Bm.n < Bm.max) { const j = Bm.n++; for (const m of Object.values(Bm.set)) m.setMatrixAt(j, this.m4); } }
-        if (s.doors && !doorsOpen) { const D = this.meshes[s.doors]; if (D.n < D.max) { const j = D.n++; for (const m of Object.values(D.set)) m.setMatrixAt(j, this.m4); } }
+        const leaves = METRO_LEAVES[s.m];
+        if (leaves) {
+          // losse deurbladen die opzij schuiven (alleen aan de perronkant)
+          const Lm = this.meshes.metroLeaf, rx = Math.cos(yaw), rz = -Math.sin(yaw), pn = a.platN;
+          for (const lf of leaves) {
+            if (Lm.n >= Lm.max) break;
+            const open = !pn || lf.side * (rx * pn[0] + rz * pn[1]) > 0, f = open ? (a.doorF || 0) : 0;
+            this.tmpM.makeTranslation(lf.x, 0, lf.z + lf.dir * f * 0.62); this.m4b.multiplyMatrices(this.m4, this.tmpM);
+            const j = Lm.n++; for (const m of Object.values(Lm.set)) m.setMatrixAt(j, this.m4b);
+          }
+        } else if (s.doors && !doorsOpen) { const D = this.meshes[s.doors]; if (D.n < D.max) { const j = D.n++; for (const m of Object.values(D.set)) m.setMatrixAt(j, this.m4); } }
       }
     }
     // verkeerslichten: per richting een lamp (groen, oranje, rood)

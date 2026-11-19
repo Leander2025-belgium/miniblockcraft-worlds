@@ -5,6 +5,7 @@
 // - Meerijden: als passagier in elk voertuig dat in de buurt rijdt.
 import * as THREE from 'three';
 import { RailSound } from './sound.js';
+import { SEAT_SPOTS } from './vehicles.js';
 
 const KMH = 3.6;
 let audio = null;
@@ -34,6 +35,16 @@ function speak(text) {
 const ROAD = { sedan: { L: 4.6, vmax: 38, acc: 4.2, wb: 2.75 }, hatch: { L: 4.0, vmax: 34, acc: 4, wb: 2.5 }, suv: { L: 4.7, vmax: 36, acc: 4.2, wb: 2.85 },
   van: { L: 5.1, vmax: 30, acc: 3.2, wb: 3.25 }, taxi: { L: 4.7, vmax: 38, acc: 4.2, wb: 2.8 }, bus: { L: 12, vmax: 22, acc: 1.8, wb: 5.8 } };
 
+// binnenruimte per voertuigsoort (lokale maten in m, vanaf de spoorstaaf of de weg): vloer, plafond, halve binnenbreedte,
+// zitplaats (afstand van de as, ooghoogte zittend). Komt overeen met de modellen in js/vehicles.js.
+export const INTERIOR = {
+  metro: { floor: 0.9, ceil: 3.05, half: 1.25, seatLat: 0.95, sitEye: 1.2 },
+  tram: { floor: 0.38, ceil: 2.55, half: 1.05, seatLat: 0.75, sitEye: 1.15 },
+  bus: { floor: 0.62, ceil: 2.75, half: 1.1, seatLat: 0.8, sitEye: 1.15 },
+  train: { floor: 1.2, ceil: 3.45, half: 1.3, seatLat: 0.95, sitEye: 1.2 },
+  car: { floor: 0.35, ceil: 1.45, half: 0.6, seatLat: 0.38, sitEye: 0.85 },
+};
+const CAM_NAMES = { seat: 'zittend', stand: 'staand', walk: 'rondlopen', window: 'raam', chase: 'buiten', cab: 'cabine', side: 'zijkant' };
 export class Drive {
   constructor(game, vehicle, mode) {
     this.g = game; this.mode = mode; this.cam = mode === 'passenger' ? 'seat' : 'cab';
@@ -43,6 +54,12 @@ export class Drive {
     if (mode === 'passenger') {
       this.a = vehicle; vehicle.passenger = true;
       this.seat = vehicle.L ? Math.min(vehicle.L - 2, Math.max(2, vehicle.L * (vehicle.kind === 'car' ? 0.55 : 0.4))) : 2;
+      this.seatLat = null;
+      // echte zitplaats uit het model (een rijtuig in het midden): boven de zitting, voor de rugleuning
+      if (vehicle.secs) {
+        const order = vehicle.secs.map((sc, i) => i).sort((i, j) => Math.abs(i - (vehicle.secs.length - 1) / 2) - Math.abs(j - (vehicle.secs.length - 1) / 2));
+        for (const i of order) { const sc = vehicle.secs[i], sp = SEAT_SPOTS[sc.m]; if (!sp) continue; const z = sp[0].z * (sc.flip ? -1 : 1); this.seat = sc.off - z; this.seatLat = sp[0].lat * (sc.flip ? -1 : 1); this.seatFlip = !!sc.flip; break; }
+      }
     } else if (vehicle.kind === 'train' || vehicle.kind === 'tram' || vehicle.kind === 'ship' || vehicle.kind === 'metro') {
       this.a = vehicle; this.rail = true;
       vehicle.player = { throttle: 0, brake: 0, emergency: false, doors: false };
@@ -99,9 +116,49 @@ export class Drive {
   }
   camMode() { return 'first'; }
   cycleCam() {
-    const order = this.mode === 'passenger' ? ['seat', 'chase'] : ['cab', 'chase', 'side'];
+    const order = this.mode === 'passenger' ? (this.a && this.a.kind === 'car' ? ['seat', 'chase'] : ['seat', 'stand', 'walk', 'window', 'chase']) : ['cab', 'chase', 'side'];
     this.cam = order[(order.indexOf(this.cam) + 1) % order.length];
-    this.g.toast({ cab: '🎥 Cabine', seat: '🎥 Zitplaats', chase: '🎥 Achter het voertuig', side: '🎥 Zijkant' }[this.cam]);
+    if (this.cam === 'walk') this.walk = { s: this.seat, lat: 0 };
+    this.g.toast({ cab: '🎥 Cabine', seat: '🎥 Zittend bij het raam', stand: '🎥 Staand in het middenpad', walk: '🎥 Rondlopen: W/S vooruit en achteruit, A/D opzij', window: '🎥 Raam: langs het voertuig', chase: '🎥 Buiten het voertuig', side: '🎥 Zijkant' }[this.cam]);
+  }
+  // informatieschermen in het rijtuig waar je in zit (metro): lijn, bestemming en volgende halte, als echte tekst
+  updateScreens(dt, a, ns) {
+    if (a.kind !== 'metro' || this.mode !== 'passenger') return;
+    const g = this.g;
+    if (!this.scr) {
+      const c = document.createElement('canvas'); c.width = 512; c.height = 140;
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.MeshBasicMaterial({ map: tex }), geo = new THREE.PlaneGeometry(0.62, 0.17);
+      const meshes = []; for (let i = 0; i < 6; i++) { const m = new THREE.Mesh(geo, mat); g.scene.add(m); meshes.push(m); }
+      this.scr = { c, tex, meshes, t: 99, text: '' };
+    }
+    const S = this.scr;
+    S.t += dt;
+    if (S.t > 1) {
+      S.t = 0;
+      const nd = ns ? Math.max(0, Math.round(ns.dist)) : null, txt = `${a.line || 'Metro'}${this.dest ? ' → ' + this.dest.replace(/^Metro /, '') : ''}|${ns ? 'Volgende: ' + ns.name.replace(/^Metro /, '') : 'Eindpunt'}${nd !== null ? ' · ' + (nd > 999 ? (nd / 1000).toFixed(1) + ' km' : nd + ' m') : ''}`;
+      if (txt !== S.text) {
+        S.text = txt; const x = S.c.getContext('2d'), [l1, l2] = txt.split('|');
+        x.fillStyle = '#0d1b3d'; x.fillRect(0, 0, 512, 140); x.fillStyle = '#ffffff'; x.font = 'bold 44px system-ui, sans-serif'; x.fillText(l1, 14, 54);
+        x.fillStyle = '#ffd24a'; x.font = '36px system-ui, sans-serif'; x.fillText(l2, 14, 112); S.tex.needsUpdate = true;
+      }
+    }
+    // op de plaats van de schermen boven de 3 deuren van het rijtuig waar je zit (beide kanten van het scherm)
+    const sec = a.secs.find(sc => this.seat >= sc.off - sc.len / 2 && this.seat <= sc.off + sc.len / 2) || a.secs[0];
+    const doorZ = sec.m === 'metroCab' ? [-5.7, -0.3, 5.1] : [-6, 0, 6], lift = 0.2;
+    let k = 0;
+    for (const dz of doorZ) {
+      const z = dz * (sec.flip ? -1 : 1), q = this.railPose(sec.off - z);
+      for (const face of [1, -1]) { const m = S.meshes[k++]; m.position.set(q.x + Math.sin(q.yaw) * 0.045 * face, q.y + lift + 2.82, q.z + Math.cos(q.yaw) * 0.045 * face); m.rotation.set(0, q.yaw + (face > 0 ? 0 : Math.PI), 0); }
+    }
+  }
+  // camera nooit door de wereld: van een vast punt in het voertuig naar het doel, stoppen vóór het eerste vaste blok
+  safeCam(ax, ay, az, bx, by, bz) {
+    const w = this.g.world, d = Math.hypot(bx - ax, by - ay, bz - az), n = Math.max(1, Math.ceil(d / 0.2));
+    let k = 0;
+    for (; k <= n; k++) { const f = k / n, x = ax + (bx - ax) * f, y = ay + (by - ay) * f, z = az + (bz - az) * f; if (w.solidAt(Math.floor(x), Math.floor(y), Math.floor(z))) break; }
+    const f = Math.max(0, (k - 2) / n); // 0,4 m voor het obstakel
+    return [ax + (bx - ax) * f, ay + (by - ay) * f, az + (bz - az) * f];
   }
   // positie en richting van het voertuig op afstand s achter de neus
   railPose(s) {
@@ -113,7 +170,32 @@ export class Drive {
     const p = this.g.player;
     let pose, up, back;
     if (this.car) { const c = this.car; pose = { x: c.x, y: c.y, z: c.z, yaw: c.yaw }; up = this.bus ? 2.4 : 1.25; back = this.bus ? this.spec.L * 0.4 : -this.spec.L * 0.05; }
-    else if (this.mode === 'passenger') { pose = this.railPose(this.seat); up = this.a.kind === 'car' ? 1.2 : this.a.kind === 'train' ? 2.3 : this.a.kind === 'metro' ? 2.1 : 1.9; back = 0; }
+    else if (this.mode === 'passenger') {
+      // passagier: zittend bij het raam, staand in het middenpad, rondlopen, raam (buiten langs het voertuig) of buiten
+      const I = INTERIOR[this.a.kind] || INTERIOR.bus, L = this.a.L || 12;
+      if (this.cam === 'walk') {
+        const k = this.g.keys, wk = this.walk || (this.walk = { s: this.seat, lat: 0 }), dt = Math.min(0.05, this.lastDt || 0.016);
+        const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0), side = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
+        const ly = p.yaw; // kijkrichting t.o.v. het voertuig
+        wk.s = Math.max(0.9, Math.min(L - 0.9, wk.s - (Math.cos(ly) * fwd - Math.sin(ly) * side) * 1.4 * dt));
+        wk.lat = Math.max(-I.half + 0.35, Math.min(I.half - 0.35, wk.lat + (Math.sin(ly) * fwd + Math.cos(ly) * side) * 1.4 * dt));
+      }
+      const s = this.cam === 'walk' ? this.walk.s : this.cam === 'window' ? L * 0.45 : this.seat;
+      pose = this.railPose(s);
+      const lat = this.cam === 'seat' ? (this.seatLat ?? I.seatLat) : this.cam === 'walk' ? this.walk.lat : 0;
+      const cx = Math.cos(pose.yaw), cz = -Math.sin(pose.yaw);
+      pose = { ...pose, x: pose.x + cx * lat, z: pose.z + cz * lat };
+      const lift = this.a.kind === 'metro' || this.a.kind === 'train' ? 0.2 : this.a.kind === 'tram' ? 0.05 : 0; // zoals js/traffic.js het model tekent
+      up = lift + Math.min(I.ceil - 0.15, I.floor + (this.cam === 'seat' ? I.sitEye : 1.62)); back = 0;
+      this.seatLook = this.cam === 'seat' ? ((this.seatLat ?? I.seatLat) >= 0 ? -Math.PI / 2 : Math.PI / 2) : 0; // zittend: naar het middenpad en de ramen aan de overkant
+      if (this.cam === 'window') {
+        const out = I.half + 1.3, tx = pose.x + cx * out, ty = pose.y + I.floor + 1.3, tz = pose.z + cz * out;
+        const [x, y, z] = this.safeCam(pose.x, pose.y + I.floor + 1.3, pose.z, tx, ty, tz);
+        const yawW = pose.yaw + Math.PI + p.yaw + 0.25;
+        cam.position.set(x, y, z); cam.rotation.set(p.pitch, yawW, 0);
+        p.pos.set(x, y - 1.62, z); return true;
+      }
+    }
     else if (this.a.kind === 'ship' && this.vessel) {
       const v = this.vessel, br = v.g.bridge, w = v.toWorld(new THREE.Vector3(br[0] + 0.5, br[1] + 1.65, br[2] + 1.5), new THREE.Vector3());
       pose = { x: w.x, y: w.y - 1.62, z: w.z, yaw: v.yaw }; up = 1.62; back = 0;
@@ -121,13 +203,16 @@ export class Drive {
     const fx = Math.sin(pose.yaw), fz = Math.cos(pose.yaw);
     let x = pose.x + fx * back, y = pose.y + up, z = pose.z + fz * back;
     if (this.car && this.cam === 'cab') { x += fz * 0.38; z -= fx * 0.38; } // links zitten
-    let yaw = pose.yaw + Math.PI + p.yaw, pitch = p.pitch;
+    let yaw = pose.yaw + Math.PI + p.yaw + (this.seatLook || 0), pitch = p.pitch;
     if (this.cam === 'chase') {
       const L = this.car ? this.spec.L : this.a.L * (this.a.kind === 'ship' ? 0.6 : 1);
       const q = this.car ? { x: pose.x - fx * (L * 0.5 + 7), y: pose.y, z: pose.z - fz * (L * 0.5 + 7) } : this.railPose(Math.min(L + 10, 70));
-      x = q.x; y = q.y + (this.car ? 3.2 : 7); z = q.z; yaw = pose.yaw + Math.PI + p.yaw; pitch = -0.2 + p.pitch;
+      // nooit in een tunnelwand of -plafond: van het dak van het voertuig naar het doel, stoppen voor een blok
+      const roof = pose.y + (this.car ? 2 : 3.2);
+      [x, y, z] = this.safeCam(pose.x, roof, pose.z, q.x, q.y + (this.car ? 3.2 : 7), q.z);
+      yaw = pose.yaw + Math.PI + p.yaw; pitch = -0.2 + p.pitch;
     } else if (this.cam === 'side') {
-      x = pose.x + fz * 9; z = pose.z - fx * 9; y = pose.y + 3; yaw = pose.yaw + Math.PI / 2 + Math.PI + p.yaw; pitch = -0.1 + p.pitch;
+      [x, y, z] = this.safeCam(pose.x, pose.y + 3, pose.z, pose.x + fz * 9, pose.y + 3, pose.z - fx * 9); yaw = pose.yaw + Math.PI / 2 + Math.PI + p.yaw; pitch = -0.1 + p.pitch;
     }
     cam.position.set(x, y, z); cam.rotation.set(pitch, yaw, 0);
     p.pos.set(x, y - 1.62, z); // de speler zit in het voertuig
@@ -135,7 +220,7 @@ export class Drive {
   }
   update(dt) {
     const g = this.g, k = g.keys;
-    this.t += dt;
+    this.t += dt; this.lastDt = dt;
     const up = k.has('KeyW') || k.has('ArrowUp') || g.joy.y < -0.4 || g.padUp;
     const down = k.has('KeyS') || k.has('ArrowDown') || g.joy.y > 0.4 || g.padDown;
     const left = k.has('KeyA') || k.has('ArrowLeft') || g.joy.x < -0.4 || g.padLeft;
@@ -180,12 +265,18 @@ export class Drive {
       const a = this.a;
       if (a.dead) { this.exit(); return; }
       speed = a.v || 0;
-      const ns = a.kind !== 'car' ? g.traffic.nextStop(a) : null;
+      const ns = a.kind !== 'car' ? (g.traffic.nextStopFar ? g.traffic.nextStopFar(a) : g.traffic.nextStop(a)) : null;
+      this.updateScreens(dt, a, ns);
       // omroepen in trein, tram en metro
       if (a.wait > 0 && a.atStop && this.lastAnn !== a.lastStop) { this.lastAnn = a.lastStop; chime(); setTimeout(() => speak(a.atStop), 700); this.saidNext = false; }
       if (a.wait > 0 && a.wait < 4 && !this.saidNext && ns) { this.saidNext = true; speak(`Volgende halte: ${ns.name}`); }
-      if (!this.dest || this.t - (this.destT || 0) > 5) { this.destT = this.t; this.dest = g.traffic.terminus(a); }
-      info = `<div class="dh-row"><b>🪑 Passagier</b> in ${{ car: 'een auto', bus: 'de bus', tram: 'de tram', train: 'de trein', metro: 'de metro', ship: 'het schip' }[a.kind]}${a.line ? ` · lijn <b>${a.line}</b>` : ''}${this.dest ? ` → <b>${this.dest}</b>` : ''}${a.doorsOpen ? ' · deuren open' : ''}${ns ? ` · volgende halte: <b>${ns.name}</b>` : ''}</div><div class="dh-row">H = uitstappen · V = camera</div>`;
+      if (!this.dest || this.t - (this.destT || 0) > 5) { this.destT = this.t; const h0 = this.railPose(0), h1 = this.railPose(6); this.dest = (g.mega && g.mega.lineDest && g.mega.lineDest(a, h0.x - h1.x, h0.z - h1.z)) || g.traffic.terminus(a); }
+      const kindName = { car: '🚗 Auto', bus: '🚌 Bus', tram: '🚋 Tram', train: '🚆 Trein', metro: '🚇 Metro', ship: '🚢 Schip' }[a.kind] || '🪑 Voertuig';
+      const nd = ns ? Math.max(0, Math.round(ns.dist)) : null;
+      info = `<div class="dh-row"><b>${kindName}</b>${a.line ? ` · lijn <b>${a.line}</b>` : ''}${this.dest ? ` → <b>${this.dest.replace(/^Metro /, '')}</b>` : ''}</div>
+        <div class="dh-row">${ns ? `Volgende halte: <b>${ns.name.replace(/^Metro /, '')}</b> · ${nd > 1000 ? (nd / 1000).toFixed(1) + ' km' : nd + ' m'}` : 'Geen halte meer op deze rit'}</div>
+        <div class="dh-row">🚪 Deuren <b>${a.doorsOpen ? 'open' : 'dicht'}</b> · 🎥 ${CAM_NAMES[this.cam] || this.cam}</div>
+        <div class="dh-row muted">V camera · H uitstappen${this.cam === 'walk' ? ' · WASD lopen' : ''}</div>`;
     }
     if (this.rs) { const c = this.a.player; const dv = speed - (this.rsV ?? speed); this.rsV = speed; this.rs.update(dt, speed, c ? c.throttle : dv > 0.002 ? 0.7 : 0.05, c ? (c.emergency ? 1 : c.brake) : dv < -0.004 ? 0.8 : 0, !['chase', 'side'].includes(this.cam)); }
     if (this.gain) { const s = Math.abs(speed); this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * (this.rail ? 4 : 7); }
@@ -344,6 +435,7 @@ export class Drive {
       x = q.x + Math.cos(q.yaw) * side; z = q.z - Math.sin(q.yaw) * side; y = q.y;
       if (this.a) { this.a.player = null; this.a.passenger = false; if (this.a.v === 0 && this.rail) this.a.wait = 4; }
     }
+    if (this.scr) { for (const m of this.scr.meshes) m.removeFromParent(); this.scr.tex.dispose(); this.scr = null; }
     p.pos.set(x, this.ground(x, z, y + 2) + 0.05, z); p.vel.set(0, 0, 0); p.yaw = yaw + Math.PI / 2; p.pitch = 0; p.fly = false;
     try { this.osc?.stop(); } catch { /* al gestopt */ } this.rs?.stop();
     this.show(false);
