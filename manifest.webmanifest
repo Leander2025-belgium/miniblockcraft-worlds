@@ -1,0 +1,17 @@
+{
+  "name": "TERRANOVA",
+  "short_name": "TERRANOVA",
+  "description": "Build Your World. Explore Without Limits. Een 3D-openwereldgame met steden, landschappen, bouwen en openbaar vervoer (vroeger Blokstad).",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "lang": "nl",
+  "icons": [
+    { "src": "assets/brand/terranova-icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/brand/terranova-icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/brand/terranova-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
