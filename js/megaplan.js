@@ -19,7 +19,9 @@ export const PLACES = [
   { id: 'P:uni', name: 'Universiteitscampus', x: 24 * T + 64, z: 38 * T },
   ...METRO.map(s => ({ id: s.id, name: s.name, x: s.x, z: s.z })),
 ];
-const WALK = 1.35, METRO_V = 16, TRAIN_V = 33, TRAIN_HEADWAY = { spits: 600, dal: 900, avond: 1200, nacht: 1800 }, TRAIN_DWELL = 60;
+const WALK = 1.35, METRO_V = 16, TRAIN_V = 33;
+export const TRAIN_HEADWAY = { spits: 600, dal: 900, avond: 1200, nacht: 1800 };
+const TRAIN_DWELL = 60;
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) * 1.25; // wandelen langs straten (omweg)
 const fmt = (sec) => { const h = Math.floor(sec / 3600) % 24, m = Math.floor(sec / 60) % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
 // eerstvolgend vertrek na tijd t (seconden sinds middernacht) bij een interval h en een vaste verschuiving
@@ -71,4 +73,12 @@ export function planHtml(r) {
     <ol class="plan-legs">${r.legs.map(l => l.mode === 'wandelen'
       ? `<li>${ICON.wandelen} ${fmt(l.dep)} wandel ${l.m} m naar <b>${l.to.name}</b> (${min(l.arr - l.dep)} min)</li>`
       : `<li>${ICON[l.mode]} ${fmt(l.dep)} <b>${l.line}</b> richting ${l.dir}, perron ${l.perron}, van ${l.from.name} naar <b>${l.to.name}</b> · aankomst ${fmt(l.arr)} (${l.stops} halte${l.stops === 1 ? '' : 's'})</li>`).join('')}</ol>`;
+}
+
+// vertrekbord in de stationshal van Megatower Centraal: de volgende treinen naar de Luchthaven
+export function centraalBoard(hour) {
+  const per = periodOfHour(hour), t = Math.round(hour * 3600), h = TRAIN_HEADWAY[per], rows = [];
+  let d = nextDep(t, h, 120);
+  for (let i = 0; i < 4; i++, d += h) rows.push(`${fmt(d)}  IC → Luchthaven  spoor 2  (${Math.round((Math.abs(RAIL[1].x - RAIL[0].x) / TRAIN_V + TRAIN_DWELL) / 60)} min)`);
+  return `🚆 Megatower Centraal · vertrekken (${PERIOD_LABEL[per]}, om de ${h / 60} min)\n${rows.join('\n')}\nMetro M1: halte Megatower (± 260 m) · trappen en lift naar de perrons`;
 }

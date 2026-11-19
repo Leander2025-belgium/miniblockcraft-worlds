@@ -5,6 +5,7 @@
 // een stadion, parken, een ziekenhuis, een universiteit, winkelcentra en wijken van hoog naar laag.
 // Alles is deterministisch: elke tegel kan apart gemaakt worden en sluit aan op zijn buren.
 import { B } from './blocks.js';
+import { hallBlock, hallFloor } from './stationhall.js';
 import { hash, placeTree, placeTreeVariety } from './city.js';
 import { G, T, TOWER_TX, TOWER_TZ, Y0 as TOWER_Y0, TILE_H as TOWER_H, CX, CZ, writeTower, floorY } from './megatower.js';
 
@@ -12,7 +13,7 @@ export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 4, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -768,9 +769,33 @@ function railColumn(x, z, col) {
         top = DECK + 7;
       }
     }
+    // stationshal boven de sporen (Megatower Centraal): vloer op het perrondak, glazen gevels, ingericht zoals de
+    // Alpenstations maar modern (wachtruimte, loketten, kiosk, café, toiletten, vertrekborden), trappen naar de drie
+    // perrons en een lift naar het eilandperron
+    const hu = x - HALL_X0;
+    if (station && hu >= 0 && hu <= HALL_W && o >= -15 && o <= 14) {
+      const FL = DECK + 7, v = o + 15, edge = hu === 0 || hu === HALL_W || o === -15 || o === 14;
+      col[FL] = edge ? B.CONCRETE : hallFloor(hu, v, HALL_W, 29);
+      for (let ly = 1; ly <= 5; ly++) col[FL + ly] = edge ? (ly === 5 ? B.PANEL_DARK : (hu + o) % 6 === 0 ? B.PANEL_DARK : B.GLASS) : 0;
+      col[FL + 6] = edge ? B.PANEL_DARK : (hu % 6 === 3 && v % 5 === 2 ? B.LAMP : (hu + v) % 5 === 0 ? B.GLASS : B.PANEL_WHITE);
+      top = FL + 6;
+      if (!edge) {
+        // trappen naar de perrons (6 treden, 2 m breed): zijperrons o -14..-13 en 12..13, eilandperron o -1..0
+        const stair = [[-14, -13], [12, 13], [-1, -1]].some(([a, b]) => o >= a && o <= b) && hu >= HALL_STAIR && hu < HALL_STAIR + 7; // eilandperron is smal: trap 1 m, buiten het profiel van de treinen
+        const lift = o === -1 && hu === HALL_LIFT, liftWell = false;
+        if (stair) { const k = hu - HALL_STAIR, esc = o === -13 || o === 13 || o === -1; for (let y = DECK + 2; y <= FL + 4; y++) col[y] = 0; col[DECK + 1 + k] = esc ? B.ESCALATOR : B.TILE; if (k > 0) col[DECK + k] = B.CONCRETE; } // trap met een roltrap ernaast
+        else if (lift) { for (let y = DECK + 2; y < FL; y++) col[y] = 0; col[DECK + 1] = B.ELEVATOR; col[FL] = B.ELEVATOR; for (let y = FL + 1; y <= FL + 4; y++) col[y] = 0; }
+        else if (liftWell) { for (let y = DECK + 2; y <= FL + 3; y++) col[y] = B.GLASS; }
+        else if (Math.abs(hu - (HALL_STAIR + 3)) <= 4 && [[-15, -12], [11, 14], [-2, 1]].some(([a, b]) => o >= a && o <= b)) { /* rond de trapgaten: vrij */ col[FL + 1] = (o === -15 || o === -12 || o === 11 || o === 14 || o === -2 || o === 1) && !(hu >= HALL_STAIR && hu < HALL_STAIR + 7) ? B.GLASS : col[FL + 1]; }
+        else { for (let ly = 1; ly <= 4; ly++) { const b = hallBlock(hu, v, HALL_W, 29, ly, 'modern'); if (b >= 0) col[FL + ly] = b; } }
+      } else if ((o === -15 || o === 14) && Math.abs(hu - HALL_W / 2) <= 1) { col[FL + 1] = 0; col[FL + 2] = 0; } // uitgang naar het dakterras boven de zijperrons
+    }
   }
   return top;
 }
+// stationshal boven de sporen van Megatower Centraal (64 m lang, 30 m breed)
+const HALL_X0 = STATION_X0 + 160, HALL_W = 64, HALL_STAIR = 6, HALL_LIFT = 20;
+export const MEGA_HALL = { x0: HALL_X0, x1: HALL_X0 + HALL_W, z0: RAIL_Z - 15, z1: RAIL_Z + 14, floor: G + 8 + 7 };
 
 // ---------- tegel maken ----------
 const PAD = 3;

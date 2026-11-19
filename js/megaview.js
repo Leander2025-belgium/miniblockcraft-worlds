@@ -3,7 +3,8 @@
 // Wordt geladen door js/game.js als de wereld Megatower City is (spec.megatower).
 import * as THREE from 'three';
 import { B } from './blocks.js';
-import { buildingAt, interiorBlock, metroStationAt } from './megacity.js';
+import { buildingAt, interiorBlock, metroStationAt, MEGA_HALL } from './megacity.js';
+import { centraalBoard } from './megaplan.js';
 import { periodOfHour, PERIOD_LABEL, DWELL, HEADWAY } from './service.js';
 import { LIFTS, floorY, floorAt, floorLabel, roomAt, CX, CZ, zoneOf, ZONE_NAMES, inTowerBox, F_MIN } from './megatower.js';
 
@@ -310,6 +311,8 @@ export class MegaView {
   }
   roomNear(t) { const r = roomAt(t.x + 0.5, t.y + 0.5, t.z + 0.5); return r && r.room && r.room !== 'Liftlobby' ? r.room : null; }
   signText(t) {
+    // stationshal en perrons van Megatower Centraal
+    if (t.x >= MEGA_HALL.x0 - 300 && t.x <= MEGA_HALL.x1 + 120 && t.z >= MEGA_HALL.z0 - 2 && t.z <= MEGA_HALL.z1 + 2 && t.y > this.g.meta.ground + 4) return centraalBoard(this.g.settings.hour ?? 12);
     const ms = t.y < this.g.meta.ground - 6 ? metroStationAt(t.x, t.z) : null;
     if (ms) {
       const tr = this.g.traffic, per = periodOfHour(this.g.settings.hour ?? 12), n = tr?.have?.metro ?? 0, full = tr?.full?.metro ?? 0;
