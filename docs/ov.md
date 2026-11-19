@@ -1,4 +1,4 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-18b, Blokstad 13.0)
+# Openbaar vervoer — stand van zaken (versie 2026-11-19a, Blokstad 13.1)
 
 ## Fase 1 — tunnels (af)
 
@@ -264,18 +264,57 @@ Zie ook `docs/audit-13.md` (technische audit van de hele game).
   - een lage galm ondergronds.
 - **Stationsomroep**: staat er een trein klaar aan het perron waar je staat, dan hoor je een omroep, bijvoorbeeld "Gletsjerdal. S1 naar Hemelpoort staat klaar."
 
+## Blokstad 13.1 (versie 2026-11-19a)
+
+### Treinen (`js/trainshell.js`)
+- **Historische stoomtrein**: een nieuwe dienst in de Alpen, op de lijn van de Panorama Express, tussen 10 en 18 u.
+  - De locomotief heeft een ketel met messing banden, rookkast, schoorsteen, stoomdom, cabine en tender met kolen, drie paar rode drijfwielen met koppelstang, en een lantaarn.
+  - De rijtuigen zijn groen met een crème ramenband en goudlijn, hebben een lichtkap met raampjes op het dak en balkons met hekjes.
+  - Het geluid is puffen, vier keer per omwenteling van de drijfwielen.
+- **Slaaprijtuig**: kleine coupéramen hoog in de wand en een gekleurde band.
+- **Bergtrein** (tandradbanen en panoramarijtuigen): grote panoramaruiten, en een tandrad onder het draaistel.
+- **Eenvoudig model op afstand (LOD)**: verder dan 450 m tekent de game een rijtuig als 4 blokken in plaats van honderden onderdelen.
+- **Bewegende stroomafnemer**: hij gaat neer als een trein meer dan 20 s stilstaat zonder open deuren (opstellen, keren) en weer op als de trein vertrekt.
+- **Getest** (`tests/browser/treinmodellen.cjs`):
+  - de stoomtrein rijdt;
+  - LOD ver weg aan, dichtbij uit;
+  - de stroomafnemer gaat na het parkeren van 1 naar 0 en bij vertrek weer naar 1.
+
+### Tunnels: nooduitgangen en bewegwijzering (`js/carve.js`)
+- **Nooduitgang**: elke ventilatieschacht heeft een ladder tegen de wand tot boven de grond, met een open luik.
+- **Markeringen**: om de 50 m een groene vluchtwegmarkering op de tunnelwand.
+- **Borden**: om de 100 m een bord. Druk E en je leest de richting en afstand tot de nooduitgang, bijvoorbeeld "Nooduitgang (ladder naar boven): 50 m richting oost". Het bord kijkt in de blokken of de ladder er echt is.
+- **Getest** (`tests/browser/nooduitgang.cjs`): de speler klimt 32 m de ladder op tot boven de grond. In Greenisland zijn er 27 ladderschachten, alle met een vrije uitgang. Het voertuigprofiel blijft vrij.
+
+### Megatower City: stationshal Megatower Centraal (`js/megacity.js`)
+- **Waar**: een glazen hal boven de sporen, 64 × 30 m, op het perrondak.
+- **Inrichting**: wachtruimte, loketten, 4 ticketautomaten, kiosk met rekken, café met tafels en stoelen, toiletten en verlichting.
+- **Vertrekbord**: de echte treinen naar de Luchthaven, volgens de dienstregeling per periode.
+- **Bereikbaarheid**:
+  - van elk van de drie perrons een trap naar de hal, met een roltrap ernaast;
+  - een lift vanaf het eilandperron;
+  - van de straat naar de perrons gaan de bestaande trappen.
+- **Getest** (`tests/browser/centraal.cjs`):
+  - inrichting en vertrekbord;
+  - de drie trappen lopen door, telkens met hoofdruimte;
+  - met de spelbesturing de trap op tot in de hal;
+  - de lift gaat 6 m omhoog.
+- **Beperking**: de trap op het smalle eilandperron is 1 m breed, zodat hij buiten het profiel van de treinen blijft.
+
+### Wachtenden aan bushaltes (`js/buspax.js`)
+- In de verkeerswerelden (Megatower City, Nova Metropool, steden) wachten mensen aan de haltes binnen 220 m: 6 in de spits, 4 in de daluren, 2 's avonds en 1 's nachts.
+- Staat er een bus met open deuren, dan stappen ze in. Er stappen ook reizigers uit die weglopen.
+- Elke plek wordt gecontroleerd in de blokken: vaste grond, lucht voor voeten en hoofd.
+- **Getest** (`tests/browser/bushalte.cjs`): wachten, instappen en uitstappen werken; 0 posities in een muur of zwevend.
+- **Fout hersteld**: het busdashboard van Blokstad 12 vond nooit een halte of verkeerslicht, omdat die gegevens op een andere plek stonden.
+
 ## Nog niet gedaan
 
-Van de opdracht Blokstad 13.0 is in deze ronde niet gebouwd:
-- **Treinen**: nieuwe treinmodellen (historisch, slaaptrein-buitenkant, bergtrein in een eigen stijl), LOD voor de buitenkant van treinen en bewegende stroomafnemers.
-- **Wissels in de dienstregeling**: de treinen van de dienstregeling gebruiken de overloopwissels niet. In de Alpen zijn er geen wissels tussen lijnen.
-- **Metro**: metro 4.0 (depots, keersporen, eigen seinbeveiliging) en metrostations met meerdere niveaus en tourniquets.
-- **Bus en tram**: bus 4.0 en tram 4.0 (nieuwe modellen, routebegeleiding, tramdepots).
-- **Reisplanner**: één reisplanner voor alle werelden samen met echte ritten van het verkeer.
-- **Stations**: stations 4.0 (grote hallen met verdiepingen), een betreedbaar centraal station in Megatower City.
-- **Tunnels**: nooduitgangen en tunnelbewegwijzering.
-- **Werelden**: nieuwe stadsarchitectuur, meer betreedbare gebouwen, Megatower City 2.0 en het herstellen van wereldgeneratiefouten. Er is geen nieuwe controle gedaan: de bestaande controles op zwevende huizen, naden en wegen slagen.
-- **Graphics**: graphics 4.0 (PBR-materialen, reflecties, wind).
-- **Voetgangers**: buiten de perrons (bushaltes, stationshallen).
-- **Interface**: een nieuw hoofdmenu met wereldpreviews en toetsenbordinstellingen.
-- **Prestaties**: niet gemeten op echte toestellen. De tests draaien zonder grafische kaart.
+- **Wissels in de dienstregeling**: de treinen van de dienstregeling gebruiken de overloopwissels niet; elke dienst rijdt op zijn eigen lijn.
+- **Metro, bus en tram 4.0**: geen depots, geen aparte metroseinen, geen metrostations met meerdere niveaus en geen busroute met begeleiding van halte tot halte. Het busdashboard toont wel de volgende halte en het verkeerslicht.
+- **Reisplanner**: geen gezamenlijke reisplanner over alle werelden met de ritten van het verkeer (Megatower City rekent met de intervallen).
+- **Stations**: geen grote stationshallen met meerdere verdiepingen in Greenisland en de Alpen.
+- **Werelden**: geen nieuwe stadsarchitectuur, geen extra betreedbare gebouwen en geen Megatower City 2.0.
+- **Graphics 4.0**: geen nieuwe materialen en reflecties, geen nieuw hoofdmenu.
+- **Voetgangers**: niet in stationshallen.
+- **Prestaties**: niet gemeten op echte toestellen.
