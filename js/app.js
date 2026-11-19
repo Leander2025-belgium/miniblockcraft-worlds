@@ -189,6 +189,8 @@ $('#import').addEventListener('change', async (e) => {
   if (!f) return;
   try {
     const bytes = await store.readMaybeGzip(f);
+    const bk = await store.restoreUserData(bytes);
+    if (bk) { notify(`Back-up teruggezet: ${bk.stukken} stukken, ${bk.bouw} bouwwerken, ${bk.instellingen} instellingen.`); refreshList(); return; }
     const builds = await store.importBuilds(bytes);
     if (builds) {
       // bouwwerken voor een grote kaart: kaart aanmaken als die nog niet bestaat
@@ -206,6 +208,16 @@ $('#import').addEventListener('change', async (e) => {
   } catch (err) { notify('Importeren mislukt: ' + err.message); }
 });
 
+$('#btn-backup')?.addEventListener('click', async () => {
+  try {
+    const { blob, stukken, bouw, instellingen } = await store.backupUserData();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `terranova-backup-${new Date().toISOString().slice(0, 10)}.terranova-backup`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    notify(`Back-up gemaakt: ${stukken} stukken, ${bouw} bouwwerken, ${instellingen} instellingen.`);
+  } catch (err) { notify('Back-up mislukt: ' + err.message); }
+});
+
 // ---------- spelen ----------
 // op telefoons: volledig scherm en liggend (waar de browser dat toestaat); moet meteen bij de tik gebeuren
 function phoneFullscreen() {
@@ -221,6 +233,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 async function ensureGame() {
+  if (location.hash === '#debug') window.blokGame = () => game; // testhaak, ook voor opgeslagen stukken
   if (!game) {
     const { Game } = await import('./game.js');
     game = new Game({

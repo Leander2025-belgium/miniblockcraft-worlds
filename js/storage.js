@@ -112,6 +112,7 @@ export async function cacheGetPrefix(prefix) {
 
 // ---------- bouwwerken van een grote kaart delen ----------
 const MAGIC_B = 'BLOKBOUW1';
+export const BACKUP_PREFIX = 'backup-edit-'; // vorige versie van een bouwwerk vóór een import (zie importBuilds)
 export async function exportBuilds(meta) {
   const edits = await cacheGetPrefix(`${meta.map.id}-edit-`);
   const head = { meta, entries: edits.map(e => ({ key: e.key, H: e.value.H, y0: e.value.y0 || 0, len: e.value.rle.length })) };
@@ -136,7 +137,11 @@ export async function importBuilds(bytes) {
   const len = new DataView(bytes.buffer, bytes.byteOffset).getUint32(MAGIC_B.length, true);
   const head = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC_B.length + 4, MAGIC_B.length + 4 + len)));
   let o = MAGIC_B.length + 4 + len;
+  const ts = Date.now().toString(36);
   for (const e of head.entries) {
+    // bestaand bouwwerk wordt niet stilzwijgend overschreven: de vorige versie gaat eerst naar een back-upsleutel
+    const prev = await cacheGet(e.key);
+    if (prev && prev.rle) await cachePut(`${BACKUP_PREFIX}${ts}-${e.key}`, prev);
     await cachePut(e.key, { rle: bytes.slice(o, o + e.len), H: e.H, y0: e.y0 || 0 });
     o += e.len;
   }
@@ -227,4 +232,59 @@ export async function importFile(file, pre) {
   const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC.length + 4, MAGIC.length + 4 + len)));
   const vox = rleDecode(bytes.subarray(MAGIC.length + 4 + len), meta.size * meta.size * meta.H);
   return { meta, vox };
+}
+
+// ---------- volledige back-up van de eigen gegevens (TERRANOVA 14) ----------
+// Formaat 'TNBACKUP1' + lengte + JSON-kop + binaire stukken. Bevat alles wat de speler zelf maakte of instelde:
+// opgeslagen stukken (regions + data), bouwwerken per tegel (cache-sleutels met '-edit-' en '-ug-', ook de back-ups daarvan), bouwplannen ('bp-…')
+// en de instellingen in localStorage ('blokstad-…', favorieten 'gi-favs'). De gewone kaartcache zit er niet in: die wordt opnieuw gemaakt.
+// Terugzetten voegt toe en overschrijft alleen dezelfde sleutels; er wordt nooit iets gewist.
+const MAGIC_BK = 'TNBACKUP1';
+const isUser = (k) => typeof k === 'string' && (k.includes('-edit-') || k.includes('-ug-') || k.startsWith('bp-')); // bouwwerk, ondergronds bouwwerk, bouwplannen
+function pack(v, bins) { // getypte arrays naar het binaire deel, de rest blijft JSON
+  if (v instanceof Uint8Array || v instanceof Int8Array || v instanceof Uint16Array || v instanceof Int16Array || v instanceof Uint32Array || v instanceof Int32Array || v instanceof Float32Array || v instanceof Float64Array) {
+    bins.push(new Uint8Array(v.buffer, v.byteOffset, v.byteLength)); return { __bin: bins.length - 1, t: v.constructor.name };
+  }
+  if (Array.isArray(v)) return v.map(x => pack(x, bins));
+  if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) o[k] = pack(v[k], bins); return o; }
+  return v;
+}
+function unpack(v, bins) {
+  if (Array.isArray(v)) return v.map(x => unpack(x, bins));
+  if (v && typeof v === 'object') {
+    if ('__bin' in v && 't' in v) { const b = bins[v.__bin], C = globalThis[v.t] || Uint8Array, c = b.slice(); return new C(c.buffer, 0, c.byteLength / (C.BYTES_PER_ELEMENT || 1)); }
+    const o = {}; for (const k of Object.keys(v)) o[k] = unpack(v[k], bins); return o;
+  }
+  return v;
+}
+export async function backupUserData() {
+  const d = await db(), bins = [], items = [];
+  const all = (store) => new Promise((res, rej) => { const out = []; const r = d.transaction(store).objectStore(store).openCursor(); r.onsuccess = () => { const c = r.result; if (!c) return res(out); out.push([c.key, c.value]); c.continue(); }; r.onerror = () => rej(r.error); });
+  for (const [k, v] of await all('regions')) items.push({ s: 'regions', k, v: pack(v, bins) });
+  for (const [k, v] of await all('data')) items.push({ s: 'data', k, v: pack(v, bins) });
+  for (const [k, v] of await all('cache')) if (isUser(k)) items.push({ s: 'cache', k, v: pack(v, bins) });
+  const ls = {}; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && (k.startsWith('blokstad-') || k === 'gi-favs')) ls[k] = localStorage.getItem(k); } } catch { /* geen toegang */ }
+  const head = { versie: 1, gemaakt: Date.now(), items, ls, lens: bins.map(b => b.byteLength) };
+  const hb = new TextEncoder().encode(JSON.stringify(head)), mg = new TextEncoder().encode(MAGIC_BK);
+  const buf = new Uint8Array(mg.length + 4 + hb.length + bins.reduce((n, b) => n + b.byteLength, 0));
+  buf.set(mg, 0); new DataView(buf.buffer).setUint32(mg.length, hb.length, true); buf.set(hb, mg.length + 4);
+  let o = mg.length + 4 + hb.length; for (const b of bins) { buf.set(b, o); o += b.byteLength; }
+  let blob = new Blob([buf], { type: 'application/octet-stream' });
+  if (typeof CompressionStream !== 'undefined') blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  return { blob, stukken: items.filter(i => i.s === 'regions').length, bouw: items.filter(i => i.s === 'cache').length, instellingen: Object.keys(ls).length };
+}
+export function isBackup(bytes) { return new TextDecoder().decode(bytes.subarray(0, MAGIC_BK.length)) === MAGIC_BK; }
+export async function restoreUserData(bytes) {
+  if (!isBackup(bytes)) return null;
+  const len = new DataView(bytes.buffer, bytes.byteOffset).getUint32(MAGIC_BK.length, true);
+  const head = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC_BK.length + 4, MAGIC_BK.length + 4 + len)));
+  const bins = []; let o = MAGIC_BK.length + 4 + len; for (const n of head.lens) { bins.push(bytes.subarray(o, o + n)); o += n; }
+  const d = await db();
+  await new Promise((res, rej) => {
+    const t = d.transaction(['regions', 'data', 'cache'], 'readwrite');
+    for (const it of head.items) { const v = unpack(it.v, bins); if (it.s === 'regions') t.objectStore('regions').put(v); else t.objectStore(it.s).put(v, it.k); }
+    t.oncomplete = res; t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  });
+  try { for (const [k, v] of Object.entries(head.ls || {})) localStorage.setItem(k, v); } catch { /* geen toegang */ }
+  return { stukken: head.items.filter(i => i.s === 'regions').length, bouw: head.items.filter(i => i.s === 'cache').length, instellingen: Object.keys(head.ls || {}).length, gemaakt: head.gemaakt };
 }
