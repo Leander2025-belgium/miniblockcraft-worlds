@@ -12,6 +12,6 @@ export function diag(event, info) {
 export function diagList() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } }
 export function diagText() {
   const ua = navigator.userAgent.replace(/\s+/g, ' ');
-  return [`Blokstad diagnose · ${new Date().toLocaleString('nl-BE')}`, ua, `scherm ${screen.width}×${screen.height} @${devicePixelRatio} · geheugen ${navigator.deviceMemory || '?'} GB · kernen ${navigator.hardwareConcurrency || '?'}`, '',
+  return [`TERRANOVA diagnose · ${new Date().toLocaleString('nl-BE')}`, ua, `scherm ${screen.width}×${screen.height} @${devicePixelRatio} · geheugen ${navigator.deviceMemory || '?'} GB · kernen ${navigator.hardwareConcurrency || '?'}`, '',
     ...diagList().map(d => `${new Date(d.t).toLocaleTimeString('nl-BE')} ${d.e}${d.i ? ' · ' + (typeof d.i === 'string' ? d.i : JSON.stringify(d.i)) : ''}`)].join('\n');
 }

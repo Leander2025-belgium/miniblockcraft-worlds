@@ -1,6 +1,6 @@
-// Blokstad service worker: altijd de nieuwste versie van de game (eerst online kijken),
+// TERRANOVA (vroeger Blokstad) service worker: altijd de nieuwste versie van de game (eerst online kijken),
 // en een bewaarde kopie gebruiken als er geen internet is.
-const CACHE = 'blokstad-v3';
+const CACHE = 'blokstad-v3'; // naam niet wijzigen: dan zou de offline kopie van spelers verdwijnen
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

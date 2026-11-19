@@ -5,13 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<title>Blokstad</title>
-<meta name="description" content="Blokstad: een blokkenbouwspel in echte steden (OpenStreetMap) of een fantasiestad. Download een stuk stad en speel en bouw erin.">
-<meta name="theme-color" content="#141a24">
+<title>TERRANOVA</title>
+<meta name="description" content="TERRANOVA — Build Your World. Explore Without Limits. Een uitgebreide 3D-openwereldgame: ontdek gigantische steden, gebouwen en landschappen, bouw zelf en reis met treinen, metro's, trams en bussen. (Vroeger: Blokstad.)">
+<meta name="theme-color" content="#0b1220">
+<meta name="application-name" content="TERRANOVA">
+<meta name="apple-mobile-web-app-title" content="TERRANOVA">
+<meta property="og:title" content="TERRANOVA — Build Your World. Explore Without Limits.">
+<link rel="icon" type="image/svg+xml" href="assets/brand/terranova-icon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/brand/terranova-icon-192.png">
+<link rel="apple-touch-icon" href="assets/brand/terranova-icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   :root {
-    --bg: #11161f; --panel: #1a212d; --panel2: #222b3a; --line: #2e3a4d; --text: #e8edf4; --muted: #8e9bb0;
-    --accent: #5fd27a; --accent-d: #3ea85a; --warn: #ffd34d; --danger: #e5604f;
+    /* TERRANOVA: donkerblauw en antraciet, smaragdgroen als accent */
+    --bg: #0b1220; --panel: #111a2b; --panel2: #18233a; --line: #26344d; --text: #e8eef6; --muted: #8fa0b8;
+    --accent: #10b981; --accent-d: #059669; --warn: #ffd34d; --danger: #e5604f; --anthracite: #1f2937;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -28,6 +36,28 @@
   .logo i:nth-child(1) { background: #5fd27a; } .logo i:nth-child(2) { background: #8b5e3c; }
   .logo i:nth-child(3) { background: #a3a9b4; } .logo i:nth-child(4) { background: #5aa8e0; }
   h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+  /* TERRANOVA-kop: logo, titel, uitleg, knoppen */
+  header.top { background: linear-gradient(90deg, #0b1220, #111a2b 60%, #0f2a2a); }
+  .tn-logo { height: 48px; width: auto; flex: 0 0 auto; animation: tn-float 6s ease-in-out infinite; }
+  .tn-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } /* de naam staat in het logo; voor schermlezers en zoekmachines */
+  .tn-intro { flex: 1; min-width: 0; }
+  .tn-nav { display: flex; gap: 8px; }
+  .tn-nav .btn { text-decoration: none; white-space: nowrap; }
+  .tn-version { opacity: .7; font-size: 12px; }
+  @keyframes tn-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+  @media (max-width: 720px) { .tn-intro p { display: none; } .tn-logo { height: 34px; max-width: 58vw; } .tn-nav .btn { padding: 6px 9px; font-size: 13px; } .tn-lbl { display: none; } header.top { gap: 8px; padding: 10px 12px; } }
+  @media (prefers-reduced-motion: reduce) { .tn-logo, .tn-spin { animation: none !important; } }
+  /* wereldvoorbeeld op de kaarten */
+  .tn-preview { height: 86px; border-radius: 8px; margin-top: 8px; background-size: cover; background-position: center; border: 1px solid var(--line); }
+  /* TERRANOVA-laadscherm (echte voortgang: stukken uit de opslag, 3D-stukjes in de wachtrij) */
+  #tn-loader { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: radial-gradient(circle at 50% 35%, #12213a, #0b1220 70%); color: var(--text); }
+  #tn-loader .box { text-align: center; padding: 24px; max-width: 520px; }
+  #tn-loader img { width: min(360px, 80vw); height: auto; }
+  #tn-loader .world { font-size: 18px; font-weight: 700; margin: 14px 0 4px; }
+  #tn-loader .phase { color: var(--muted); font-size: 14px; min-height: 1.5em; }
+  #tn-loader .tip { color: #a7f3d0; font-size: 13px; margin-top: 18px; min-height: 2.8em; transition: opacity .4s; }
+  .tn-spin { width: 34px; height: 34px; margin: 16px auto 0; border-radius: 50%; border: 3px solid #1e3a5f; border-top-color: var(--accent); animation: tn-rot 1.1s linear infinite; }
+  @keyframes tn-rot { to { transform: rotate(360deg); } }
   header.top p { margin: 0; color: var(--muted); font-size: 13px; }
   #menu { grid-template-rows: auto minmax(0, 1fr); }
   .map-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
@@ -52,7 +82,9 @@
   .seg button.on { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
   .btn:hover, .chip:hover, .seg button:hover { border-color: #4a5c78; }
   .btn.primary { background: var(--accent); color: #0b1a10; border-color: var(--accent); font-weight: 600; }
-  .btn.primary:hover { background: #74e08d; }
+  .btn.primary:hover { background: #34d399; }
+  .btn, .seg button, .chip { transition: transform .12s ease, border-color .15s ease, background .15s ease; }
+  .btn:active { transform: translateY(1px) scale(.99); }
   .btn.big { width: 100%; padding: 11px; font-size: 16px; }
   .btn.danger { color: var(--danger); }
   .btn:disabled { opacity: .5; cursor: default; }
@@ -309,11 +341,15 @@
 
 <div id="menu">
   <header class="top">
-    <div class="logo"><i></i><i></i><i></i><i></i></div>
-    <div>
-      <h1>Blokstad</h1>
-      <p>Speel en bouw in echte steden met hun echte gebouwen (OpenStreetMap), of in de fantasiewerelden Greenisland, Nova Metropool en de Alpen.</p>
+    <img class="tn-logo" src="assets/brand/terranova-logo.svg" alt="TERRANOVA — Build Your World. Explore Without Limits." width="260" height="48">
+    <div class="tn-intro">
+      <h1 class="tn-title">TERRANOVA</h1>
+      <p>Een 3D-openwereld: ontdek echte steden (OpenStreetMap) en de werelden Greenisland, Megatower City, Nova Metropool en de Alpen, bouw zelf en reis met trein, metro, tram en bus.</p>
     </div>
+    <nav class="tn-nav">
+      <a class="btn" href="#tn-saved" title="Je opgeslagen werelden en stukken" aria-label="Opslag">💾<span class="tn-lbl"> Opslag</span></a>
+      <a class="btn" href="#tn-help" title="Besturing en uitleg" aria-label="Help">❓<span class="tn-lbl"> Help</span></a>
+    </nav>
   </header>
 
   <section class="real-col" id="real-col">
@@ -468,6 +504,7 @@
         </div>
         <button class="btn primary" id="btn-metro">▶ Spelen</button>
       </div>
+      <div class="tn-preview" role="img" aria-label="Voorbeeld: skyline van Nova Metropool" style="background-image:linear-gradient(180deg,#1e3a5f 0%,#f59e0b33 70%,#0b1220 100%),repeating-linear-gradient(90deg,#0b1220 0 14px,transparent 14px 22px);background-blend-mode:normal"></div>
       <p class="help">Een enorm centrum met supermoderne torens, een haven met cruiseschepen, twee luchthavens, een rivier, parken en voorsteden. Alles wordt meteen gemaakt terwijl je rondvliegt: niets te downloaden.</p>
     </div>
     <div class="city-card">
@@ -478,6 +515,7 @@
         </div>
         <button class="btn primary" id="btn-berg">▶ Spelen</button>
       </div>
+      <div class="tn-preview" role="img" aria-label="Voorbeeld: kaart van de Alpenwereld" style="background-image:url(assets/alpen-map.jpg)"></div>
       <canvas id="berg-map" title="Tik om daar te starten" style="width:100%;aspect-ratio:1;border-radius:8px;margin-top:8px;cursor:crosshair;display:block;image-rendering:auto"></canvas>
       <p class="help">De Reuzenberg ligt nu midden in een Alpenwereld van <b>50 × 50 km</b>: de echte <b>Zugspitze</b>, <b>Matterhorn</b> en het <b>Mont Blanc</b>-massief (echte hoogtegegevens), de <b>Hemelhoorn</b> van 5000 m, diepe dalen, meren en gletsjers. Een groot <b>spoornet</b> (gekleurde lijnen) verbindt <b>Reuzenstad</b> met de <b>Reuzenberg Hauptbahnhof</b>, dorpen en bergstations; kabelbanen gaan naar de toppen. Je bouwwerken van vroeger staan nog op hun plek.</p>
       <p class="help">Eén immens hoge berg met een natuurlijke vorm. Onderaan dichte loof- en naaldbossen, hoger alpenweiden, rotsen en eeuwige sneeuw. Het <b>wandelpad</b> (geel, ± 9 km) slingert naar de top: reken op een halfuur stappen. Of neem de <b>kabelbaan</b> (rood) vanaf het dalstation: druk <kbd>G</kbd> of tik op 🚡 in het station.</p>
@@ -485,12 +523,12 @@
 
     </div>
 
-    <h2>Mijn stukken</h2>
+    <h2 id="tn-saved">Mijn stukken</h2>
     <p id="menu-msg" class="help" role="status" hidden></p>
     <div id="regions"></div>
-    <label class="file btn"><input type="file" id="import" accept=".blokstad,.blokstad-bouw,application/octet-stream">Bestand importeren…</label>
+    <label class="file btn"><input type="file" id="import" accept=".blokstad,.blokstad-bouw,.terranova,.terranova-bouw,application/octet-stream">Bestand importeren…</label>
 
-    <h2>Besturing</h2>
+    <h2 id="tn-help">Besturing</h2>
     <div class="keys">
       <kbd>W A S D</kbd><span>lopen</span>
       <kbd>Spatie</kbd><span>springen / omhoog vliegen</span>
@@ -514,11 +552,20 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help" id="app-version">Versie 2026-11-19b (Blokstad 13.1 · interieurs)</p>
-    <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als <code>.blokstad</code>-bestand om te delen of te back-uppen.</p>
+    <p class="help tn-version" id="app-version">TERRANOVA · versie 2026-11-20a <span class="muted">(vroeger Blokstad)</span></p>
+    <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als TERRANOVA-bestand (<code>.blokstad</code>, het bestandsformaat van Blokstad) om te delen of te back-uppen. Oude <code>.blokstad</code>- en <code>.blokstad-bouw</code>-bestanden blijven werken.</p>
   </aside>
 </div>
 
+<div id="tn-loader" hidden aria-live="polite">
+  <div class="box">
+    <img src="assets/brand/terranova-logo.svg" alt="TERRANOVA" width="360" height="66">
+    <div class="world" id="tn-loader-world"></div>
+    <div class="phase" id="tn-loader-phase"></div>
+    <div class="tn-spin" aria-hidden="true"></div>
+    <div class="tip" id="tn-loader-tip"></div>
+  </div>
+</div>
 <div id="game" hidden>
   <canvas id="game-canvas"></canvas>
   <div class="hud" id="hud-tl">
@@ -656,6 +703,7 @@
   </div>
   <div class="ov" id="ov-pause" hidden>
     <div class="card">
+      <img src="assets/brand/terranova-logo.svg" alt="TERRANOVA" width="220" height="41" style="display:block;margin:0 0 6px">
       <h2>Pauze</h2>
       <div class="row">
         <button class="btn primary" id="btn-resume">Verder spelen</button>
@@ -770,6 +818,6 @@
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
-<script type="module" src="./js/app.js?v=2026-11-19b"></script>
+<script type="module" src="./js/app.js?v=2026-11-20a"></script>
 </body>
 </html>

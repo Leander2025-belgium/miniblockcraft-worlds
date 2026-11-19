@@ -1,6 +1,6 @@
 // Opslag van gedownloade stadsdelen in IndexedDB + import/export als bestand.
 
-const DB_NAME = 'blokstad';
+const DB_NAME = 'blokstad'; // technische naam: NIET wijzigen (bestaande opslag van spelers, ook na de naam TERRANOVA)
 let dbp = null;
 function db() {
   if (!dbp) {
@@ -222,7 +222,7 @@ export async function importFile(file, pre) {
     bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
   }
   const head = new TextDecoder().decode(bytes.subarray(0, MAGIC.length));
-  if (head !== MAGIC) throw new Error('Dit is geen Blokstad-bestand.');
+  if (head !== MAGIC) throw new Error('Dit is geen TERRANOVA-bestand (.blokstad).');
   const len = new DataView(bytes.buffer, bytes.byteOffset).getUint32(MAGIC.length, true);
   const meta = JSON.parse(new TextDecoder().decode(bytes.subarray(MAGIC.length + 4, MAGIC.length + 4 + len)));
   const vox = rleDecode(bytes.subarray(MAGIC.length + 4 + len), meta.size * meta.size * meta.H);

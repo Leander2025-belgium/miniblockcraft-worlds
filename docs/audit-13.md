@@ -1,4 +1,4 @@
-# Technische audit Blokstad 13 (2026-11-18)
+# (TERRANOVA, vroeger Blokstad) Technische audit Blokstad 13 (2026-11-18)
 
 Gebaseerd op de broncode (±22.000 regels in `js/`), `docs/ov.md`, `docs/megatower.md`, de controles in
 `tests/run-all.mjs` (13 controles zonder browser) en 27 browsertests in `tests/browser/`.
