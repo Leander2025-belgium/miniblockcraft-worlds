@@ -1137,6 +1137,21 @@ export class AlpRail {
   }
   // vertrekbord in een station (E op een bord): de volgende vertrekken met lijn, bestemming, spoor en vertraging
   signText(t) {
+    // bord in een tunnel: richting en afstand tot de nooduitgang (ladderschacht om de 600 m, alleen waar hij echt ligt)
+    for (const L of LINES) {
+      if (L.tram || L.bus) continue;
+      const r = L.near(Math.floor(t.x), Math.floor(t.z), 9); if (!r || r.kind !== 1 || Math.abs(r.y - t.y) > 8) continue;
+      const w = this.g.world, found = [];
+      for (let k = -3; k <= 3; k++) {
+        const s = Math.floor(r.s / 600) * 600 + 300 + k * 600; if (s < 0 || s > L.len) continue;
+        const q = L.at(s), side = Math.sign(r.sd) || 1, bed = L.single ? 3.0 : 5.4;
+        for (const o of [bed + 0.5, bed + 0.7, bed + 0.3]) { const x = Math.floor(q.x - q.tz * o * side), z = Math.floor(q.z + q.tx * o * side), y = Math.round(q.y) + 3; if (w.get(x, y, z) === B.LADDER || w.get(x, y + 1, z) === B.LADDER) { found.push({ s, d: s - r.s }); break; } }
+      }
+      found.sort((a, b2) => Math.abs(a.d) - Math.abs(b2.d));
+      const ex = found[0], dir = (d) => { const q = L.at(r.s), q2 = L.at(r.s + Math.sign(d) * 5); const a = Math.atan2(q2.x - q.x, q2.z - q.z) * 180 / Math.PI; return ['noord', 'noordoost', 'oost', 'zuidoost', 'zuid', 'zuidwest', 'west', 'noordwest'][((Math.round(((a % 360) + 360) % 360 / 45) % 8) + 8) % 8]; };
+      return ex ? `🚪 Nooduitgang (ladder naar boven): ${Math.round(Math.abs(ex.d))} m richting ${dir(ex.d)}${found[1] ? `\nVolgende: ${Math.round(Math.abs(found[1].d))} m richting ${dir(found[1].d)}` : ''}\nLoop over het dienstpad langs de wand · ${L.name || L.id}, km ${(r.s / 1000).toFixed(1)}`
+        : `🚪 Nooduitgang: volg de groene markeringen naar de tunnelmond\n${L.name || L.id}, km ${(r.s / 1000).toFixed(1)}`;
+    }
     let best = null, bd = 160;
     for (const st of STATIONS_ALL) { const d = Math.hypot(st.x - t.x, st.z - t.z); if (d < bd) { bd = d; best = st; } }
     if (!best) return null;

@@ -22,8 +22,10 @@ export function boreBlock(d, y, ty, bed, s) {
   if (h > 4) { const e = (h - 4) / (BORE_H - 2.5); if ((d / (wall + 0.6)) ** 2 + e * e > 1) return B.CONCRETE; }
   if (y === ty) return d <= bed ? (d < bed - 0.7 ? B.BALLAST : B.CONCRETE) : B.CONCRETE;
   if (d > bed + 0.4 && y === ty + 1) return B.CONCRETE;                             // dienstpad (een halve meter van de bak)
+  if (d > wall - 0.4 && y === ty + 3 && Math.round(s) % 100 === 50) return B.SIGN;   // bord: richting en afstand tot de nooduitgang (E)
   if (d > wall - 0.6 && y === ty + 3) return B.METAL;                                // kabelgoot
   if (d > wall - 0.4 && y === ty + 4 && Math.round(s) % 24 === 0) return B.LAMP;    // lamp tegen de wand
+  if (d > wall - 0.4 && y === ty + 5 && Math.round(s) % 50 === 25) return B.PAINT_GREEN; // vluchtwegmarkering
   return 0;
 }
 // ventilatieschacht om de 600 m (naast het dienstpad, 3 × 2 m) tot aan de oppervlakte, met een rooster en een
@@ -34,8 +36,10 @@ export function ventShaft(col, by, top, ad, bed, s) {
   const wall = bed + BORE_W, u = ((s % SHAFT_EVERY) + SHAFT_EVERY) % SHAFT_EVERY - SHAFT_EVERY / 2;
   if (top - by > 400 || top <= by + BORE_H + 2 || Math.abs(u) > 2.6 || ad < wall - 2.6 || ad > wall + 0.6 || !NATURAL.has(col[top])) return top;
   const inner = Math.abs(u) <= 1.5 && ad >= wall - 2 && ad <= wall;
+  // nooduitgang: een ladder tegen de buitenwand van de schacht tot boven de grond, met een open luik
+  if (inner && Math.abs(u) <= 0.5 && ad > wall - 0.9) { for (let y = by + 2; y <= top + 2; y++) col[y] = B.LADDER; return top + 2; }
   if (inner) { for (let y = by + 2; y <= top; y++) col[y] = 0; col[top + 1] = B.METAL; return top + 1; }   // schacht + rooster
-  col[top + 1] = B.CONCRETE; col[top + 2] = B.CONCRETE; return top + 2;                                    // kraag
+  col[top + 1] = B.CONCRETE; return top + 1;                                                               // kraag (laag: je stapt eroverheen)
 }
 // tunnelkolom in een tegel: bedding op 'by', alles tot het plafond; geeft de bovenkant terug
 // (ligt er vlak onder een andere tunnel, dan blijft diens luchtruimte open: geen extra betonplaat onder de bedding)
