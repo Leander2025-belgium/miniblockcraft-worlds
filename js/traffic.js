@@ -234,6 +234,9 @@ const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12,
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
+  // haltes en verkeerslichten van het netwerk (voor het busdashboard en de wachtenden aan bushaltes)
+  get stops() { return this.net ? this.net.stops : []; }
+  get signals() { return this.net ? this.net.signals : []; }
   constructor(scene, ground) {
     this.scene = scene; this.G = ground;
     this.net = new Network();

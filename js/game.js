@@ -16,6 +16,7 @@ import { diag } from './diag.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
+import { BusPax } from './buspax.js';
 import { rleEncode, rleDecode } from './storage.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
@@ -390,7 +391,7 @@ export class Game {
     this.meta = meta;
     this.tiled = null;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
-    if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; }
     this.dropMountain(); this.leaveVehicle();
     this.mega?.dispose(); this.mega = null; this.seat = null;
     this.under?.dispose(); this.under = null;
@@ -932,7 +933,7 @@ export class Game {
     this.suspended = false;
     this.running = false;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
-    if (this.traffic) { this.traffic.dispose(); this.traffic = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; }
     this.dropMountain();
     cancelAnimationFrame(this.raf);
     if (document.pointerLockElement) document.exitPointerLock();
@@ -1014,6 +1015,7 @@ export class Game {
     if (this.traffic && this.settings.traffic !== false) {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day, this.settings.hour);
+      this.updateBusPax(dt, env.day);
     }
     // omgevingsgeluid (stad, wind, regen, galm ondergronds); start na de eerste toets of tik
     if (this.settings.ambient !== false) {
@@ -1300,6 +1302,14 @@ export class Game {
     S.matrix.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1).multiply(cam.projectionMatrix).multiply(cam.matrixWorldInverse);
     set('shadowMap', S.rt.depthTexture); set('shadowOn', 1);
     S.ready = true;
+  }
+  // wachtenden aan de bushaltes: instappen bij een bus met open deuren, uitstappen (js/buspax.js)
+  updateBusPax(dt, day) {
+    if (!this.busPax) this.busPax = new BusPax(this.scene, this.world);
+    const tr = this.traffic, buses = [];
+    for (const a of tr.agents || []) if (a.kind === 'bus' && !a.dead) { const h = tr.behind(a, a.L / 2, this.tmpBus || (this.tmpBus = {})); buses.push({ id: a, x: h.x, z: h.z, open: a.atStop !== false && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5, get served() { return a.paxServed; }, set served(v) { a.paxServed = v; } }); }
+    this.busPax.update(dt, this.player.pos, tr.stops || [], buses, tr.period || 'dal');
+    this.busPax.setDay(day);
   }
   // FPS-meter (instellingen of F3): beelden per seconde, traagste frame, tekenopdrachten, driehoeken, geheugen, laadtijd
   perfHud(dt) {
