@@ -6,6 +6,7 @@ import { TrainShells, LOD_DIST } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
 import { buildCrossovers } from './crossover.js';
+import { routeServices } from './railroute.js';
 import { Passengers } from './passengers.js';
 import { B, IS_SOLID } from './blocks.js';
 import { meshChunk } from './mesher.js';
@@ -21,12 +22,16 @@ let JUNCTIONS = [];
 export function useNet(net) {
   NET = net;
   ({ LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS = [], CROSSINGS = [], groundAt, MW, ML } = net);
-  SERVICES = applyOverrides(net.SERVICES, loadOverrides());
   if (net.liveries) Object.assign(LIVERY, net.liveries);
-  if (!net._runs) { speedLimits(); net._runs = buildTimetable(); }
-  RUNS = net._runs;
+  SERVICES = applyOverrides(net.SERVICES, loadOverrides()); // eerst zonder de doorgaande diensten: speedLimits() gebruikt ze
+  if (!net._runs) speedLimits();
   if (!net._junc) net._junc = buildCrossovers(LINES, trackOffset);
   JUNCTIONS = net._junc;
+  // automatische doorgaande diensten over een overloopwissel (js/railroute.js), daarna de dienstregeling
+  if (!net._runs) net._through = routeServices(JUNCTIONS, net, trackOffset, LINE);
+  SERVICES = applyOverrides([...net.SERVICES, ...(net._through || [])], loadOverrides());
+  if (!net._runs) net._runs = buildTimetable();
+  RUNS = net._runs;
 }
 // ---------- OV-beheer: eigen dienstregeling (frequentie, uren, aan/uit), bewaard op dit toestel ----------
 const ovKey = () => 'blokstad-ov-' + (NET && NET.id || 'net');
@@ -36,7 +41,7 @@ function applyOverrides(list, o) { return list.map(sv => o[sv.id] ? { ...sv, ...
 // de dienstregeling opnieuw opbouwen na een wijziging (de treinen die nu rijden worden opnieuw ingezet)
 export function rebuildTimetable(overrides) {
   saveOverrides(overrides);
-  SERVICES = applyOverrides(NET.SERVICES, overrides);
+  SERVICES = applyOverrides([...NET.SERVICES, ...(NET._through || [])], overrides);
   NET._runs = buildTimetable(); RUNS = NET._runs;
 }
 // ---------- vertragingen: per rit vast (zelfde voor iedereen op dezelfde dag), meer bij slecht weer ----------
@@ -237,9 +242,12 @@ function occupancy(pr) {
   for (let i = 0; i < pr.xs.length; i++) {
     const t = pr.ts[i], x = pr.xs[i];
     for (const xx of [x, Math.max(0, x - pr.len)]) {
-      const k = blockKey(L, pr.s0 + dir * xx, dir);
-      let o = occ.get(k); if (!o) occ.set(k, o = [1e9, -1e9]);
-      o[0] = Math.min(o[0], i === 0 ? -pre : t - 15); o[1] = Math.max(o[1], i === pr.xs.length - 1 ? t + post : t + 25);
+      // doorgaande route over een wissel: de blokken van de echte sporen en de wissel zelf (js/railroute.js)
+      const keys = L.route ? L.route.blocks(pr.s0 + dir * xx, blockKey) : [blockKey(L, pr.s0 + dir * xx, dir)];
+      for (const k of keys) {
+        let o = occ.get(k); if (!o) occ.set(k, o = [1e9, -1e9]);
+        o[0] = Math.min(o[0], i === 0 ? -pre : t - 15); o[1] = Math.max(o[1], i === pr.xs.length - 1 ? t + post : t + 25);
+      }
     }
   }
   return occ;
@@ -256,7 +264,7 @@ function buildTimetable() {
     return false;
   };
   for (const sv of SERVICES) {
-    for (const dir of [1, -1]) {
+    for (const dir of sv.dirs || [1, -1]) {
       const pr = runProfile(sv, dir), occ = [...occupancy(pr)];
       let h = sv.h, chosen = -1;
       for (let tries = 0; tries < 3 && chosen < 0; tries++) {
@@ -309,21 +317,84 @@ function doorsOpenAt(a) {
   for (const st of pr.stops) if (a.t >= st.arr + 1.5 && a.t <= st.dep - 4) return 1;
   return 0;
 }
+// voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
+export function activeAt(now) { return activeTrains(now); }
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
     const n = P / r.h;
     for (let k = 0; k < n; k++) {
       if (!runs(r, k)) continue;
-      const dl = delayOf(r, k);
-      let t = now - (r.off + k * r.h) - dl; t = ((t % P) + P) % P; if (t > P - 130 - dl) t -= P;
-      if (t < -120 || t > r.pr.T + 60) continue;
+      const ho = r.pr.L.route ? holdOf(r, k) : null; // doorgaande route: wachten voor het inrijsein / later vertrek
+      const dl = ho ? ho.dep : delayOf(r, k);
+      let t = now - (r.off + k * r.h) - dl; t = ((t % P) + P) % P; if (t > P - 130 - dl - (ho ? ho.H : 0)) t -= P;
+      if (t < -120 || t > r.pr.T + 60 + (ho ? ho.H : 0)) continue;
+      let held = false;
+      if (ho && ho.H && t > ho.tE) { if (t < ho.tE + ho.H) { held = true; t = ho.tE; } else t -= ho.H; }
       const [x, v] = posAt(r.pr, t);
-      out.push({ id: `${r.sv.id}${r.dir > 0 ? 'a' : 'b'}${k}`, run: r, k, t, x, v: t < 0 || t > r.pr.T ? 0 : v, delay: dl });
+      out.push({ id: `${r.sv.id}${r.dir > 0 ? 'a' : 'b'}${k}`, run: r, k, t, x, v: held || t < 0 || t > r.pr.T ? 0 : v, delay: dl + (ho ? ho.H : 0), held, hold: ho });
     }
   }
   return out;
 }
+// ---------- rijweginstelling voor de doorgaande routes (js/railroute.js) ----------
+// Een automatische trein mag pas over de wissel als het conflictgebied vrij is: lijn A rond de wissel (beide
+// richtingen, plus het stuk voor het inrijsein waar hij eventueel wacht) en lijn B rond de aansluiting. De
+// gewone treinen (met hun vertraging van vandaag) en de eerder ingeplande doorgaande treinen bezetten dat gebied
+// in vaste tijdvensters; de doorgaande trein wacht zo lang als nodig voor het inrijsein (H, in stappen van 15 s),
+// of vertrekt later als wachten niet genoeg is (dep). Vast per dag, dus de kaart, de borden en de treinen kloppen.
+const holdCache = new Map();
+const dayNr = () => Math.floor((Date.now() / 1000 - new Date().getTimezoneOffset() * 60) / P);
+function zoneOf(Ro, lenT) {
+  const X = Ro.X, a0 = Math.min(X.sA, X.sA + X.aDir * X.len) - 30, a1 = Math.max(X.sA, X.sA + X.aDir * X.len) + 30;
+  // het wachtspoor voor het inrijsein (tot 60 m voor de wissel, plus de treinlengte en een blok) hoort erbij
+  const w0 = X.aDir > 0 ? Math.min(a0, X.sA - 60 - lenT - 400) : a0, w1 = X.aDir > 0 ? a1 : Math.max(a1, X.sA + 60 + lenT + 400);
+  return { A: X.A, a0: w0, a1: w1, B: X.B, b0: X.sBend - 60, b1: X.sBend + 60 };
+}
+// tijdvensters (seconden sinds middernacht, ±20 s marge) waarin andere treinen het conflictgebied van route Ro bezetten
+function zoneWindows(Ro, self, lenT) {
+  const Z = zoneOf(Ro, lenT), win = [];
+  for (const r of RUNS) {
+    if (r === self) continue;
+    const L = r.pr.L, pr = r.pr, n = P / r.h;
+    const ranges = [];
+    if (L.route) { if (RUNS.indexOf(r) > RUNS.indexOf(self)) continue; const S = L.route; for (const [ln, lo, hi] of [[Z.A, Z.a0, Z.a1], [Z.B, Z.b0, Z.b1]]) for (const [q0, q1, ql, qd] of [[0, S.l1, S.A, S.aDir], [S.l1 + S.l2, S.len, S.B, S.bDir]]) if (ql === ln) { const s0 = (ql === S.A ? S.aStart : S.X.sBend), off = ql === S.A ? 0 : S.l1 + S.l2; const x0 = (lo - s0) * qd + off, x1 = (hi - s0) * qd + off; ranges.push([Math.max(q0, Math.min(x0, x1)), Math.min(q1, Math.max(x0, x1))]); } if (S.X === Ro.X || (S.X.A === Ro.X.A && Math.abs(S.X.sA - Ro.X.sA) < 800)) ranges.push([S.l1, S.l1 + S.l2]); }
+    else for (const [ln, lo, hi] of [[Z.A, Z.a0, Z.a1], [Z.B, Z.b0, Z.b1]]) if (L === ln) { const x0 = (lo - pr.s0) * r.dir, x1 = (hi - pr.s0) * r.dir; ranges.push([Math.max(0, Math.min(x0, x1)), Math.min(pr.D, Math.max(x0, x1))]); }
+    for (const [x0, x1] of ranges) {
+      if (x1 <= x0 && !(x1 === x0 && x0 > 0)) continue;
+      const tIn = timeAt(pr, x0), tOut = timeAt(pr, Math.min(pr.D, x1 + pr.len));
+      for (let k = 0; k < n; k++) {
+        if (!runs(r, k)) continue;
+        const ho = L.route ? holdOf(r, k) : null, dl = ho ? ho.dep : delayOf(r, k), H = ho ? ho.H : 0, base = r.off + k * r.h + dl;
+        const a = base + tIn + (ho && tIn > ho.tE ? H : 0) - 20, b = base + tOut + (ho && tOut > ho.tE ? H : 0) + 20;
+        win.push([((a % P) + P) % P, ((a % P) + P) % P + (b - a)]);
+      }
+    }
+  }
+  return win;
+}
+function holdOf(r, k) {
+  const key = `${dayNr()}|${r.sv.id}|${r.dir}|${k}`;
+  if (holdCache.has(key)) return holdCache.get(key);
+  holdCache.set(key, { H: 0, dep: 0, tE: 1e9 }); // tegen terugkoppeling tijdens het berekenen
+  const Ro = r.pr.L.route, pr = r.pr, lenT = pr.len;
+  const zk = `${dayNr()}|Z|${r.sv.id}|${r.dir}`;
+  let W = holdCache.get(zk); if (!W) { W = zoneWindows(Ro, r, lenT); holdCache.set(zk, W); }
+  const Z = zoneOf(Ro, lenT), wait = Ro.aDir > 0 ? Ro.l1 - 60 : Ro.l1 - 60; // inrijsein 60 m voor de wissel (op de route)
+  const tE = timeAt(pr, Math.max(0, wait)), xIn = Math.max(0, (Ro.aDir > 0 ? Z.a0 - Ro.aStart : Ro.aStart - Z.a1)), tIn = timeAt(pr, xIn);
+  const xOut = Math.min(pr.D, Ro.l1 + Ro.l2 + 60 + lenT), tOut = timeAt(pr, xOut);
+  const free = (a, b) => { for (const [c, d] of W) for (const sh of [0, P, -P]) if (a + sh < d && b + sh > c) return false; return true; };
+  let best = null;
+  for (let dep = 0; dep <= 1800 && !best; dep += 60) for (let H = 0; H <= 600 && !best; H += 15) {
+    const base = r.off + k * r.h + dep;
+    if (free(base + tIn, base + tOut + H)) best = { H, dep, tE };
+  }
+  best = best || { H: 0, dep: 0, tE, vol: true };
+  holdCache.set(key, best);
+  return best;
+}
+// vertraging van rit k op tijdstip t van zijn profiel (doorgaande routes: later vertrek en wachten voor het sein)
+export function effDelay(r, k, t = 0) { const ho = r.pr.L.route ? holdOf(r, k) : null; return ho ? ho.dep + (t > ho.tE ? ho.H : 0) : delayOf(r, k); }
 // vertrektijden aan een station (komende `n`)
 export function departures(name, now, n = 8) {
   const out = [];
@@ -332,7 +403,7 @@ export function departures(name, now, n = 8) {
     for (let k = 0; k < P / r.h; k++) {
       if (!runs(r, k)) continue;
       let dt = (r.off + k * r.h + st.dep) - now; dt = ((dt % P) + P) % P;
-      const dl = delayOf(r, k);
+      const ho = r.pr.L.route ? holdOf(r, k) : null, dl = ho ? ho.dep + (st.dep > ho.tE ? ho.H : 0) : delayOf(r, k); // zelfde vertraging als de trein zelf
       if (dt > P - dl) dt -= P; // vertrekt nog (te laat)
       out.push({ in: dt, run: r, st, dest: r.pr.last.name, at: now + dt, k, delay: dl });
     }
@@ -369,15 +440,23 @@ export function plan(a, b, now) {
         const i = seq.findIndex(q => q.st.name === from); if (i < 0 || i === seq.length - 1) continue;
         // eerste vertrek na aankomst (+2 min overstaptijd)
         const ready = cur.t + (cur.legs.length ? 120 : 0);
+        // echte ritten van vandaag: geplande tijd + vertraging (of wachten voor een vrije rijweg) van die rit;
+        // een vertraagde vorige rit kan dus nog gehaald worden
         let wait = (r.off + seq[i].dep) - ready; wait = ((wait % r.h) + r.h) % r.h;
-        let dep = ready + wait;
-        const kOf = (d) => Math.round((d - seq[i].dep - r.off) / r.h);
-        for (let g2 = 0; g2 < P / r.h && !runs(r, kOf(dep)); g2++) dep += r.h; // rit rijdt niet (dienstuur of daluren): volgende
-        if (!runs(r, kOf(dep))) continue;
+        const dep0 = ready + wait, k0 = Math.round((dep0 - seq[i].dep - r.off) / r.h), nK = P / r.h;
+        let pick = null;
+        for (let g2 = -2; g2 < nK; g2++) {
+          const k = (((k0 + g2) % nK) + nK) % nK; if (!runs(r, k)) continue;
+          const dep = dep0 + g2 * r.h + effDelay(r, k, seq[i].dep);
+          if (dep < ready) continue;
+          if (!pick || dep < pick.dep) pick = { k, dep, sched: dep0 + g2 * r.h };
+          if (g2 > 2 && pick) break;
+        }
+        if (!pick) continue;
         for (let j = i + 1; j < seq.length; j++) {
-          const arr = dep + (seq[j].arr - seq[i].dep), to = seq[j].st.name;
+          const arr = pick.sched + (seq[j].arr - seq[i].dep) + effDelay(r, pick.k, seq[j].arr), to = seq[j].st.name;
           const b0 = best.get(to);
-          if (!b0 || arr < b0.t) { best.set(to, { t: arr, legs: [...cur.legs, { run: r, from, to, dep, arr }] }); next.push(to); }
+          if (!b0 || arr < b0.t) { best.set(to, { t: arr, legs: [...cur.legs, { run: r, from, to, dep: pick.dep, arr, k: pick.k, delay: Math.round(pick.dep - pick.sched) }] }); next.push(to); }
         }
       }
     }
@@ -572,7 +651,7 @@ export class AlpRail {
         const ds = (this.player.s - s) * dir;
         if (ds > 0 && ds < 600) { s = this.player.s - dir * 600; a.held = true; }
       }
-      a.s = s;
+      a.s = s; a.loc = L.route ? L.route.locate(s) : null; // doorgaande route: op welk echt spoor
       const hp = L.at(s);
       const d = Math.hypot(hp.x - p.x, hp.z - p.z);
       let tr = this.trains.get(a.id);
@@ -595,9 +674,10 @@ export class AlpRail {
     }
     if (this.infra && (this.infra.switches.length || this.infra.jsw.length)) {
       const list = [];
-      for (const a of act) if (a.s !== undefined) list.push({ L: a.run.pr.L, s: a.s, dir: a.run.dir, len: a.run.pr.len || 200 });
+      for (const a of act) if (a.s !== undefined) list.push(a.loc && a.loc.L ? { L: a.loc.L, s: a.loc.s, dir: a.loc.dir, len: a.run.pr.len || 200 } : { L: a.run.pr.L, s: a.s, dir: a.run.dir, len: a.run.pr.len || 200 });
       if (this.player) list.push({ L: this.player.L, s: this.player.s, dir: this.player.dir, len: 200 });
-      this.infra.animate(dt, list, this.player);
+      this.updateRoutes(act);
+      this.infra.animate(dt, list, this.player, this.routeState);
     }
     const pt = this.player;
     if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: pt.tr.sv && pt.tr.sv.style === 'hist' ? 'steam' : 'train', out: ['chase', 'side'].includes(g.drive.cam) };
@@ -652,6 +732,37 @@ export class AlpRail {
     }
   }
   // ---------- seinen: rood als het volgende blok (1200 m) bezet is ----------
+  // rijwegen over de overloopwissels voor automatische treinen (doorgaande routes, js/railroute.js):
+  // 800 m voor de wissel wordt de rijweg ingesteld en vergrendeld voor die trein (wissel om, naar lijn B), op de
+  // wissel is hij bezet, na de passage van de hele trein wordt hij vrijgegeven. Controle tijdens het spelen: staat
+  // er een andere trein op een conflicterend stuk terwijl de rijweg vergrendeld is, dan telt dat als conflict.
+  updateRoutes(act) {
+    const R = this.routeState || (this.routeState = new Map()), log = this.routeLog || (this.routeLog = []);
+    this.routeConflicts = this.routeConflicts || 0;
+    const seenX = new Set();
+    for (const a of act) {
+      const Ro = a.run.pr.L.route; if (!Ro || a.s === undefined) continue;
+      const X = Ro.X, s = a.s, len = a.run.pr.len || 120;
+      const st = s < Ro.l1 - 800 ? null : s < Ro.l1 ? 'ingesteld' : s < Ro.l1 + Ro.l2 + len ? 'bezet' : null;
+      const prev = R.get(X.id);
+      if (st) {
+        seenX.add(X.id);
+        if (!prev || prev.train !== a.id || prev.state !== st) { log.push({ wissel: X.id, trein: a.id, toestand: st, t: Math.round(this.t) }); if (log.length > 40) log.shift(); }
+        R.set(X.id, { state: st, train: a.id, X, sinds: prev && prev.train === a.id ? prev.sinds : this.t });
+      } else if (prev && prev.train === a.id && s >= Ro.l1 + Ro.l2 + len) { log.push({ wissel: X.id, trein: a.id, toestand: 'vrijgegeven', t: Math.round(this.t) }); R.delete(X.id); }
+    }
+    for (const [id, r] of R) {
+      if (!seenX.has(id)) { R.delete(id); continue; }
+      // conflictcontrole: een andere trein op A of B binnen 250 m van de wissel (beide richtingen)
+      for (const b of act) {
+        if (b.id === r.train || b.s === undefined) continue;
+        const L = b.loc ? b.loc.L : b.run.pr.L, sb = b.loc ? b.loc.s : b.s; if (!L) { if (b.loc && b.loc.X === r.X) this.routeConflicts++; continue; }
+        const lenB = b.run.pr.len || 120;
+        if ((L === r.X.A && sb > Math.min(r.X.sA, r.X.sA + r.X.aDir * r.X.len) - 30 - lenB && sb < Math.max(r.X.sA, r.X.sA + r.X.aDir * r.X.len) + 30 + lenB) ||
+            (L === r.X.B && Math.abs(sb - r.X.sBend) < 30 + lenB) ) { if (r.state === 'bezet') this.routeConflicts++; }
+      }
+    }
+  }
   updateSignals(act) {
     const p = this.g.player.pos, m4 = new THREE.Matrix4(), c = new THREE.Color(), posts = [];
     let n = 0;
@@ -659,8 +770,9 @@ export class AlpRail {
       if (Math.abs(sg.x - p.x) > 1200 || Math.abs(sg.z - p.z) > 1200 || n >= this.sigMax) continue;
       let occ = 0;
       for (const a of act) {
-        if ((this.player && a.id === this.player.id) || a.run.pr.L !== sg.L || a.run.dir !== 1) continue;
-        const s = a.s ?? (a.run.pr.s0 + a.run.dir * a.x), ds = s - sg.s;
+        const eL = a.loc ? a.loc.L : a.run.pr.L, eDir = a.loc ? a.loc.dir : a.run.dir; // doorgaande route: het echte spoor
+        if ((this.player && a.id === this.player.id) || eL !== sg.L || eDir !== 1) continue;
+        const s = a.loc ? a.loc.s : a.s ?? (a.run.pr.s0 + a.run.dir * a.x), ds = s - sg.s;
         if (ds > -a.run.pr.len && ds < 1200) occ = Math.max(occ, 2); else if (ds >= 1200 && ds < 2400) occ = Math.max(occ, 1);
       }
       if (this.player && this.player.L === sg.L && this.player.dir === 1) { const ds = this.player.s - sg.s; if (ds > -200 && ds < 1200) occ = 2; }
@@ -1259,7 +1371,7 @@ const MODE_ICON = (sv) => sv.bus ? '🚌' : /^M\d/.test(sv.line || sv.id) ? '�
 function legHtml(lg, esc) {
   if (lg.walk) return `<div class="small">${hhmm(lg.dep)} 🚶 Wandelen ${esc(lg.from)} → ${esc(lg.to)} · ${lg.m} m · ${Math.max(1, Math.round((lg.arr - lg.dep) / 60))} min</div>`;
   const pl = lg.run.sv.platform?.[lg.from];
-  return `<div class="small">${hhmm(lg.dep)} ${MODE_ICON(lg.run.sv)} <span style="color:${lg.run.pr.L.color}">■</span> <b>${esc(lg.run.sv.name)}</b> ${esc(lg.from)}${pl ? ` (spoor ${pl})` : ''} → ${esc(lg.to)} · aankomst ${hhmm(lg.arr)} · ${Math.round((lg.arr - lg.dep) / 60)} min</div>`;
+  return `<div class="small">${hhmm(lg.dep)} ${MODE_ICON(lg.run.sv)} <span style="color:${lg.run.pr.L.color}">■</span> <b>${esc(lg.run.sv.name)}</b>${lg.delay >= 60 ? ` <span style="color:#fbbf24">+${Math.round(lg.delay / 60)} min</span>` : ''} ${esc(lg.from)}${pl ? ` (spoor ${pl})` : ''} → ${esc(lg.to)} · aankomst ${hhmm(lg.arr)} · ${Math.round((lg.arr - lg.dep) / 60)} min</div>`;
 }
 
 // ---------- de cabine (zelf rijden) ----------
