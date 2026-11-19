@@ -1,4 +1,4 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-19a, Blokstad 13.1)
+# Openbaar vervoer — stand van zaken (versie 2026-11-19b, Blokstad 13.1 · interieurs)
 
 ## Fase 1 — tunnels (af)
 
@@ -307,6 +307,71 @@ Zie ook `docs/audit-13.md` (technische audit van de hele game).
 - Elke plek wordt gecontroleerd in de blokken: vaste grond, lucht voor voeten en hoofd.
 - **Getest** (`tests/browser/bushalte.cjs`): wachten, instappen en uitstappen werken; 0 posities in een muur of zwevend.
 - **Fout hersteld**: het busdashboard van Blokstad 12 vond nooit een halte of verkeerslicht, omdat die gegevens op een andere plek stonden.
+
+## Voertuiginterieurs en passagierscamera (versie 2026-11-19b)
+
+### Oorzaak van de problemen op het screenshot (metro M1, Megatower City)
+- **Gereproduceerd** met `tests/browser/metro-interieur.cjs`: passagier in M1, ondergrondse tunnel bij x 5337, z 5116, −17 m. De test schiet stralen vanuit de camera tegen de voertuigmodellen.
+- **Het paarse vlak**: het oude metromodel (`js/vehicles.js`, `metroCar`) bestond uit massieve blokken, gemaakt om van buiten te bekijken.
+  - De ruitenband was één blok over de hele breedte (1,4–2,5 m hoog) en daarboven zat een massief blok in de lijnkleur (2,5–3,1 m).
+  - De passagierscamera stond op 2,1 m: midden in de ruitenband. 0,62 m boven de camera zat de onderkant van het lijnkleurblok, en de lijnkleur van M1 is paars (#8d248a).
+- **De grote grijze vlakken**: de binnenkant van de ruitenband, van binnenuit gezien. Opzij raakten de stralen niets, omdat ze binnen dat blok begonnen.
+- **"undefined" linksboven**: op het torenplein heeft de tegel een oriëntatiepunt zonder naam (`towerplaza`), en `zoneName()` gaf dan niets terug.
+- **"deuren open" bij 60 km/h**: de deurstatus keek alleen naar de haltetijd, niet naar de snelheid.
+- **Overlappende meldingen**: de laadregel ("3D-geometrie voorbereiden…") stond over het rijpaneel en de melding rechtsboven over de knoppen.
+- **De buitencamera** kwam 7 m boven het spoor uit, midden in de rots boven de tunnel.
+
+### Wat er veranderd is
+- **Nieuwe metro** (`js/vehicles.js`: `metroCar`, `metroLeaf`, gedeelde onderdelen `seat`, `pole`, `rail`, `strap`):
+  - **De bak**: hol, met dunne wanden en een lichte binnenbekleding, ruiten tussen stijlen, en een vloer op 0,9 m.
+  - **Plafond**: met LED-lijnen en ventilatieroosters op 3,05 m. De binnenhoogte is nu 2,15 m (vroeger 1,82 m).
+  - **Zitplaatsen**: afwisselend banken in de lengte en groepen van 4 tegenover elkaar, met zitting, rugleuning en hoofdsteun. Er zijn voorrangsplaatsen en een rolstoel- en kinderwagenplaats met klapstoel en leuning.
+  - **Uitrusting**: verticale en horizontale stangen, handgrepen, deurknoppen, noodintercoms, routekaarten in de lijnkleur, informatieschermen boven elke deur en glazen tussendeuren. In het kopstuk zit een cabine achter een scheidingswand.
+  - **Deuren**: twee losse deurbladen per deur die rustig openschuiven (1,4 s). Ze gaan alleen open als de metro stilstaat, en alleen aan de kant waar het perron ligt (gemeten in de blokken naast het voertuig).
+  - **Ruiten**: doorzichtig, lichtjes getint overdag en 's avonds warm verlicht.
+  - **Schermen**: in het rijtuig waar je zit tonen ze echte tekst, bijvoorbeeld "M1 → Luchthaven / Volgende: Megatower · 64 m".
+- **Tram, bus en trein** (`hollowSides`): ook holle bakken in plaats van massieve blokken.
+  - **Tram**: lagevloer, groepen van 4 stoelen, stangen, handgrepen, scherm, rolstoelplaats en een open doorloop tussen de delen.
+  - **Bus**: stangen met stopknoppen, handgrepen, scherm, rolstoelplaats en een glazen wand achter de chauffeur. De dubbeldekker heeft beide verdiepingen (trap).
+  - **Trein**: de bestaande 2+2-stoelen, tafeltjes, bagagerekken en het toilet zijn nu zichtbaar (vroeger zaten ze in een massief blok). De rode sierstreep zit alleen nog op de buitenwanden.
+- **Passagierscamera** (V wisselt; `js/drive.js`):
+  - **Zittend**: op een echte zitplaats uit het model, voor de rugleuning, met ooghoogte 1,2 m boven de vloer. In de metro kijk je naar de overkant, in de trein vooruit.
+  - **Staand**: in het middenpad, ooghoogte 1,62 m.
+  - **Rondlopen**: met WASD door het voertuig, binnen de wanden.
+  - **Raam**: buiten langs het voertuig.
+  - **Buiten**: achter en boven het voertuig.
+  - De raam- en buitencamera stoppen 0,4 m voor elk blok van de wereld, dus nooit meer in een tunnelwand of -plafond. Vloer- en plafondhoogtes staan per voertuigsoort in `INTERIOR`.
+- **HUD**:
+  - Er verschijnt nooit meer "undefined", "null" of "[object Object]" (`hudSafe`).
+  - Ondergronds staat er "🚇 Metrotunnel M1" of "Metrostation …".
+  - Het rijpaneel toont het vervoermiddel, de lijn, de bestemming (bij M1 het echte eindpunt Westpoort of Luchthaven), de volgende halte met afstand (tot 4 km vooruit gezocht), de deuren, het camerastandpunt en de acties.
+  - Meldingen staan boven in het midden, onder de knoppen. De laadregel staat tijdens het rijden bovenaan.
+
+### Getest
+- **`tests/browser/metro-interieur.cjs`** (metro M1, passagier, tunnel, 60 km/h):
+
+  | Controle | Voor | Na |
+  |---|---|---|
+  | Boven de camera | lijnkleurblok op 0,62 m | plafond op 0,93 m |
+  | Opzij | niets (camera in het blok) | ruiten en wanden op 0,86–3,6 m |
+  | HUD | "undefined" | geen fouten |
+
+  - HUD-onderdelen overlappen niet en de wereld steekt niet in de metro (0 blokken binnen de bak).
+  - Screenshots van binnen (zittend, staand, met de echte spellus), bij het raam en van buiten.
+- **`tests/browser/voertuig-interieurs.cjs`**: bus, tram en trein als passagier.
+
+  | Voertuig | Plafond boven de camera | Eronder |
+  |---|---|---|
+  | Bus | 1,19 m | zitting op 0,33 m |
+  | Tram | 1,08 m | 1,0–1,15 m |
+  | Trein (ICE, raamplaats) | bagagerek op 0,32 m | zitting op 0,7 m |
+
+  - De HUD toont geen fouten, en er zijn screenshots met de echte spellus.
+
+### Bekende beperkingen
+- **Wereldblokken bij station Megatower**: één screenshot toonde blokken van het station die bij een deur in beeld stonden. Bij de meting zat er 0 blok binnen de bak, en de tunnelcontrole van Megatower City vindt geen blok in het metroprofiel. Deterministisch nagebootst heb ik het niet.
+- **Interieurs van de spoorwerelden**: de treinen van Greenisland en de Alpen (`js/rail.js`) hebben hun eigen interieurs uit blokken. Die zijn in deze ronde niet aangepast.
+- **Trap op een computer**: een trap van blokken loop je op met spatie ingedrukt; op een aanraakscherm gaat dat vanzelf.
 
 ## Nog niet gedaan
 
