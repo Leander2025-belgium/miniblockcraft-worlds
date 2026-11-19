@@ -32,8 +32,8 @@ export const encodeMaterial = (name) => { const m = materialOf(name); return CLA
 // Gedeelde tonemapping voor de hele game: dezelfde curve voor de voxelwereld (eigen shader), de verre gebouwen
 // (LOD-shaders) en alle Three.js-materialen (voertuigen, reizigers, borden). Gebaseerd op de 'PBR Neutral'-curve
 // van Khronos: kleuren onder ±0,76 blijven zoals ze zijn, alleen fel licht wordt zacht afgeremd in plaats van hard
-// wit te worden (zon op witte tegels, glas, sneeuw). De wereldshaders rekenen in beeldruimte (sRGB): die zetten om
-// naar lineair, passen de curve toe en zetten terug; de Three.js-materialen krijgen dezelfde curve in lineaire ruimte.
+// wit te worden (zon op witte tegels, glas, sneeuw). De wereldshaders rekenen in beeldruimte (sRGB) en gebruiken dezelfde
+// schouder direct daar (goedkoop); de Three.js-materialen krijgen de curve in lineaire ruimte.
 export const TONE_GLSL = `
 vec3 tnNeutral(vec3 color) {
   const float startCompression = 0.76;
@@ -49,9 +49,16 @@ vec3 tnNeutral(vec3 color) {
   float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
   return mix(color, vec3(newPeak), g);
 }
-vec3 tnToneSrgb(vec3 c) { // beeldruimte in, beeldruimte uit
-  vec3 lin = pow(max(c, vec3(0.0)), vec3(2.2));
-  return pow(max(tnNeutral(lin), vec3(0.0)), vec3(1.0 / 2.2));
+// goedkope versie voor de wereldshaders (elke pixel): dezelfde schouder, direct in beeldruimte, zonder pow()
+// (software-rendering en zwakke telefoons zijn begrensd door het aantal pixelbewerkingen)
+vec3 tnToneSrgb(vec3 c) {
+  c = max(c, vec3(0.0));
+  float peak = max(c.r, max(c.g, c.b));
+  if (peak < 0.82) return c;
+  const float d = 0.18;
+  float np = 1.0 - d * d / (peak - 0.82 + d);
+  c *= np / peak;
+  return mix(c, vec3(np), 1.0 - 1.0 / (0.15 * (peak - np) + 1.0));
 }`;
 let installed = false;
 export function installTone(THREE, renderer) {
