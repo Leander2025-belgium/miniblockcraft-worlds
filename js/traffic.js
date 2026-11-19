@@ -414,7 +414,7 @@ export class Traffic {
       for (const b of this.agents) if (b.kind === 'ship' && b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
       this.agents.push(a); return a;
     }
-    const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' || Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
+    const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' ? 1 : (kind === 'metro' || kind === 'tram' || kind === 'train') ? this.runDir(e) : Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
       color: kind === 'car' ? ({ taxi: 0xf1c40f, police: 0xf4f6fa, ambulance: 0xf4f4f0, fire: 0xc8102e }[consist(kind, rr).secs[0].m] ?? CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)])
         : kind === 'bus' ? BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)]
         : kind === 'tram' ? TRAM_COLORS[Math.floor(rr * 7) % TRAM_COLORS.length]
@@ -450,6 +450,24 @@ export class Traffic {
     }
     this.trips.prune(this.clock || 0);
     this.agents = this.agents.filter(a => !a.dead);
+  }
+  // vaste rijrichting op een spoor van een dubbelspoor (metro, tram, trein): het andere spoor ligt altijd links van
+  // de rijrichting. Zonder buurspoor (enkelspoor) willekeurig. Vroeger willekeurig: tegenliggers op hetzelfde spoor
+  // konden elkaar dan voorgoed blokkeren.
+  runDir(e) {
+    if (e.runDir) return e.runDir;
+    const P = e.pts, n = P.length / 3, i = Math.floor(n / 2) * 3, j = Math.min(n - 1, Math.floor(n / 2) + 1) * 3, i0 = j === i ? i - 3 : i;
+    const mx = P[i], mz = P[i + 2], tx = P[j] - P[i0], tz = P[j + 2] - P[i0 + 2], tl = Math.hypot(tx, tz) || 1;
+    let best = null, bd = 16;
+    for (const o of this.net.edges.values()) {
+      if (o === e || o.net !== e.net) continue;
+      for (let k = 0; k < o.pts.length; k += 3) {
+        const dx = o.pts[k] - mx, dz = o.pts[k + 2] - mz, dy = Math.abs(o.pts[k + 1] - P[i + 1]), d = Math.hypot(dx, dz);
+        if (d > 1.5 && d < bd && dy < 3) { const ox = o.pts[Math.min(o.pts.length - 3, k + 3)] - o.pts[Math.max(0, k - 3)], oz = o.pts[Math.min(o.pts.length - 1, k + 5)] - o.pts[Math.max(2, k - 1)]; if (Math.abs(ox * tx + oz * tz) / ((Math.hypot(ox, oz) || 1) * tl) > 0.9) { bd = d; best = [dx, dz]; } }
+      }
+    }
+    e.runDir = best ? ((tx * best[1] - tz * best[0]) > 0 ? 1 : -1) : (Math.random() < 0.5 ? 1 : -1);
+    return e.runDir;
   }
   // een auto op de dichtste weg bij de speler (eigen Zenvo)
   spawnNear(kind, player) { this.spawnNearPos = true; try { return this.spawn(kind, player, false); } finally { this.spawnNearPos = false; } }
@@ -531,6 +549,9 @@ export class Traffic {
         if (a.passenger && (a.kind === 'car' || a.kind === 'bus')) { a.v = 0; a.wait = 3; a.reverseAfter = true; return; } // met passagier: keren
         if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; return; }
         if (a.kind === 'walk') { r.dir = -r.dir; return; }
+        // einde van het geladen net ver van de speler: uit beeld (de rit blijft bewaard, js/ovtrips.js) in plaats van
+        // op hetzelfde spoor terug te rijden (dat gaf tegenliggers op één spoor die elkaar blokkeerden)
+        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; return; } }
         // eindstation: even wachten en terugrijden
         a.v = 0; a.wait = 20; a.reverseAfter = true; return;
       }
@@ -601,7 +622,7 @@ export class Traffic {
 
   update(dt, player, day, hour = 12) {
     if (!this.tiles) return;
-    this.hour = hour; const period = this.period = periodOfHour(hour);
+    this.hour = hour; const period = this.period = periodOfHour(hour); this.pl = player;
     this.clock += dt; this.dt = dt;
     const now = this.clock;
     if (this.dirty && now - this.lastBuild > 1.5) { this.dirty = false; this.lastBuild = now; this.realBuild(); }
@@ -628,9 +649,9 @@ export class Traffic {
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0, metro: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA), d = Math.hypot(h.x - player.x, h.z - player.z);
-      if (d > RANGE + 120 && !a.player && !a.passenger) a.dead = true;
+      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) a.dead = true;
       // te veel voor deze periode: buiten zicht uit dienst nemen, of aan de volgende halte (eindrit)
-      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; }
+      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; }
       else have[a.kind]++;
     }
     this.have = have; this.want = want;
