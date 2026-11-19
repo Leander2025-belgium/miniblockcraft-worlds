@@ -1,4 +1,6 @@
-# Openbaar vervoer — stand van zaken (versie 2026-11-19b, Blokstad 13.1 · interieurs)
+# TERRANOVA (vroeger Blokstad) — openbaar vervoer, stand van zaken (versie 2026-11-20a)
+
+De game heet sinds versie 2026-11-20a **TERRANOVA**. De hoofdstukken hieronder met "Blokstad 12/13" zijn de geschiedenis van de vroegere versienamen.
 
 ## Fase 1 — tunnels (af)
 
