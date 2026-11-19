@@ -9,7 +9,7 @@ export const MW = 25000, ML = 30000, G = 12, T = 128;
 export const META = {
   id: 'metropool', name: 'Nova Metropool', kind: 'proc', tile: T,
   tilesX: Math.ceil(MW / T), tilesZ: Math.ceil(ML / T), tiles: Math.ceil(ML / T),
-  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54],
+  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.56, 0.57, 0.54], flat: true,
 };
 const CBD = [12500, 13500];
 export const PLACES = [
