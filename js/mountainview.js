@@ -1,6 +1,7 @@
 // Reuzenberg · Alpen in beeld: het verre berglandschap (tot tientallen km ver, in stukken van 4 km met
 // fijnere rasters dichtbij), de oude kabelbaan met bewegende gondels en alle nieuwe kabelbanen en liften.
 import * as THREE from 'three';
+import { TONE_GLSL } from './materials.js';
 import { CABLE, cableY, CX, STATIONS as OLD_STATIONS, CABLE_ATTACH, EXTRAS } from './mountain.js';
 import { natural, farColor, OX, OZ, MW, ML, LIFTS } from './alpen.js';
 import { Parts } from './vehicles.js';
@@ -28,6 +29,7 @@ uniform vec3 sunColor;
 varying vec3 vColor;
 varying vec3 vRel;
 varying float vY;
+${TONE_GLSL}
 void main() {
   if (length(vRel.xz) < nearCut) discard; // dichtbij staan de echte blokken
   vec3 col = vColor * mix(0.16, 1.0, day) * mix(vec3(1.0), sunColor, 0.35);
@@ -40,7 +42,7 @@ void main() {
   float mist = exp(-max(0.0, vY - 80.0) / 650.0) * smoothstep(1200.0, 9000.0, dist) * 0.5;
   col = mix(col, mix(fogColor, vec3(0.86, 0.88, 0.9) * mix(0.25, 1.0, day), 0.5), mist);
   float fog = smoothstep(fogNear, fogFar, dist);
-  gl_FragColor = vec4(mix(col, fogColor, fog * 0.92), 1.0);
+  gl_FragColor = vec4(tnToneSrgb(mix(col, fogColor, fog * 0.92)), 1.0);
 }`;
 
 export class MountainView {

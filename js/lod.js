@@ -1,5 +1,6 @@
 // Verre gebouwen (eenvoudige blokken per 8 × 8 m) en de minikaart.
 import * as THREE from 'three';
+import { TONE_GLSL } from './materials.js';
 
 const VERT = `
 attribute vec3 color;
@@ -29,6 +30,7 @@ varying float vDist;
 varying float vSide;
 varying vec3 vRel;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+${TONE_GLSL}
 void main() {
   vec3 col = vColor * mix(0.16, 1.0, day);
   if (vSide > 0.5) {
@@ -40,7 +42,7 @@ void main() {
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
   }
   float fog = smoothstep(fogNear, fogFar, length(vRel)); // per pixel, berekend vanaf de camera (nauwkeurig op telefoons)
-  gl_FragColor = vec4(mix(col, fogColor, fog), 1.0);
+  gl_FragColor = vec4(tnToneSrgb(mix(col, fogColor, fog)), 1.0);
 }`;
 
 export class FarView {
