@@ -36,7 +36,13 @@ De naam is veranderd, maar de technische namen van Blokstad blijven bewust dezel
 - **Starten**: de game is één statische site (`index.html`, `js/`, `assets/`). Lokaal start je die met `python3 -m http.server 8765`.
 - **Controles zonder browser**: `node tests/run-all.mjs` (wereldgeneratie, naden, tunnels met het volledige voertuigprofiel, Reuzenberg).
 - **Browsertests**: in `tests/browser/` (Playwright), bijvoorbeeld `node tests/browser/branding.cjs`.
+  - `savegame.cjs`: oude savegames (vaste bestanden in `tests/fixtures/`), back-up maken en terugzetten.
+  - `graphics.cjs`: shaders, lichtschakelaar, renderprioriteit ondergronds, voertuig-LOD, ritten.
+  - `reis.cjs`: een reiziger reist met overstap (metro en bus) door de echte wereld.
+  - `bench.cjs`: benchmark met vaste scènes (`BASE=…` om een andere versie te meten, `SHOTS=map` voor beelden).
+- **Volledige back-up**: in het menu *🛟 Volledige back-up maken* (`.terranova-backup`); terugzetten via *Bestand importeren…*.
 - **Documentatie**:
+  - [`docs/terranova-14.md`](docs/terranova-14.md): TERRANOVA 14.0 (graphics, prestaties, reizigers, wissels; met meetresultaten en wat nog niet af is).
   - [`docs/ov.md`](docs/ov.md): openbaar vervoer, tunnels, stations, voertuigen.
   - [`docs/audit-13.md`](docs/audit-13.md): technische audit.
   - [`docs/megatower.md`](docs/megatower.md).
