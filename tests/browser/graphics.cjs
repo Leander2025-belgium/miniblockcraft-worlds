@@ -69,19 +69,19 @@ const SHOTS = process.env.SHOTS;
 
   // 5. ritten blijven bewaard: een bus ver weg sturen (buiten beeld) en terug
   R.ritBewaard = await p.evaluate(() => {
-    const g = window.blokGame(), tr = g.traffic, T = tr.trips, a = tr.agents.find(x => x.trip && !x.dead && (x.kind === 'bus' || x.kind === 'metro'));
+    const g = window.blokGame(), tr = g.traffic, T = tr.trips, a = tr.agents.find(x => x.trip && !x.dead && x.trip.line && (x.kind === 'metro' || x.kind === 'tram' || x.kind === 'bus'));
     if (!a) return null;
     a.trip.occ = Math.min(a.trip.cap, 42); const id = a.trip.id, key = a.trip.key;
     a.dead = true; tr.sweepDead(); // alsof hij uit het verkeersgebied rijdt
-    const ghost = T.ghosts.find(gh => gh.trip.id === id);
+    const ghost = T.ghosts.find(gh => gh.trip.id === id), stateOut = ghost && ghost.trip.state;
     // een nieuw voertuig op dezelfde lijn en richting neemt de rit weer over
     const b = { kind: a.kind, secs: a.secs, route: a.route, line: a.line };
     T.assign(b, { clock: tr.clock, period: tr.period, line: key.split('|')[1], dir: +key.split('|')[2] });
-    return { buitenBeeld: !!ghost && ghost.trip.state === 'buiten beeld', hervat: b.trip && b.trip.id === id, bezetting: b.trip && b.trip.occ };
+    return { buitenBeeld: stateOut === 'buiten beeld', hervat: b.trip && b.trip.id === id, bezetting: b.trip && b.trip.occ };
   });
   console.log('graphics:', JSON.stringify(R));
   const ok = !shaderErr.length && R.schakelaar && R.licht && R.licht.verhouding < 0.6 && R.prioriteit.met.ingesloten && R.prioriteit.minderDriehoeken > 0.3
-    && Math.abs(R.prioriteit.helderheid[0] - R.prioriteit.helderheid[1]) < 6 && R.ritBewaard && R.ritBewaard.hervat && R.ritBewaard.bezetting === 42;
+    && Math.abs(R.prioriteit.helderheid[0] - R.prioriteit.helderheid[1]) < 6 && R.ritBewaard && R.ritBewaard.buitenBeeld && R.ritBewaard.hervat && R.ritBewaard.bezetting === 42;
   console.log('shaderfouten:', shaderErr.length ? shaderErr.slice(0, 3).join(' | ') : 'geen');
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');

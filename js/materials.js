@@ -58,7 +58,8 @@ export function installTone(THREE, renderer) {
   if (!installed) {
     installed = true;
     THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace(
-      /vec3 CustomToneMapping\( vec3 color \) \{[^}]*\}/, `${TONE_GLSL}\nvec3 CustomToneMapping( vec3 color ) { return tnNeutral( color * toneMappingExposure ); }`);
+      // eigen namen (tm…): Three.js voegt dit stuk ook toe aan ShaderMaterials die TONE_GLSL al zelf bevatten
+      /vec3 CustomToneMapping\( vec3 color \) \{[^}]*\}/, `${TONE_GLSL.replace(/tnNeutral/g, 'tmNeutral').replace(/tnToneSrgb/g, 'tmToneSrgb')}\nvec3 CustomToneMapping( vec3 color ) { return tmNeutral( color * toneMappingExposure ); }`);
   }
   renderer.toneMapping = THREE.CustomToneMapping;
   renderer.toneMappingExposure = 1;

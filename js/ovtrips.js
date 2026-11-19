@@ -29,7 +29,9 @@ export class Trips {
   assign(a, { clock, period, line, dir, dest }) {
     if (!isOV(a) || a.trip) return a.trip;
     const key = a.kind + '|' + (line || '?') + '|' + (dir ?? 0);
-    const gi = this.ghosts.findIndex(g => g.key === key && clock - g.t < GHOST_MAX_AGE);
+    // alleen ritten met een bekende lijn of eindhalte kunnen hervat worden (anders is niet zeker dat het dezelfde is);
+    // de laatst uit beeld gereden rit eerst (die is het dichtst bij)
+    let gi = -1; if (line) for (let i = this.ghosts.length - 1; i >= 0; i--) if (this.ghosts[i].key === key && clock - this.ghosts[i].t < GHOST_MAX_AGE) { gi = i; break; }
     let T;
     if (gi >= 0) { T = this.ghosts.splice(gi, 1)[0].trip; this.stats.hervat++; T.resumed = (T.resumed || 0) + 1; }
     else {
