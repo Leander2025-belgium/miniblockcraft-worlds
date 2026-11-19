@@ -13,7 +13,10 @@ function shadeFor(nx, ny, nz) {
 }
 
 export class Parts {
-  constructor() { this.p = { paint: [], trim: [], light: [], win: [] }; } // win = passagiersramen ('s nachts verlicht)
+  constructor() { this.p = { paint: [], trim: [], light: [], win: [] }; this.inside = 0; } // win = passagiersramen ('s nachts verlicht)
+  // interieur (stoelen, stangen, handgrepen, binnenbekleding, plafond): apart bijgehouden, zodat er een lichte
+  // versie zonder interieur gemaakt kan worden voor verre voertuigen (trimLo, zie done() en js/traffic.js)
+  inner(fn) { this.inside++; try { fn(); } finally { this.inside--; } return this; }
   // doos (gecentreerd op x, y, z) — taper: bovenkant smaller/korter (voor ruiten en neuzen)
   box(kind, w, h, l, x, y, z, color = 0xffffff, taper = null) {
     const g = new THREE.BoxGeometry(w, h, l);
@@ -52,11 +55,14 @@ export class Parts {
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.deleteAttribute('normal'); g.deleteAttribute('uv');
-    this.p[kind].push(g);
+    if (kind === 'trim' && this.inside) (this.p.trimIn || (this.p.trimIn = [])).push(g);
+    else this.p[kind].push(g);
   }
   done() {
-    const out = {};
-    for (const [k, list] of Object.entries(this.p)) out[k] = list.length ? merge(list) : null;
+    const out = {}, inn = this.p.trimIn;
+    for (const [k, list] of Object.entries(this.p)) if (k !== 'trimIn') out[k] = list.length ? merge(list) : null;
+    // volledig model = buitenkant + interieur; trimLo = alleen de buitenkant (LOD voor verre voertuigen)
+    if (inn && inn.length) { out.trimLo = out.trim; out.trim = merge([...this.p.trim.map(g => g.clone()), ...inn]); }
     return out;
   }
 }
@@ -331,6 +337,7 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
   // interieur (zichtbaar door de ramen en als je meerijdt): vloer, stoelrijen 2+2 met hoofdsteunen en tafeltjes,
   // bagagerekken, verlichting, infoschermen, toilet en tussendeuren
   const floors = doubleDeck ? [1.05, 2.65] : [1.25];
+  P.inside++; // alles hieronder tot de cabine is interieur (niet in de verre LOD-versie)
   for (const fy of floors) {
     P.box('trim', W - 0.25, 0.06, Lb - 0.6, 0, fy, zb, 0x4a4e55);
     const seatC = cab ? 0x8a2a2e : 0x2e4f8e;
@@ -349,6 +356,7 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
   }
   P.box('trim', 1.0, 2.0, 1.4, 0.75, floors[0] + 1.0, zb - Lb / 2 + 1.6, 0xd9dbe0);                                    // toilet
   P.box('trim', 0.9, 2.0, 0.06, 0, floors[0] + 1.0, zb + Lb / 2 - 0.4, 0x7a8088);                                     // tussendeur
+  P.inside--;
   if (cab) {
     // gestroomlijnde neus
     P.box('paint', W, H - 1.25, 1.7, 0, 0.8 + (H - 1.25) / 2, L / 2 - 0.85, 0xffffff, { sx: 0.82, front: 1.2 });
@@ -369,7 +377,8 @@ function trainCar({ L, W = 2.9, H = 3.9, cab = false, stripe = null, doubleDeck 
 // ---------- gedeelde interieuronderdelen (metro, tram, bus, trein) ----------
 // Alle maten in m. Stoel: zitting, rugleuning en hoofdsteun (geen massief blok); face = richting waarin je kijkt.
 const FABRIC = 0x2f4d7a, FABRIC_DARK = 0x1d2e4b, PRIORITY = 0xa8323a, POLE = 0xd6dade, CEIL = 0xe9ecef, FLOOR = 0x3c424b;
-export function seat(P, x, z, floor, face, color = FABRIC, head = FABRIC_DARK) {
+export function seat(P, x, z, floor, face, color = FABRIC, head = FABRIC_DARK) { P.inner(() => seatIn(P, x, z, floor, face, color, head)); }
+function seatIn(P, x, z, floor, face, color, head) {
   // face: 'x+', 'x-', 'z+', 'z-' (kijkrichting); de rugleuning zit aan de andere kant
   const ax = face[0] === 'x', sg = face[1] === '+' ? 1 : -1;
   const back = (d) => ax ? [x - sg * d, z] : [x, z - sg * d];
@@ -378,9 +387,9 @@ export function seat(P, x, z, floor, face, color = FABRIC, head = FABRIC_DARK) {
   const [hx, hz] = back(0.22); P.box('trim', ax ? 0.08 : 0.34, 0.16, ax ? 0.34 : 0.08, hx, floor + 1.17, hz, head);  // hoofdsteun
   P.box('trim', ax ? 0.3 : 0.06, 0.38, ax ? 0.06 : 0.3, x, floor + 0.2, z, 0x6b7079);                // poot / steun
 }
-export function pole(P, x, z, y0, y1) { const g = new THREE.CylinderGeometry(0.022, 0.022, y1 - y0, 8); g.translate(x, (y0 + y1) / 2, z); P.add('trim', g, POLE); }
-export function rail(P, x, y, z0, z1) { const g = new THREE.CylinderGeometry(0.02, 0.02, Math.abs(z1 - z0), 8); g.rotateX(Math.PI / 2); g.translate(x, y, (z0 + z1) / 2); P.add('trim', g, POLE); }
-export function strap(P, x, y, z) { P.box('trim', 0.02, 0.16, 0.02, x, y - 0.08, z, 0x30343a); P.box('trim', 0.03, 0.09, 0.11, x, y - 0.21, z, 0xf2c94c); } // handgreep
+export function pole(P, x, z, y0, y1) { P.inside++; const g = new THREE.CylinderGeometry(0.022, 0.022, y1 - y0, 8); g.translate(x, (y0 + y1) / 2, z); P.add('trim', g, POLE); P.inside--; }
+export function rail(P, x, y, z0, z1) { P.inside++; const g = new THREE.CylinderGeometry(0.02, 0.02, Math.abs(z1 - z0), 8); g.rotateX(Math.PI / 2); g.translate(x, y, (z0 + z1) / 2); P.add('trim', g, POLE); P.inside--; }
+export function strap(P, x, y, z) { P.inside++; P.box('trim', 0.02, 0.16, 0.02, x, y - 0.08, z, 0x30343a); P.box('trim', 0.03, 0.09, 0.11, x, y - 0.21, z, 0xf2c94c); P.inside--; } // handgreep
 // holle zijwanden: banden van onder naar boven (paneel in de lakkleur met lichte binnenbekleding, of ruiten met stijlen),
 // openingen bij de deuren, dak en plafond met LED. o: { W, z0, z1, doors: [z], DW, bands: [[y0, y1, 'paint'|'win']], roof, ceil }
 export function hollowSides(P, o) {
@@ -392,7 +401,7 @@ export function hollowSides(P, o) {
       for (const [y0, y1, kind] of o.bands) {
         const h = y1 - y0, yc = (y0 + y1) / 2;
         if (kind === 'win') { const n = Math.max(1, Math.round(len / 1.5)), pw = len / n; for (let k = 0; k < n; k++) { P.box('win', 0.03, h - 0.04, pw - 0.1, x + sx * 0.02, yc, a + pw * (k + 0.5), 0xffe9c4); P.box('trim', 0.09, h, 0.09, x, yc, a + pw * k, 0x3a3f46); } P.box('trim', 0.09, h, 0.09, x, yc, b, 0x3a3f46); }
-        else { P.box('paint', 0.08, h, len, x, yc, c); P.box('trim', 0.02, h - 0.02, len, x - sx * 0.05, yc, c, 0xdfe3e8); }
+        else { P.box('paint', 0.08, h, len, x, yc, c); P.inner(() => P.box('trim', 0.02, h - 0.02, len, x - sx * 0.05, yc, c, 0xdfe3e8)); }
       }
     }
     // boven de deuren doorlopend paneel
@@ -400,7 +409,7 @@ export function hollowSides(P, o) {
   }
   const L = o.z1 - o.z0, zc = (o.z0 + o.z1) / 2;
   if (o.roof) P.box('trim', o.W * 0.9, 0.12, L, 0, o.roof, zc, 0xc8ccd1);
-  if (o.ceil) { P.box('trim', o.W - 0.16, 0.03, L - 0.2, 0, o.ceil, zc, CEIL); for (const sx of [0.45, -0.45]) P.box('light', 0.1, 0.02, L - 0.8, sx * o.W / 2.4, o.ceil - 0.025, zc, 0xf4f6ff); }
+  if (o.ceil) { P.inner(() => P.box('trim', o.W - 0.16, 0.03, L - 0.2, 0, o.ceil, zc, CEIL)); for (const sx of [0.45, -0.45]) P.box('light', 0.1, 0.02, L - 0.8, sx * o.W / 2.4, o.ceil - 0.025, zc, 0xf4f6ff); }
 }
 // ---------- metro (Megatower City, ook de andere verkeerswerelden) ----------
 // Holle bak (dunne wanden, ruiten tussen stijlen), vloer op 1,1 m, plafond met LED op 2,9 m, deuren als losse

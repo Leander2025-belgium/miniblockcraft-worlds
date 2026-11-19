@@ -49,8 +49,12 @@ export class BusPax {
     for (const b of buses) {
       if (!b.open) { b.served = false; continue; }
       const S = [...this.stops.values()].find(S => Math.hypot(S.st.x - b.x, S.st.z - b.z) < 14); if (!S) continue;
-      if (!b.served) { b.served = true; const n = Math.floor(this.rnd() * 3); for (let i = 0; i < n; i++) { const p = this.add(S.st, 'out', { x: b.x, z: b.z, y: this.feet(b.x, b.z, S.st.y + 1) ?? S.st.y + 1 }); if (p) { const a = this.rnd() * 6.28; p.tx = b.x + Math.cos(a) * 12; p.tz = b.z + Math.sin(a) * 12; this.stats.uitgestapt++; } } }
-      for (const p of this.list) if (p.st === S.st && p.state === 'wait') { p.state = 'board'; p.tx = b.x; p.tz = b.z; p.bus = b.id; }
+      // uitstappen: een deel van de echte bezetting van de rit (js/ovtrips.js); hooguit 3 ervan lopen zichtbaar weg
+      if (!b.served) { b.served = true; const T = this.trips; let n = Math.floor(this.rnd() * 3);
+        if (T && b.id.trip) { const tot = T.alight(b.id, Math.round(b.id.trip.occ * (0.12 + 0.18 * this.rnd()))); this.stats.uitgestaptRit = (this.stats.uitgestaptRit || 0) + tot; n = Math.min(3, tot); }
+        for (let i = 0; i < n; i++) { const p = this.add(S.st, 'out', { x: b.x, z: b.z, y: this.feet(b.x, b.z, S.st.y + 1) ?? S.st.y + 1 }); if (p) { const a = this.rnd() * 6.28; p.tx = b.x + Math.cos(a) * 12; p.tz = b.z + Math.sin(a) * 12; this.stats.uitgestapt++; } } }
+      const full = this.trips && this.trips.full(b.id); // volle bus: wachtenden blijven staan
+      if (!full) for (const p of this.list) if (p.st === S.st && p.state === 'wait') { p.state = 'board'; p.tx = b.x; p.tz = b.z; p.bus = b.id; }
     }
     const open = new Set(buses.filter(b => b.open).map(b => b.id));
     let w = 0;
@@ -62,10 +66,10 @@ export class BusPax {
         const st = Math.min(d, WALK * dt), nx = p.x + dx / d * st, nz = p.z + dz / d * st, ny = this.feet(nx, nz, p.y);
         if (ny !== null && Math.abs(ny - p.y) <= 1) { p.x = nx; p.z = nz; p.y = ny; p.moving = true; p.yaw = Math.atan2(dx, dz); }
         else if (p.state === 'wait') { p.tx = p.x; p.tz = p.z; } // obstakel: blijven staan
-        else if (p.state === 'board' && d < 3.5) p.gone = true; // tegen de bus: ingestapt
+        else if (p.state === 'board' && d < 3.5) { p.gone = true; this.boarded(p); } // tegen de bus: ingestapt
         else p.stuck = (p.stuck || 0) + dt;
       }
-      if (p.state === 'board' && d < 1.6) { p.gone = true; this.stats.ingestapt++; }
+      if (p.state === 'board' && d < 1.6 && !p.gone) { p.gone = true; this.boarded(p); }
       if (p.state === 'out' && (d < 0.3 || p.stuck > 4)) p.gone = true;
       if (p.state === 'wait') w++;
     }
@@ -80,5 +84,7 @@ export class BusPax {
     }
     for (const m of [this.body, this.legs, this.head]) { m.count = n; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
   }
+  // ingestapt: telt mee in de bezetting van de rit (en in de statistiek)
+  boarded(p) { this.stats.ingestapt++; if (this.trips && p.bus && p.bus.trip) this.trips.board(p.bus, 1); }
   setDay(day) { const l = 0.3 + 0.7 * day; for (const m of [this.body, this.legs, this.head]) m.material.color.setScalar(l); }
 }
