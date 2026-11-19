@@ -972,6 +972,7 @@ export class Game {
     const phase = this.interiorPending() ? '🏗 Verdieping wordt opgebouwd…' : net ? `🌐 Nieuwe kaartgegevens downloaden: ${net}` : td.inFlight > 0 ? `💾 ${td.inFlight} stukken uit de lokale opslag halen of omzetten` : this.queue.length ? `🧱 3D-geometrie voorbereiden: ${this.queue.length} stukjes` : '✓ Alles klaar om te spelen';
     if (!here) this.ui.loading.textContent = this.tileError ? `Laden lukt niet: ${this.tileError}. Opnieuw proberen…` : phase;
     else this.ui.loading.textContent = phase;
+    this.brandLoader(here, phase, td);
     this.loadPhase = phase;
     const ap = this.aheadProgress;
     const bg = ap && ap.done < ap.total ? `Omgeving klaarzetten: ${ap.done} van ${ap.total} stukken (gaat door op de achtergrond)` : ap ? 'Omgeving rond je is klaar ✓' : '';
@@ -1310,6 +1311,22 @@ export class Game {
     for (const a of tr.agents || []) if (a.kind === 'bus' && !a.dead) { const h = tr.behind(a, a.L / 2, this.tmpBus || (this.tmpBus = {})); buses.push({ id: a, x: h.x, z: h.z, open: a.atStop !== false && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5, get served() { return a.paxServed; }, set served(v) { a.paxServed = v; } }); }
     this.busPax.update(dt, this.player.pos, tr.stops || [], buses, tr.period || 'dal');
     this.busPax.setDay(day);
+  }
+  // TERRANOVA-laadscherm: alleen bij het eerste laden van een gekozen wereld, met de echte status (geen verzonnen
+  // percentages): downloaden, stukken uit de opslag, 3D-stukjes in de wachtrij en het aantal geladen stukken
+  brandLoader(here, phase, td) {
+    const L = document.getElementById('tn-loader'); if (!L) return;
+    if (this.loaderTiled !== this.tiled) { this.loaderTiled = this.tiled; this.loaderDone = false; this.loaderT0 = performance.now(); }
+    if (this.loaderDone || here) { if (!L.hidden) L.hidden = true; if (here) this.loaderDone = true; return; }
+    L.hidden = false;
+    const w = document.getElementById('tn-loader-world'), ph = document.getElementById('tn-loader-phase'), tip = document.getElementById('tn-loader-tip');
+    const name = (document.getElementById('game-title')?.textContent || '').trim();
+    if (w) w.textContent = name || 'Wereld wordt geladen';
+    const n = this.world && this.world.tiles ? this.world.tiles.size : 0;
+    if (ph) ph.textContent = `${this.tileError ? 'Laden lukt niet: ' + this.tileError + '. Opnieuw proberen…' : phase} · ${n} stuk${n === 1 ? '' : 'ken'} geladen`;
+    const TIPS = ['Druk op M voor de kaart, de OV-kaart en de reisplanner.', 'Spring op een liftblok om naar boven te gaan, Shift om omlaag te gaan.', 'H stapt in of uit een voertuig, J om mee te rijden als passagier.', 'V wisselt het camerastandpunt in een voertuig.', 'E bedient wat je aankijkt: deuren, licht, borden en vertrekborden.', 'F3 toont de FPS-meter; grafische profielen staan in de instellingen.', 'Je bouwwerken worden op dit toestel bewaard, ook als je de pagina sluit.'];
+    const k = Math.floor((performance.now() - (this.loaderT0 || 0)) / 6000) % TIPS.length;
+    if (tip && tip.dataset.k !== String(k)) { tip.dataset.k = String(k); tip.textContent = '💡 ' + TIPS[k]; }
   }
   // FPS-meter (instellingen of F3): beelden per seconde, traagste frame, tekenopdrachten, driehoeken, geheugen, laadtijd
   perfHud(dt) {
@@ -2119,7 +2136,7 @@ export class Game {
     const url = this.ui.canvas.toDataURL('image/png');
     const a = document.createElement('a');
     const d = new Date();
-    a.href = url; a.download = `blokstad-${d.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
+    a.href = url; a.download = `terranova-${d.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`;
     document.body.appendChild(a); a.click(); a.remove();
     this.toast('📷 Foto opgeslagen');
   }
