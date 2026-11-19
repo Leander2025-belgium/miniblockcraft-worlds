@@ -39,9 +39,9 @@ const ROAD = { sedan: { L: 4.6, vmax: 38, acc: 4.2, wb: 2.75 }, hatch: { L: 4.0,
 // zitplaats (afstand van de as, ooghoogte zittend). Komt overeen met de modellen in js/vehicles.js.
 export const INTERIOR = {
   metro: { floor: 0.9, ceil: 3.05, half: 1.25, seatLat: 0.95, sitEye: 1.2 },
-  tram: { floor: 0.38, ceil: 2.55, half: 1.05, seatLat: 0.75, sitEye: 1.15 },
+  tram: { floor: 0.38, ceil: 2.6, half: 1.05, seatLat: 0.72, sitEye: 1.15 },
   bus: { floor: 0.62, ceil: 2.75, half: 1.1, seatLat: 0.8, sitEye: 1.15 },
-  train: { floor: 1.2, ceil: 3.45, half: 1.3, seatLat: 0.95, sitEye: 1.2 },
+  train: { floor: 1.25, ceil: 3.45, half: 1.3, seatLat: 0.95, sitEye: 1.2 },
   car: { floor: 0.35, ceil: 1.45, half: 0.6, seatLat: 0.38, sitEye: 0.85 },
 };
 const CAM_NAMES = { seat: 'zittend', stand: 'staand', walk: 'rondlopen', window: 'raam', chase: 'buiten', cab: 'cabine', side: 'zijkant' };
@@ -58,7 +58,7 @@ export class Drive {
       // echte zitplaats uit het model (een rijtuig in het midden): boven de zitting, voor de rugleuning
       if (vehicle.secs) {
         const order = vehicle.secs.map((sc, i) => i).sort((i, j) => Math.abs(i - (vehicle.secs.length - 1) / 2) - Math.abs(j - (vehicle.secs.length - 1) / 2));
-        for (const i of order) { const sc = vehicle.secs[i], sp = SEAT_SPOTS[sc.m]; if (!sp) continue; const z = sp[0].z * (sc.flip ? -1 : 1); this.seat = sc.off - z; this.seatLat = sp[0].lat * (sc.flip ? -1 : 1); this.seatFlip = !!sc.flip; break; }
+        for (const i of order) { const sc = vehicle.secs[i], sp = SEAT_SPOTS[sc.m]; if (!sp) continue; const z = sp[0].z * (sc.flip ? -1 : 1); this.seat = sc.off - z; this.seatLat = sp[0].lat * (sc.flip ? -1 : 1); this.seatFlip = !!sc.flip; this.spot = sp[0]; break; }
       }
     } else if (vehicle.kind === 'train' || vehicle.kind === 'tram' || vehicle.kind === 'ship' || vehicle.kind === 'metro') {
       this.a = vehicle; this.rail = true;
@@ -172,7 +172,7 @@ export class Drive {
     if (this.car) { const c = this.car; pose = { x: c.x, y: c.y, z: c.z, yaw: c.yaw }; up = this.bus ? 2.4 : 1.25; back = this.bus ? this.spec.L * 0.4 : -this.spec.L * 0.05; }
     else if (this.mode === 'passenger') {
       // passagier: zittend bij het raam, staand in het middenpad, rondlopen, raam (buiten langs het voertuig) of buiten
-      const I = INTERIOR[this.a.kind] || INTERIOR.bus, L = this.a.L || 12;
+      const I0 = INTERIOR[this.a.kind] || INTERIOR.bus, L = this.a.L || 12, sp = this.spot, I = sp && sp.floor !== undefined ? { ...I0, floor: sp.floor, ceil: sp.ceil } : I0;
       if (this.cam === 'walk') {
         const k = this.g.keys, wk = this.walk || (this.walk = { s: this.seat, lat: 0 }), dt = Math.min(0.05, this.lastDt || 0.016);
         const fwd = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0), side = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
@@ -187,7 +187,7 @@ export class Drive {
       pose = { ...pose, x: pose.x + cx * lat, z: pose.z + cz * lat };
       const lift = this.a.kind === 'metro' || this.a.kind === 'train' ? 0.2 : this.a.kind === 'tram' ? 0.05 : 0; // zoals js/traffic.js het model tekent
       up = lift + Math.min(I.ceil - 0.15, I.floor + (this.cam === 'seat' ? I.sitEye : 1.62)); back = 0;
-      this.seatLook = this.cam === 'seat' ? ((this.seatLat ?? I.seatLat) >= 0 ? -Math.PI / 2 : Math.PI / 2) : 0; // zittend: naar het middenpad en de ramen aan de overkant
+      this.seatLook = this.cam === 'seat' && !(sp && sp.look === 'fwd') ? ((this.seatLat ?? I.seatLat) >= 0 ? -Math.PI / 2 : Math.PI / 2) : (this.cam === 'seat' && this.seatFlip ? Math.PI : 0); // zittend: naar het middenpad en de ramen aan de overkant
       if (this.cam === 'window') {
         const out = I.half + 1.3, tx = pose.x + cx * out, ty = pose.y + I.floor + 1.3, tz = pose.z + cz * out;
         const [x, y, z] = this.safeCam(pose.x, pose.y + I.floor + 1.3, pose.z, tx, ty, tz);

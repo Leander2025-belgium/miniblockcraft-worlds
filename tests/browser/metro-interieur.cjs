@@ -66,6 +66,11 @@ const SHOTS = process.env.SHOTS, TAG = process.env.TAG || 'na';
     await p.screenshot({ path: path.join(SHOTS, `metro-binnen-${TAG}.png`) });
     await p.evaluate(() => { const g = window.blokGame(); g.drive.cam = 'stand'; g.player.yaw = 0; window.__frame(2); });
     await p.screenshot({ path: path.join(SHOTS, `metro-staand-${TAG}.png`) });
+    // ook met de echte spellus (zoals tijdens het spelen)
+    await p.evaluate(() => { const g = window.blokGame(); g.drive.cam = 'seat'; g.player.yaw = 0; g.touch = true; g.running = false; g.start(); g.setPaused?.(false); for (const el of document.querySelectorAll('.ov')) el.hidden = true; });
+    await p.waitForTimeout(4000);
+    await p.screenshot({ path: path.join(SHOTS, `metro-spellus-${TAG}.png`) });
+    await p.evaluate(() => { const g = window.blokGame(); g.running = false; cancelAnimationFrame(g.raf); });
     await p.evaluate(() => { const g = window.blokGame(); g.drive.cam = 'window'; window.__frame(2); });
     await p.screenshot({ path: path.join(SHOTS, `metro-raam-${TAG}.png`) });
     await p.evaluate(() => { const g = window.blokGame(); g.drive.cam = 'chase'; window.__frame(3); });
