@@ -50,6 +50,14 @@ export class RailSound {
       s.connect(f).connect(g).connect(this.out); s.start(t, Math.random(), 0.08);
     }
   }
+  puff(gain) {
+    const a = ctx; if (!a) return;
+    const s = a.createBufferSource(); s.buffer = noise(a);
+    const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700;
+    const g = a.createGain(), t = a.currentTime;
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.22);
+    s.connect(f).connect(g).connect(this.out); s.start(t, Math.random(), 0.25);
+  }
   hiss() {
     const a = ctx; if (!a) return;
     const s = a.createBufferSource(); s.buffer = noise(a);
@@ -62,7 +70,7 @@ export class RailSound {
   update(dt, v, throttle = 0, brake = 0, inside = true) {
     if (!this.on) return;
     const a = ctx, t = a.currentTime, sp = Math.abs(v), damp = inside ? 0.7 : 1;
-    const base = this.kind === 'metro' ? 90 : this.kind === 'tram' ? 70 : 55;
+    const base = this.kind === 'metro' ? 90 : this.kind === 'tram' ? 70 : this.kind === 'steam' ? 30 : 55;
     this.mot.frequency.setTargetAtTime(base + sp * 6.5, t, 0.08); this.mot2.frequency.setTargetAtTime((base + sp * 6.5) * 2.01, t, 0.08);
     this.mf.frequency.setTargetAtTime(400 + sp * 25, t, 0.1);
     this.motG.gain.setTargetAtTime(sp < 0.05 && throttle < 0.05 ? 0.004 : (0.01 + throttle * 0.035 + Math.min(0.015, sp * 0.0006)) * damp, t, 0.1);
@@ -70,6 +78,8 @@ export class RailSound {
     this.rollG.gain.setTargetAtTime(Math.min(0.09, sp * 0.0022) * damp, t, 0.2);
     const squeal = brake > 0.2 && sp > 0.3 && sp < 7 ? 0.012 * brake * damp : 0;
     this.sqG.gain.setTargetAtTime(squeal, t, 0.05);
+    // stoomlocomotief: puffen, 4 per omwenteling van de drijfwielen (omtrek 5,3 m), harder bij meer stoom
+    if (this.kind === 'steam' && sp > 0.2) { this.chuff = (this.chuff || 0) + sp * dt; if (this.chuff > 1.33) { this.chuff = 0; this.puff(Math.min(0.14, 0.04 + throttle * 0.1) * damp); } }
     this.dist += sp * dt;
     if (this.dist > 25 && sp > 2) { this.dist = 0; this.click(Math.min(0.12, 0.02 + sp * 0.002) * damp); }
     if (sp < 0.05 && !this.stopped) { this.stopped = true; this.hiss(); }

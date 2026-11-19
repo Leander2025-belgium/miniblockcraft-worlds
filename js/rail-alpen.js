@@ -11,6 +11,7 @@ export const SERVICES = [
   { id: 'PE', line: 'PE', name: 'Panorama Express', liv: 'PE', cars: ['loco', 'panorama', 'panorama', 'dining', 'panorama'], vmax: 22, h: 3600 },
   { id: 'ZB', line: 'ZB', name: 'Zugspitzbahn', liv: 'ZB', cars: ['rack', 'rack'], vmax: 9, h: 1800, acc: 0.5 },
   { id: 'ME', line: 'ME', name: 'Matterhorn Express', liv: 'ME', cars: ['rackLoco', 'panorama', 'coach2'], vmax: 17, h: 3600, acc: 0.5 },
+  { id: 'DS', line: 'PE', name: 'Historische stoomtrein', liv: 'HIST', style: 'hist', cars: ['loco', 'coach2', 'coach2', 'dining'], vmax: 15, h: 7200, hours: [10, 18], acc: 0.4 },
   { id: 'EN', line: 'AE', name: 'Nachttrein Alpenster', liv: 'EN', stops: ['Wolkendorf', 'Reuzenberg Hauptbahnhof', 'Oostpoort'], cars: ['loco', 'sleeper', 'sleeper', 'dining', 'coach2'], vmax: 36, h: 14400 },
   { id: 'GAE', line: 'AE', name: 'Goederentrein', liv: 'G', stops: [], cars: ['loco', 'box', 'tank', 'box', 'flat', 'box', 'tank', 'box'], vmax: 25, h: 7200, freight: true, acc: 0.35 },
   { id: 'GNZ', line: 'NZ', name: 'Goederentrein', liv: 'G', stops: [], cars: ['loco', 'flat', 'box', 'box', 'tank', 'flat', 'box'], vmax: 25, h: 7200, freight: true, acc: 0.35 },

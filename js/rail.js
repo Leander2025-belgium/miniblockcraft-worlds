@@ -2,7 +2,7 @@
 // meerijden (zitplaats kiezen, in- en uitstappen aan perrons), zelf rijden vanuit de cabine (tractie, rem,
 // noodrem, seinen, snelheidsbeperkingen, haltes, deuren, omroepen) en een interactieve kaart met reisplanner.
 import * as THREE from 'three';
-import { TrainShells } from './trainshell.js';
+import { TrainShells, LOD_DIST } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
 import { buildCrossovers } from './crossover.js';
@@ -64,7 +64,7 @@ const GAP = 0.6; // tussen twee rijtuigen
 const LIVERY = {
   AE: [B.PAINT_RED, B.PAINT_WHITE], RB: [B.PAINT_WHITE, B.PAINT_RED], EN: [B.PAINT_BLUE, B.PAINT_WHITE], IC: [B.PAINT_BLUE, B.PAINT_WHITE],
   S1: [B.PAINT_WHITE, B.PAINT_BLUE], ICE: [B.PAINT_WHITE, B.PAINT_RED], PE: [B.PAINT_ORANGE, B.PAINT_WHITE], ZB: [B.PAINT_RED, B.PAINT_WHITE],
-  ME: [B.PAINT_GREEN, B.PAINT_WHITE], G: [B.BRICK_DARK, B.PAINT_BLACK],
+  ME: [B.PAINT_GREEN, B.PAINT_WHITE], G: [B.BRICK_DARK, B.PAINT_BLACK], HIST: [B.PAINT_GREEN, B.PAINT_WHITE],
 };
 // massa (t), tractiekracht (kN) en vermogen (kW) per rijtuigsoort; aangedreven rijtuigen tellen mee voor de kleefkracht
 const CAR_PHYS = { loco: [86, 240, 6400], emuCab: [56, 70, 1600], emuMid: [48, 55, 1200], iceHead: [72, 150, 4000], ice: [52, 30, 800],
@@ -481,7 +481,7 @@ export class AlpRail {
       for (const [geo, mat] of d.geos) { const m = new THREE.Mesh(geo, mat); m.position.set(-d.W / 2, 0, -d.L / 2); m.layers.enable(1); if (mat === this.g.matTrans) m.renderOrder = 1; grp.add(m); }
       this.group.add(grp);
       const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'tram');
-      const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE, null, `${sv.id} ${a.run.pr.last.name}`);
+      const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE, null, `${sv.id} ${a.run.pr.last.name}`, sv.style || '');
       tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip, shell });
     }
     return tr;
@@ -489,6 +489,14 @@ export class AlpRail {
   // van buiten de gladde buitenkant, aan boord het interieur; deuren schuiven open als de trein aan een perron staat
   dressTrain(tr, aboard, dt, doorWant) {
     tr.doorF = Math.max(0, Math.min(1, (tr.doorF || 0) + (doorWant ? 1 : -1) * dt / 1.6));
+    // stroomafnemer: neer als de trein meer dan 20 s stilstaat zonder open deuren (opstellen, keren), anders op
+    const mine = this.player && this.player.tr === tr, v = mine ? this.player.v : (tr.v || 0), busy = v > 0.05 || doorWant || (mine && this.player.throttle > 0);
+    tr.idle = busy ? 0 : (tr.idle || 0) + dt;
+    const pantoWant = tr.idle > 20 ? 0 : 1, pp = this.g.player.pos;
+    for (const c of tr.cars) if (c.shell) {
+      this.shells.setPanto(c.shell, pantoWant, dt);
+      this.shells.setFar(c.shell, !aboard && Math.hypot(c.shell.g.position.x - pp.x, c.shell.g.position.z - pp.z) > LOD_DIST);
+    }
     for (const c of tr.cars) {
       c.grp.visible = aboard || !c.shell;
       if (c.shell) { c.shell.g.visible = !aboard; this.shells.setDoors(c.shell, tr.doorF); }
@@ -574,7 +582,7 @@ export class AlpRail {
       tr.a = a; tr.L = L; tr.dir = dir; tr.s = s; tr.v = a.v;
       this.place(tr, L, s, dir);
       this.dressTrain(tr, aboardThis, dt, doorsOpenAt(a));
-      if (aboardThis) snd = { v: a.v, th: 0.5, br: -1, kind: a.run.sv.metro ? 'metro' : a.run.sv.tram ? 'tram' : 'train' };
+      if (aboardThis) snd = { v: a.v, th: 0.5, br: -1, kind: a.run.sv.style === 'hist' ? 'steam' : a.run.sv.metro ? 'metro' : a.run.sv.tram ? 'tram' : 'train' };
       seen.add(a.id);
     }
     // de zelf bestuurde trein (na het verlaten van de cabine: uitbollen en blijven staan)
@@ -592,7 +600,7 @@ export class AlpRail {
       this.infra.animate(dt, list, this.player);
     }
     const pt = this.player;
-    if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: 'train', out: ['chase', 'side'].includes(g.drive.cam) };
+    if (pt && g.drive) snd = { v: pt.v, th: pt.throttle, br: pt.brake, kind: pt.tr.sv && pt.tr.sv.style === 'hist' ? 'steam' : 'train', out: ['chase', 'side'].includes(g.drive.cam) };
     // treingeluid: in de trein (meerijden of besturen)
     if (snd) {
       if (!this.snd) this.snd = new RailSound(snd.kind);
