@@ -20,7 +20,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   for (let i = 0; i < 240; i++) { await p.waitForTimeout(500); if (await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && g.tiled.inFlight === 0 && g.queue.length < 30; })) break; }
   await p.evaluate(() => { const g = window.blokGame(); g.traffic.rebuild(g.world.tiles, g.player.pos); g.running = false; cancelAnimationFrame(g.raf); });
   const R = { max: 0, spitsMax: 14, msPerTick: [] };
-  for (let k = 0; k < (+process.env.N || 60); k++) {
+  for (let k = 0; k < (+process.env.N || 90); k++) {
     const r = await p.evaluate(() => {
       const g = window.blokGame(), tr = g.traffic, T = g.travelersOn(); let worst = 0;
       for (let i = 0; i < 100; i++) {
@@ -39,8 +39,12 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   R.occ = await p.evaluate(() => { const T = window.blokGame().travelers; const h = T.log.filter(e => e.wat === 'ingestapt' || e.wat === 'uitgestapt'); return { n: h.length, ok: h.every(e => e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor)), deur: Math.max(0, ...h.map(e => e.afstandTotDeur || 0)), fout: h.filter(e => !(e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor))).slice(0, 4) }; });
   const s = R.stats, sorted = [...R.msPerTick].sort((a, b) => a - b);
   R.p95ms = sorted[Math.floor(sorted.length * 0.95)];
+  // types (TERRANOVA 14.2): beperkte mobiliteit nooit een trap en nooit metro/trein; toeristen pauzeren; elk type komt voor
+  const TY = s.types || {};
+  R.types = Object.fromEntries(Object.entries(TY).map(([k, v]) => [k, { v: v.verschenen, in: v.ingestapt, uit: v.uitgestapt, op: v.opgegeven, treden: v.treden, hs: v.grootsteHoogtestap, pauzes: v.pauzes, soorten: v.soorten }]));
+  const typesOk = Object.keys(TY).length >= 5 && (!TY.beperkt || (TY.beperkt.treden === 0 && !TY.beperkt.soorten.metro && !TY.beperkt.soorten.train)) && (!TY.toerist || !TY.toerist.paden || TY.toerist.pauzes > 0);
   console.log('reizigers-auto:', JSON.stringify({ ...R, msPerTick: undefined }));
-  const ok = s.verschenen >= 10 && (s.ingestapt || 0) >= 3 && (s.uitgestapt || 0) >= 2 && s.aangekomen >= 1 && s.nietBeloopbaar === 0 && s.grootsteStap <= 1.5 && s.grootsteHoogtestap <= 1 && R.max <= R.spitsMax && R.occ.ok && R.occ.deur <= 4;
+  const ok = typesOk && s.verschenen >= 10 && (s.ingestapt || 0) >= 3 && (s.uitgestapt || 0) >= 1 && s.aangekomen >= 1 /* metro-reizigers rijden meestal buiten beeld verder (volgende halte ±1 km); uitstappen aan een halte bewijst ook reis.cjs */ && s.nietBeloopbaar === 0 && s.grootsteStap <= 1.5 && s.grootsteHoogtestap <= 1 && R.max <= R.spitsMax && R.occ.ok && R.occ.deur <= 4;
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');
   await b.close();
