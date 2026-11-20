@@ -163,6 +163,12 @@ telefoon):
 - **Reisplanner (spoorwerelden):** rekent met de echte ritten van vandaag, met vertraging. Een vertraagde vorige trein kan
   nog gehaald worden; de vertraging staat erbij.
 
+## Fase 6–7 — regressie (releasekandidaat 2026-11-21a)
+
+- `node tests/run-all.mjs`: alle controles geslaagd, waaronder Reuzenberg (vorm exact behouden), de vrijprofielen van de tunnels (M1, ICEF, AX1, AE, NZ: 0 punten geblokkeerd) en de nieuwe controle op de wisselroutes (0 conflicten).
+- Browserregressie: 29 tests, alle zonder fouten. Dat zijn de bestaande tests (treinen, kaart, mobiel, opslaan en herladen, OV-diagnose, Megatower, Greenisland, metro-interieur, voertuig-interieurs …) plus de nieuwe tests branding, savegame, graphics en reis.
+- Er was geen enkele shaderfout, en er waren geen paginafouten.
+
 ## Niet gedaan of maar deels (eerlijk)
 
 - **Depot:** niet gebouwd. Daarvoor zijn nieuwe sporen in de wereldgenerator nodig (opstelsporen, onderhoudshal,
