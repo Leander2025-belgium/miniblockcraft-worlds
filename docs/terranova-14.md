@@ -1,4 +1,4 @@
-# TERRANOVA 14.0 en 14.1 — rapport (versie 2026-11-22a)
+# TERRANOVA 14.0, 14.1 en 14.2 — rapport (versie 2026-11-23a)
 
 Branch `terranova-14`. 14.0 (versie 2026-11-21a) staat sinds PR #2 op `main` (na een expliciete go). 14.1 (versie
 2026-11-22a) staat op de branch en gaat pas naar productie na een nieuwe go/no-go. De open punten van 14.0 en wat
@@ -169,6 +169,23 @@ telefoon):
 - `node tests/run-all.mjs`: alle controles geslaagd, waaronder Reuzenberg (vorm exact behouden), de vrijprofielen van de tunnels (M1, ICEF, AX1, AE, NZ: 0 punten geblokkeerd) en de nieuwe controle op de wisselroutes (0 conflicten).
 - Browserregressie: 29 tests, alle zonder fouten. Dat zijn de bestaande tests (treinen, kaart, mobiel, opslaan en herladen, OV-diagnose, Megatower, Greenisland, metro-interieur, voertuig-interieurs …) plus de nieuwe tests branding, savegame, graphics en reis.
 - Er was geen enkele shaderfout, en er waren geen paginafouten.
+
+## TERRANOVA 14.2 (versie 2026-11-23a) — de open punten van 14.1
+
+| Onderdeel | Wat er nu is | Controle |
+|---|---|---|
+| Buslijnen Megatower City | 38 vaste buslijnen (B1–B38, 43 stukken door onderbrekingen) langs de buslanen, niet op tramlanen. Bussen worden alleen op buslanen ingezet, blijven op hun lijn en stoppen aan beide kanten; de haltes aan de overkant zijn nieuw in het verkeersnet. De planner rekent met 982 bushaltes; de OV-kaart toont ze. | `ovkaart.cjs`: 818 busmetingen, allemaal met een lijn, hoogstens 9,5 m van de as van hun laan, 10 bediende haltes, de planner vindt B2 |
+| Metroremises | Kopsporen in een tunnelhal (310 × 21 m, betonnen plafond en lampen) voorbij het eindstation, bij **M1, M2, M3, M4, M6, M7, M8, M9**. Rangeren kruist de lijn niet. | `check-depots.mjs`: 12 remises, tunnelhallen ≥ 10 m diep en zonder ander spoor, aansluiting 0 m, **0 conflicten**; `metroremise.cjs` |
+| Gevels van ver | De LOD-blokken van torens tonen dezelfde gevelsoort als van dichtbij (shader, geen extra driehoeken). | voor/na: `docs/terranova-14-lodgevels-*.png` |
+| Dubbeldekstreinen | IR4 rijdt met dubbeldekkers met een echt bovendek: interieur van 8 blokken hoog, trap in de instaphal, zitplaatsen op beide verdiepingen. De buitenkant blijft binnen het profiel van 5,5 m. | `check-dubbeldekker.mjs`: beide verdiepingen bereikbaar, elke zitplaats bij een loopplek; `docs/terranova-14-dubbeldekker.png` |
+| Stadsvoertuigen | Nieuwe generatie naast de oude: metro2, tram2 en een nieuwe e-bus. Deuren en interieur blijven gelijk; ongeveer de helft is nieuw. | `stadsvoertuigen.cjs`; `docs/terranova-14-tram2.png` |
+| Reizigerstypes | Per type: tempo, maximale wachttijd (daarna opgeven en weglopen), gewicht van trappen, voorkeur per vervoerssoort, pauzes en een accessoire. Beperkte mobiliteit neemt nooit een trap. | `reizigers-auto.cjs`: beperkt 0 treden en alleen de bus; toeristen pauzeren; pendelaars en luchthavenreizigers kiezen vooral de metro |
+
+**Nog open na 14.2 (eerlijk):**
+- **S1-remise:** niet gebouwd. Langs de hele S1 (16 km, volledig in Munkbay) is geen vrije plek, ook niet met een exacte controle (863 keer een gebouw, 316 keer een ander spoor). De kopsporen zouden aan de ene kant door het stationsgebouw van Eastport Central gaan en aan de andere kant over een weg. Kan alleen als er gesloopt mag worden.
+- **M5 en M10:** de tunnels liggen aan beide einden minder dan 10 m diep; daar is geen tunnelhal gemaakt.
+- **Planner:** rekent met de vaste dienstregeling; de echte bussen rond de speler rijden niet exact volgens die minuten (zelfde aanpak als metro en tram). Een plan met bussen kost ±50 ms.
+- **Reizigers:** metroreizigers rijden meestal buiten beeld verder (de volgende halte ligt ±1 km verder), dus uitstappen zie je vooral bij bus en tram.
 
 ## TERRANOVA 14.1 (versie 2026-11-22a) — de open punten van 14.0
 
