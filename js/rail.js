@@ -6,6 +6,7 @@ import { TrainShells, LOD_DIST } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
 import { buildCrossovers } from './crossover.js';
+import { depotPlan, depotState } from './depotsim.js';
 import { routeServices } from './railroute.js';
 import { Passengers } from './passengers.js';
 import { B, IS_SOLID } from './blocks.js';
@@ -319,6 +320,8 @@ function doorsOpenAt(a) {
 }
 // voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
 export function activeAt(now) { return activeTrains(now); }
+// voor de remises (js/depotsim.js) en controles zonder browser
+export function _depotHelpers() { return { runs, delayOf, posAt, trackOffset }; }
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
@@ -688,6 +691,7 @@ export class AlpRail {
       const th = snd.br < 0 ? (dv > 0.002 ? 0.7 : 0.05) : snd.th, br = snd.br < 0 ? (dv < -0.004 ? 0.8 : 0) : snd.br;
       this.snd.update(dt, snd.v, th, br, !snd.out);
     } else if (this.snd) { this.snd.stop(); this.snd = null; this.sndV = undefined; }
+    this.updateDepots(now, p, dt, seen);
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
     this.shells.update(day);
     this.updateSignals(act);
@@ -1102,6 +1106,28 @@ export class AlpRail {
     const blockLen = 1200, distToSignal = best.ds - blockLen;
     return { red: distToSignal < 0, dist: Math.max(0, best.ds - 150), ahead: best.ds };
   }
+  // ---------- remises (js/depot.js, js/depotsim.js) ----------
+  // plannen per dag (en opnieuw bij een andere dienstregeling of ander weer: vertragingen veranderen de omloop)
+  depotPlans() {
+    const key = dayNr() + '|' + delayFactor + '|' + RUNS.length;
+    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, posAt, trackOffset })); }
+    return this._dp;
+  }
+  updateDepots(now, p, dt, seen) {
+    if (!NET.depots || !NET.depots.length) return;
+    for (const plan of this.depotPlans()) {
+      const D = plan.D, c = D.sidings[0].at(D.sidings[0].len - 100);
+      if (Math.hypot(c.x - p.x, c.z - p.z) > 3000) continue;
+      const st = depotState(plan, now);
+      const train = (id, sv, path, u) => {
+        let tr = this.trains.get(id);
+        if (!tr) { tr = this.makeTrain({ id, run: { sv, pr: { last: { name: D.name } } } }); tr.depot = D.name; this.trains.set(id, tr); }
+        tr.L = path; tr.dir = 1; tr.s = u; tr.v = 0; this.place(tr, path, u, 1); this.dressTrain(tr, false, dt, 0); seen.add(id);
+      };
+      st.sidings.forEach((set, k) => { if (set) train(`dep:${set.id}`, plan.compSv[set.comp] || SERVICES[0], D.sidings[k], D.sidings[k].len - 12); });
+      for (const m of st.moving) train(`sh:${m.s.set.id}:${m.s.kind}:${Math.round(m.s.t0)}`, m.s.sv, m.s.path, m.u);
+    }
+  }
   // ---------- scherm ----------
   showHud(tr, a) {
     if (!this.hud || this.g.drive) return;
@@ -1184,6 +1210,8 @@ export class AlpRail {
       ctx.beginPath(); ctx.arc(st.x * k, st.z * k, st.name === this.sel ? 7 : 5, 0, 7); ctx.fill(); ctx.stroke();
       label(st.name, st.x, st.z, st.name === this.sel ? '#ffd34d' : '#fff', -10);
     }
+    // remises
+    for (const D of NET.depots || []) { const q = D.sidings[0].at(D.sidings[0].len - 120); ctx.fillStyle = '#9aa4b2'; ctx.fillRect(q.x * k - 5, q.z * k - 4, 10, 8); label('🏭 ' + D.name, q.x, q.z, '#cfd6e0', 16); }
     // treinen live
     for (const a of this.active || []) {
       if (a.t < 0) continue;
@@ -1326,7 +1354,17 @@ export class AlpRail {
       const cars = Object.entries(sv.cars.reduce((m, c) => (m[c] = (m[c] || 0) + 1, m), {})).map(([c, n]) => `${n}× ${CAR_NAMES[c] || c}`).join(', ');
       h += `<tr><td><span style="color:${rs[0].pr.L.color}">■</span> ${esc(sv.name)}</td><td>${esc(depot)}</td><td align="center">${need}</td><td align="center">${on}</td><td align="center">${Math.max(0, need - on)}</td><td>${esc(cars)}</td></tr>`;
     }
-    return h + `</table></div><div class="small" style="margin-top:6px">Totaal (${kind}): <b>${tot}</b> stellen nodig, <b>${totRun}</b> nu onderweg, <b>${Math.max(0, tot - totRun)}</b> in de remises (incl. reserve bij nacht en daluren).</div>`;
+    h += `</table></div><div class="small" style="margin-top:6px">Totaal (${kind}): <b>${tot}</b> stellen nodig, <b>${totRun}</b> nu onderweg, <b>${Math.max(0, tot - totRun)}</b> in de remises (incl. reserve bij nacht en daluren).</div>`;
+    // echte remises met opstelsporen: wat er nu staat en de volgende rangeerritten
+    if (NET.depots && NET.depots.length && kind === 'trein') {
+      h += '<h4 style="margin:8px 0 2px">🏭 Remises met opstelsporen</h4><table class="small" style="width:100%"><tr><th align="left">Remise</th><th>Opgesteld</th><th align="left">Volgende rangeerrit</th></tr>';
+      for (const plan of this.depotPlans()) {
+        const st = depotState(plan, now), nx = plan.shunts.map(q => ({ q, t: ((q.t0 - now) % P + P) % P })).sort((a, b) => a.t - b.t)[0];
+        h += `<tr><td>${esc(plan.D.name)} <span class="muted">(${esc(plan.D.L.id)}, ${esc(plan.D.st.name)})</span></td><td align="center">${st.total}</td><td>${nx ? `${hhmm(now + nx.t)} ${nx.q.kind === 'uit' ? 'uitrukken' : 'inrukken'} ${esc(nx.q.sv.id)}${nx.q.shift ? ` (rijweg: ${Math.round(nx.q.shift / 60)} min ${nx.q.kind === 'uit' ? 'eerder' : 'later'})` : ''}` : '—'}</td></tr>`;
+      }
+      h += '</table>';
+    }
+    return h;
   }
   renderPanel() {
     const box = document.getElementById('rail-panel'); if (!box) return;
