@@ -211,11 +211,26 @@ function blockColumn(x, z, tx, tz, lx, lz, L, col) {
 }
 
 // ---------- percelen ----------
+const FACADES = ['curtain', 'ribbon', 'bands', 'fins', 'stone', 'curtain', 'bands', 'fins'];
+// gevelblok op hoogte k (verdiepingen van 4 m) en plaats `along` langs de gevel. Elke stijl houdt grote, rechthoekige
+// vlakken (de greedy mesher voegt ze samen): lamellen en penanten om de 12 m, banden van 12 m hoog. Gemeten met de mesher
+// van het spel op 6 tegels van het centrum: samen 3 % minder driehoeken dan alleen vliesgevels (1003k tegen 1034k);
+// een fijn raster (lijsten om de 4 m en stijlen om de 6–12 m) kostte +50 % en is daarom niet gebruikt.
+function facadeBlock(L, along, k, glass, frame) {
+  switch (L.facade) {
+    case 'ribbon': return k % 4 === 0 || k % 4 === 1 ? frame : glass;                                    // bandramen: borstwering en glas
+    case 'bands': return k % 4 === 0 ? frame : k % 24 < 12 ? glass : L.glass2;                           // tweekleurig: banden van 3 verdiepingen
+    case 'fins': return along % 12 === 0 || along % 12 === 1 ? frame : k % 8 === 0 ? frame : glass;      // brede lamellen om de 12 m
+    case 'stone': return k % 8 === 0 || along % 12 === 0 || along % 12 === 1 ? B.LIMESTONE : glass;     // natuursteen: brede penanten, lijsten om de 2 verdiepingen
+    default: return k % 4 === 0 ? frame : glass;                                                        // vliesgevel
+  }
+}
 const LOOKS = [[B.GLASS_BLUE, B.PANEL_WHITE], [B.MIRROR, B.METAL], [B.DARKGLASS, B.PANEL_DARK], [B.GLASS_GREEN, B.PANEL_WHITE], [B.GLASS, B.METAL], [B.MIRROR, B.PANEL_WHITE], [B.GLASS_BLUE, B.PANEL_DARK], [B.DARKGLASS, B.COPPER]];
 const WALLS = { urban: [B.PANEL_WHITE, B.PLASTER_BEIGE, B.BRICK, B.LIMESTONE, B.PLASTER_GREY, B.YELLOWBRICK, B.BRICK_DARK, B.CONCRETE], resid: [B.BRICK, B.PLASTER, B.YELLOWBRICK, B.PLASTER_PINK, B.BRICK_DARK, B.PLASTER_BEIGE, B.RED_SANDSTONE] };
 const ROOFS = [B.ROOF_RED, B.ROOF_DARK, B.CLAY_ROOF, B.ROOF_GREEN];
 const SHOP_COLORS = [B.PAINT_RED, B.PAINT_GREEN, B.PAINT_BLUE, B.PAINT_ORANGE, B.PAINT_YELLOW, B.PAINT_BLACK];
 const lotCache = new Map();
+export { lotDesc as _lotDesc }; // voor controles en schermafdrukken
 function lotDesc(qx, qz) {
   const key = qx * 1000 + qz;
   let L = lotCache.get(key);
@@ -237,6 +252,10 @@ function lotDesc(qx, qz) {
       L.h = Math.min(600, Math.round(h / 4) * 4);
       L.shape = ['box', 'setback', 'taper', 'cyl', 'twist', 'slab', 'setback', 'box'][Math.floor(hash(qx, qz, 804) * 8)];
       L.look = LOOKS[Math.floor(hash(qx, qz, 805) * LOOKS.length)];
+      // gevel (TERRANOVA 14.1): vliesgevel (zoals vroeger), raster met stijlen, bandramen, diagrid, verticale lamellen
+      // of natuursteen met raamopeningen; vaste keuze per perceel. Perioden van 6–12 m houden het aantal vlakken laag.
+      L.facade = globalThis.__FACADE || FACADES[Math.floor(hash(qx, qz, 807) * FACADES.length)];
+      L.glass2 = LOOKS[(LOOKS.indexOf(L.look) + 3) % LOOKS.length][0]; // tweede glaskleur voor de banden
       L.use = r2 < 0.25 ? 'hotel' : r2 < 0.5 ? 'wonen' : 'kantoor';
       const half = 18;
       L.a = L.shape === 'slab' ? half : Math.max(11, half * (L.h > 400 ? 0.8 : 0.62 + r3 * 0.35)); L.b = L.shape === 'slab' ? 9 + Math.floor(r3 * 4) : L.a;
@@ -305,7 +324,7 @@ function towerColumn(x, z, px, pz, L, col) {
       if (k <= lobby) col[y] = (k === lobby || along % 6 === 0) ? frame : (k <= 3 && Math.abs(u) < 2.5 && v < 0 ? B.DOOR_GLASS : B.GLASS);
       else if (k > L.h - 3) col[y] = k === L.h ? frame : B.LAMP;
       else if (L.use === 'wonen' && k % 4 === 2 && along % 7 < 3) col[y] = B.GLASS; // balkons (ingebouwd)
-      else col[y] = k % 4 === 0 ? frame : glass; // geen raamstijlen: grote glasvlakken (veel minder driehoeken)
+      else col[y] = facadeBlock(L, along, k, glass, frame);
     } else col[y] = k === L.h ? B.CONCRETE : k < lobby ? (k === lobby - 1 && (x + z) % 9 === 0 ? B.LAMP : 0) : k === lobby ? (Math.abs(u) < 1 && Math.abs(v) < 1 ? B.ELEVATOR : B.TILE) : B.ROOM_FILL; // boven de lobby: verlichte kamers achter het glas; binnen worden ze opgebouwd als je er bent (js/megaview.js)
     top = y;
   }
