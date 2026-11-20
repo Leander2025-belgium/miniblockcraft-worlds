@@ -202,6 +202,13 @@ function busBody(o) {
   P.box('trim', W * 0.95, 0.18, L * 0.96, 0, H + 0.05, 0, 0xe9ebee, { sx: 0.92 });            // dak
   if (o.electric) { P.box('trim', 2.0, 0.32, L * 0.55, 0, H + 0.3, -0.5, 0x6b7c8c); P.box('light', 0.5, 0.06, 0.4, 0.6, H + 0.47, 1.5, 0x5fe08a); }
   else P.box('trim', 1.6, 0.3, 2.4, 0, H + 0.28, -hz + 3, 0xd5d8dc);                         // airco
+  if (o.gen2) {
+    // nieuwe e-bus (TERRANOVA 14.2): doorlopende dakbekleding over de accu's, zwart frontmasker, ledlijn, glazen achterkant, wielkappen
+    P.box('trim', W * 0.94, 0.42, L - 0.8, 0, H + 0.24, 0, 0xdde1e6, { sx: 0.9 });
+    if (o.front) { P.box('trim', W + 0.02, H - 0.55, 0.05, 0, (H + 0.55) / 2 + 0.05, hz + 0.02, 0x101215); P.box('light', W - 0.4, 0.06, 0.05, 0, 0.95, hz + 0.04, HEAD); }
+    if (o.rear) P.box('trim', W - 0.1, 1.4, 0.05, 0, 2.15, -hz - 0.03, GLASS);
+    for (const sz of o.axles || [hz - 2.6, -hz + 3.2]) for (const sx of [1, -1]) P.box('trim', 0.03, 0.55, 1.1, sx * (W / 2 + 0.02), 0.62, sz, 0x2b2e33);
+  }
   if (o.front) {
     P.box('trim', W - 0.1, H - 1.1, 0.06, 0, (H + 1.1) / 2 + 0.1, hz + 0.01, GLASS);          // grote voorruit
     P.box('light', 1.9, 0.26, 0.05, 0, H - 0.28, hz + 0.03, AMBER);                           // bestemmingsscherm (lijn en bestemming)
@@ -265,10 +272,11 @@ export const BUS_TYPES = {
   busMini: { L: 8, front: true, rear: true, H: 2.9, doors: [2.9, -1.2], axles: [2.2, -2.3] },
   busDD: { L: 11.5, front: true, rear: true, dd: true, H: 4.3, doors: [4.4, -0.4], axles: [3.2, -2.9] },
   busRegio: { L: 12.5, front: true, rear: true, regio: true, H: 3.25, doors: [4.9, -0.6], axles: [3.6, -3.2] },
+  busNew: { L: 12, front: true, rear: true, electric: true, gen2: true, doors: [4.6, 0.3, -3.6] },
 };
 
 // ---------- tram (lagevloertram, gelede bakken) ----------
-function tramSection(cab) {
+function tramSection(cab, gen2 = false) {
   const P = new Parts(), L = cab ? 7.6 : 7.0, W = 2.4;
   const zc = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L;
   // lagevloertram: holle bak, vloer op 0,38 m, grote ruiten, plafond met LED op 2,6 m
@@ -286,7 +294,21 @@ function tramSection(cab) {
   P.box('trim', 0.05, 2.15, 1.3, W / 2 + 0.01, 1.4, zc + 0.5, GLASS_LIGHT);      // deur
   P.box('trim', 0.05, 2.15, 1.3, -W / 2 - 0.01, 1.4, zc - 1.5, GLASS_LIGHT);
   P.box('trim', W - 0.3, 0.45, 2.0, 0, 0.3, zc, DARK);                          // draaistel
-  if (cab) {
+  if (gen2) {
+    // nieuwe generatie (TERRANOVA 14.2): dakbekleding over de apparatuur, zijschorten over de draaistellen, ledlijn
+    P.box('trim', W * 0.86, 0.36, Lb - 0.4, 0, 3.32, zc, 0xd7dbe0, { sx: 0.88 });
+    for (const sx of [1, -1]) P.box('paint', 0.05, 0.32, Lb - 0.3, sx * (W / 2 + 0.02), 0.28, zc);
+    for (const sx of [1, -1]) P.box('trim', 0.03, 0.08, Lb - 0.4, sx * (W / 2 + 0.005), 2.45, zc, 0x2b2e33);
+  }
+  if (cab && gen2) {
+    // wigvormige neus met zwart masker en omlopende voorruit
+    P.box('paint', W, 0.8, 1.1, 0, 0.72, L / 2 - 0.55, 0xffffff, { sx: 0.9, front: 0.45 });
+    P.box('trim', W - 0.04, 1.85, 0.95, 0, 2.0, L / 2 - 0.62, 0x101215, { sx: 0.84, front: 0.7 });
+    P.box('trim', W - 0.4, 1.35, 0.06, 0, 2.05, L / 2 - 0.1, GLASS);
+    P.box('light', W - 0.5, 0.07, 0.05, 0, 1.05, L / 2 - 0.02, HEAD);
+    P.box('light', 1.5, 0.2, 0.05, 0, 2.9, L / 2 - 0.35, AMBER);
+    P.box('trim', W + 0.02, 0.25, 0.15, 0, 0.3, L / 2 + 0.02, DARK);
+  } else if (cab) {
     // afgeronde neus met grote voorruit
     P.box('paint', W, 0.95, 0.9, 0, 0.78, L / 2 - 0.45, 0xffffff, { sx: 0.92, front: 0.1 });
     P.box('trim', W - 0.1, 1.5, 0.75, 0, 1.98, L / 2 - 0.45, GLASS, { sx: 0.88, front: 0.4 });
@@ -420,7 +442,7 @@ function metroDoorZ(cab) { const Lb = cab ? M_L - 0.6 : M_L, zb = cab ? -0.3 : 0
 export const METRO_LEAVES = {}; // per model: deurbladen { x, y, z, dir } (dicht); schuiven 0,62 m opzij
 // zitplaatsen voor de passagierscamera: lokale z (vooruit = +z), afstand tot de as en kijkrichting (x- = naar de overkant)
 export const SEAT_SPOTS = { metroMid: [{ z: -7.85, lat: 0.9 }, { z: 7.6, lat: 0.9 }], metroCab: [{ z: -7.85, lat: 0.9 }] };
-function metroCar(cab, doorsOnly) {
+function metroCar(cab, doorsOnly, gen2 = false) {
   const P = new Parts(), L = M_L, W = M_W, hw = W / 2, zb = cab ? -0.3 : 0, Lb = cab ? L - 0.6 : L, z0 = zb - Lb / 2, z1 = zb + Lb / 2;
   const doorZ = metroDoorZ(cab), DW = 1.32; // deuropening
   if (doorsOnly) { const Q = new Parts(); for (const dz of doorZ) for (const sx of [1, -1]) Q.box('trim', 0.06, 2.0, 1.3, sx * (hw + 0.01), 2.1, dz, 0x9aa3ad); return Q.done().trim; }
@@ -499,7 +521,21 @@ function metroCar(cab, doorsOnly) {
     P.box('trim', W - 0.3, 2.6, 0.25, 0, 1.9, z + sgn * 0.16, 0x222428);                                                   // balg
   };
   endWall(z0, -1); if (!cab) endWall(z1, 1);
-  if (cab) {
+  if (cab && gen2) {
+    // nieuwe generatie (TERRANOVA 14.2): schuine neus met omlopende voorruit in een zwart masker, ledlijn als koplamp
+    P.box('paint', W, 1.2, 0.9, 0, 1.1, L / 2 - 0.45, 0xffffff, { sx: 0.9, front: 0.35 });
+    P.box('trim', W - 0.05, 1.75, 0.8, 0, 2.45, L / 2 - 0.55, 0x101215, { sx: 0.86, front: 0.55 });     // zwart masker
+    P.box('trim', W - 0.35, 1.25, 0.06, 0, 2.5, L / 2 - 0.12, GLASS);                                   // voorruit
+    for (const sx of [1, -1]) P.box('trim', 0.05, 1.1, 0.7, sx * (W / 2 - 0.1), 2.45, L / 2 - 0.7, GLASS); // omlopend zijglas
+    P.box('light', W - 0.5, 0.07, 0.05, 0, 1.55, L / 2 - 0.02, HEAD);                                 // ledlijn
+    P.box('light', 1.8, 0.24, 0.05, 0, 3.12, L / 2 - 0.3, AMBER);
+    P.box('trim', 1.6, 0.85, 0.6, 0, M_FL + 0.45, L / 2 - 1.1, 0x30333a); P.box('trim', 0.5, 0.5, 0.5, 0.45, M_FL + 0.3, L / 2 - 1.8, 0x1f2328);
+    const pz = z1; for (const sx of [1, -1]) P.box('trim', 0.9, M_CEIL - M_FL, 0.06, sx * 0.95, (M_FL + M_CEIL) / 2, pz, 0xd9dde2);
+    P.box('win', 1.0, 0.8, 0.02, 0, M_FL + 1.5, pz, 0xffe9c4); P.box('trim', 1.0, 1.0, 0.05, 0, M_FL + 0.5, pz, 0x7b818a); P.box('trim', 1.0, 0.4, 0.05, 0, M_CEIL - 0.2, pz, 0xd9dde2);
+  }
+  if (gen2) for (const sx of [1, -1]) P.box('trim', 0.03, 0.1, Lb - 0.4, sx * (hw + 0.005), 1.58, zb, 0xf2f2f2); // witte sierstreep langs de ramen
+  if (gen2) P.box('trim', W * 0.7, 0.18, Lb - 1.5, 0, 3.47, zb, 0xb4b9bf);                                   // dakbekleding
+  if (cab && !gen2) {
     // cabine vooraan: neus, voorruit, lichten, bestemmingsscherm; scheidingswand met deur en ruit
     P.box('paint', W, 1.45, 0.7, 0, 1.25, L / 2 - 0.35, 0xffffff, { sx: 0.92, front: 0.15 });
     P.box('trim', W - 0.2, 1.3, 0.6, 0, 2.35, L / 2 - 0.4, GLASS, { sx: 0.9, front: 0.25 });
@@ -512,7 +548,7 @@ function metroCar(cab, doorsOnly) {
     P.box('win', 1.0, 0.8, 0.02, 0, M_FL + 1.5, pz, 0xffe9c4); P.box('trim', 1.0, 1.0, 0.05, 0, M_FL + 0.5, pz, 0x7b818a); P.box('trim', 1.0, 0.4, 0.05, 0, M_CEIL - 0.2, pz, 0xd9dde2);
   }
   // deurbladen (los, schuivend): twee per deur per kant
-  METRO_LEAVES[cab ? 'metroCab' : 'metroMid'] = doorZ.flatMap(dz => [1, -1].flatMap(sx => [{ x: sx * (hw - 0.02), z: dz - DW / 4, dir: -1, side: sx }, { x: sx * (hw - 0.02), z: dz + DW / 4, dir: 1, side: sx }]));
+  METRO_LEAVES[(gen2 ? 'metro2' : 'metro') + (cab ? 'Cab' : 'Mid')] = doorZ.flatMap(dz => [1, -1].flatMap(sx => [{ x: sx * (hw - 0.02), z: dz - DW / 4, dir: -1, side: sx }, { x: sx * (hw - 0.02), z: dz + DW / 4, dir: 1, side: sx }]));
   return P.done();
 }
 function metroLeaf() {
@@ -547,6 +583,7 @@ export function buildModels() {
   }
   { const P = new Parts(); P.box('light', 0.28, 0.28, 0.12, 0, 0, 0, 0xffffff); M.signalHead = P.done(); }
   M.tramCab = tramSection(true); M.tramMid = tramSection(false);
+  M.tram2Cab = tramSection(true, true); M.tram2Mid = tramSection(false, true); // nieuwe generatie (zelfde deuren)
   for (const [k, o] of Object.entries(BUS_TYPES)) { M[k] = busBody(o); M[k + 'Doors'] = busDoors(o); }
   M.tramDoorsCab = { trim: (() => { const P = new Parts(); P.box('trim', 0.06, 2.15, 1.3, 1.22, 1.4, 0.2, GLASS_LIGHT); P.box('trim', 0.06, 2.15, 1.3, -1.22, 1.4, -1.8, GLASS_LIGHT); return P.done().trim; })() };
   M.tramDoorsMid = { trim: (() => { const P = new Parts(); P.box('trim', 0.06, 2.15, 1.3, 1.22, 1.4, 0.5, GLASS_LIGHT); P.box('trim', 0.06, 2.15, 1.3, -1.22, 1.4, -1.5, GLASS_LIGHT); return P.done().trim; })() };
@@ -558,6 +595,8 @@ export function buildModels() {
   SEAT_SPOTS.regioCoach = [{ z: -4.66, lat: 0.95, look: 'fwd', floor: 1.05, ceil: 2.6 }];
   SEAT_SPOTS.iceCoach = [{ z: -4.46, lat: 0.95, look: 'fwd', floor: 1.25, ceil: 3.45 }];
   M.metroCab = metroCar(true); M.metroMid = metroCar(false); M.metroLeaf = metroLeaf();
+  M.metro2Cab = metroCar(true, false, true); M.metro2Mid = metroCar(false, false, true); // nieuwe generatie (zelfde deuren en zitplaatsen)
+  SEAT_SPOTS.metro2Cab = SEAT_SPOTS.metroCab; SEAT_SPOTS.metro2Mid = SEAT_SPOTS.metroMid;
   M.metroDoorsCab = { trim: metroCar(true, true) }; M.metroDoorsMid = { trim: metroCar(false, true) };
   M.person = personParts();
   return M;

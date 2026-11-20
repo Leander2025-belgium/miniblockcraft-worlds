@@ -189,18 +189,21 @@ class Network {
 // lengte en bakken per soort (offset = afstand van de neus tot het midden van de bak)
 function consist(kind, r) {
   if (kind === 'metro') {
-    const s = [{ m: 'metroCab', len: 18, off: 9, doors: 'metroDoorsCab' }];
+    // vloot: helft nieuwe generatie (metro2*, js/vehicles.js), zelfde deuren
+    const gen = ((r * 977) % 1) < 0.5 ? 'metro2' : 'metro';
+    const s = [{ m: gen + 'Cab', len: 18, off: 9, doors: 'metroDoorsCab' }];
     const mids = r < 0.5 ? 2 : 4; let o = 18;
-    for (let i = 0; i < mids; i++) { s.push({ m: 'metroMid', len: 18, off: o + 9, doors: 'metroDoorsMid' }); o += 18; }
-    s.push({ m: 'metroCab', len: 18, off: o + 9, flip: true, doors: 'metroDoorsCab' });
+    for (let i = 0; i < mids; i++) { s.push({ m: gen + 'Mid', len: 18, off: o + 9, doors: 'metroDoorsMid' }); o += 18; }
+    s.push({ m: gen + 'Cab', len: 18, off: o + 9, flip: true, doors: 'metroDoorsCab' });
     return { secs: s, L: o + 18 };
   }
   if (kind === 'tram') {
-    const s = [{ m: 'tramCab', len: 7.6, off: 3.8, doors: 'tramDoorsCab' }];
+    const gen = ((r * 677) % 1) < 0.5 ? 'tram2' : 'tram';
+    const s = [{ m: gen + 'Cab', len: 7.6, off: 3.8, doors: 'tramDoorsCab' }];
     const mids = r < 0.5 ? 2 : 3;
     let o = 7.6;
-    for (let i = 0; i < mids; i++) { s.push({ m: 'tramMid', len: 7.0, off: o + 3.5, doors: 'tramDoorsMid' }); o += 7.0; }
-    s.push({ m: 'tramCab', len: 7.6, off: o + 3.8, flip: true, doors: 'tramDoorsCab' });
+    for (let i = 0; i < mids; i++) { s.push({ m: gen + 'Mid', len: 7.0, off: o + 3.5, doors: 'tramDoorsMid' }); o += 7.0; }
+    s.push({ m: gen + 'Cab', len: 7.6, off: o + 3.8, flip: true, doors: 'tramDoorsCab' });
     return { secs: s, L: o + 7.6 };
   }
   if (kind === 'train') {
@@ -221,7 +224,7 @@ function consist(kind, r) {
     // vloot: stadsbussen, gelede bussen (scharnier volgt de bocht: elke wagen heeft zijn eigen as), elektrische bussen,
     // touringcars en buurtbussen; deuren gaan open aan de halte
     if (r < 0.3) return { secs: [{ m: 'busArtF', len: 11, off: 5.5, doors: 'busArtFDoors' }, { m: 'busArtR', len: 7, off: 11.6 + 3.5, doors: 'busArtRDoors' }], L: 18.6 };
-    const m = r < 0.5 ? 'busElec' : r < 0.56 ? 'busCoach' : r < 0.62 ? 'busMini' : r < 0.7 ? 'busDD' : r < 0.78 ? 'busRegio' : 'busCity', len = { busElec: 12, busCoach: 13, busMini: 8, busCity: 12, busDD: 11.5, busRegio: 12.5 }[m];
+    const m = r < 0.4 ? 'busNew' : r < 0.5 ? 'busElec' : r < 0.56 ? 'busCoach' : r < 0.62 ? 'busMini' : r < 0.7 ? 'busDD' : r < 0.78 ? 'busRegio' : 'busCity', len = { busNew: 12, busElec: 12, busCoach: 13, busMini: 8, busCity: 12, busDD: 11.5, busRegio: 12.5 }[m];
     return { secs: [{ m, len, off: len / 2, doors: m + 'Doors' }], L: len };
   }
   const cars = ['sedan', 'sedan', 'hatch', 'hatch', 'suv', 'van', 'taxi', 'sedan', 'suv', 'hatch'];
@@ -231,7 +234,7 @@ function consist(kind, r) {
   if (em) return { secs: [{ m, len, off: len / 2, beacon: em === 'police' ? 'Car' : em === 'ambulance' ? 'Van' : 'Truck' }], L: len, emergency: em };
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
-const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
+const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metro2Cab: 24, metro2Mid: 48, tram2Cab: 40, tram2Mid: 60, busNew: 24, busNewDoors: 24, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
