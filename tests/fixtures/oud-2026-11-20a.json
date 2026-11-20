@@ -1,0 +1,59 @@
+{
+ "gemaaktMet": "68765ba",
+ "stuk": {
+  "id": "rfixture1",
+  "naam": "Oud stuk (2026-11-20a)",
+  "controlegetal": 748406155,
+  "blokken": {
+   "lamp": [
+    24,
+    16,
+    24,
+    21
+   ],
+   "muur": [
+    20,
+    11,
+    21,
+    8
+   ],
+   "raam": [
+    27,
+    13,
+    23,
+    10
+   ],
+   "dak": [
+    24,
+    17,
+    24,
+    9
+   ],
+   "deur": [
+    23,
+    11,
+    20,
+    0
+   ]
+  },
+  "speler": {
+   "x": 23.5,
+   "y": 11,
+   "z": 14.5,
+   "yaw": 3.141592653589793,
+   "pitch": 0,
+   "fly": false
+  }
+ },
+ "bouw": {
+  "wereld": "reuzenberg",
+  "tegels": 1,
+  "blokken": {
+   "x": 24942,
+   "y": 69,
+   "z": 29336,
+   "blok": 8,
+   "map": "reuzenberg"
+  }
+ }
+}

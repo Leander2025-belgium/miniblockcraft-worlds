@@ -3,6 +3,7 @@
 // slaan af op kruispunten, houden afstand, bussen stoppen aan haltes, trams en treinen aan perrons.
 // Trams en treinen bestaan alleen waar er echt sporen liggen.
 import * as THREE from 'three';
+import { Trips } from './ovtrips.js';
 import { METRO_LEAVES, buildModels, CAR_COLORS, BUS_COLORS, TRAM_COLORS, METRO_COLORS, SHIRTS, PANTS, SKIN, HAIR } from './vehicles.js';
 
 const NET_OF = { car: 'road', carM: 'road', walk: 'walk', tram: 'tram', train: 'rail', boat: 'water', boatL: 'water', sea: 'sea', metro: 'metro' };
@@ -242,6 +243,7 @@ export class Traffic {
     this.net = new Network();
     this.agents = [];
     this.lastBuild = -1e9; this.dirty = true;
+    this.trips = new Trips(); // ritten met vaste identiteit en bezetting (js/ovtrips.js)
     this.models = buildModels();
     this.group = new THREE.Group();
     scene.add(this.group);
@@ -255,14 +257,14 @@ export class Traffic {
     this.meshes = {};
     for (const [k, max] of Object.entries(MAX)) {
       const parts = this.models[k], set = {};
-      for (const kind of ['paint', 'trim', 'light', 'win']) {
+      for (const kind of ['paint', 'trim', 'light', 'win', 'trimLo']) {
         if (!parts[kind]) continue;
-        const m = new THREE.InstancedMesh(parts[kind], this.mats[kind], max);
+        const m = new THREE.InstancedMesh(parts[kind], this.mats[kind === 'trimLo' ? 'trim' : kind], max);
         m.count = 0; m.frustumCulled = false;
-        if (kind === 'paint') m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3).fill(1), 3);
+        if (kind === 'paint' || kind === 'trim' || kind === 'trimLo') m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3).fill(1), 3);
         this.group.add(m); set[kind] = m;
       }
-      this.meshes[k] = { set, n: 0, max };
+      this.meshes[k] = { set, n: 0, max, nHi: 0, nLo: 0 }; // nHi/nLo: aantal met en zonder interieur (LOD)
     }
     // mensen: losse lichaamsdelen (armen en benen bewegen)
     const P = this.models.person, PMAX = 320;
@@ -296,7 +298,7 @@ export class Traffic {
       for (const r of a.route) { if (!E.has(r.e.id)) break; keep.push({ e: E.get(r.e.id), dir: r.dir }); }
       a.route = keep;
     }
-    this.agents = this.agents.filter(a => !a.dead);
+    this.sweepDead();
     this.buildRails();
   }
 
@@ -412,7 +414,7 @@ export class Traffic {
       for (const b of this.agents) if (b.kind === 'ship' && b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
       this.agents.push(a); return a;
     }
-    const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' || Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
+    const a = { kind, ...(kind === 'walk' ? { L: 0.5 } : consist(kind, rr)), route: [{ e, dir: kind === 'car' || kind === 'bus' ? 1 : (kind === 'metro' || kind === 'tram' || kind === 'train') ? this.runDir(e) : Math.random() < 0.5 ? 1 : -1 }], v: 0, wait: 0, r: rr,
       color: kind === 'car' ? ({ taxi: 0xf1c40f, police: 0xf4f6fa, ambulance: 0xf4f4f0, fire: 0xc8102e }[consist(kind, rr).secs[0].m] ?? CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)])
         : kind === 'bus' ? BUS_COLORS[Math.floor(Math.random() * BUS_COLORS.length)]
         : kind === 'tram' ? TRAM_COLORS[Math.floor(rr * 7) % TRAM_COLORS.length]
@@ -434,7 +436,38 @@ export class Traffic {
     if (kind !== 'walk') for (const b of this.agents) if (b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
     a.v = SPEED[kind] * 0.6;
     this.agents.push(a);
+    if (kind === 'bus' || kind === 'tram' || kind === 'metro' || kind === 'train') {
+      const dest = this.terminus(a);
+      this.trips.assign(a, { clock: this.clock || 0, period: this.period || 'dal', line: a.line || (dest ? '→ ' + dest : null), dir: a.route[0].dir * (a.line ? 1 : 0), dest });
+    }
     return a;
+  }
+  // voertuigen die verdwijnen: hun rit blijft bewaard (buiten beeld) of eindigt (uit dienst)
+  sweepDead() {
+    for (const a of this.agents) if (a.dead && a.trip) {
+      if (a.retired) { a.trip.state = 'einde dienst'; this.trips.trips.delete(a.trip.id); a.trip = null; continue; }
+      const h = this.behind(a, 0, this.tmpA || (this.tmpA = {})); a.hx = h.x; a.hz = h.z; this.trips.release(a, this.clock || 0);
+    }
+    this.trips.prune(this.clock || 0);
+    this.agents = this.agents.filter(a => !a.dead);
+  }
+  // vaste rijrichting op een spoor van een dubbelspoor (metro, tram, trein): het andere spoor ligt altijd links van
+  // de rijrichting. Zonder buurspoor (enkelspoor) willekeurig. Vroeger willekeurig: tegenliggers op hetzelfde spoor
+  // konden elkaar dan voorgoed blokkeren.
+  runDir(e) {
+    if (e.runDir) return e.runDir;
+    const P = e.pts, n = P.length / 3, i = Math.floor(n / 2) * 3, j = Math.min(n - 1, Math.floor(n / 2) + 1) * 3, i0 = j === i ? i - 3 : i;
+    const mx = P[i], mz = P[i + 2], tx = P[j] - P[i0], tz = P[j + 2] - P[i0 + 2], tl = Math.hypot(tx, tz) || 1;
+    let best = null, bd = 16;
+    for (const o of this.net.edges.values()) {
+      if (o === e || o.net !== e.net) continue;
+      for (let k = 0; k < o.pts.length; k += 3) {
+        const dx = o.pts[k] - mx, dz = o.pts[k + 2] - mz, dy = Math.abs(o.pts[k + 1] - P[i + 1]), d = Math.hypot(dx, dz);
+        if (d > 1.5 && d < bd && dy < 3) { const ox = o.pts[Math.min(o.pts.length - 3, k + 3)] - o.pts[Math.max(0, k - 3)], oz = o.pts[Math.min(o.pts.length - 1, k + 5)] - o.pts[Math.max(2, k - 1)]; if (Math.abs(ox * tx + oz * tz) / ((Math.hypot(ox, oz) || 1) * tl) > 0.9) { bd = d; best = [dx, dz]; } }
+      }
+    }
+    e.runDir = best ? ((tx * best[1] - tz * best[0]) > 0 ? 1 : -1) : (Math.random() < 0.5 ? 1 : -1);
+    return e.runDir;
   }
   // een auto op de dichtste weg bij de speler (eigen Zenvo)
   spawnNear(kind, player) { this.spawnNearPos = true; try { return this.spawn(kind, player, false); } finally { this.spawnNearPos = false; } }
@@ -516,6 +549,9 @@ export class Traffic {
         if (a.passenger && (a.kind === 'car' || a.kind === 'bus')) { a.v = 0; a.wait = 3; a.reverseAfter = true; return; } // met passagier: keren
         if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; return; }
         if (a.kind === 'walk') { r.dir = -r.dir; return; }
+        // einde van het geladen net ver van de speler: uit beeld (de rit blijft bewaard, js/ovtrips.js) in plaats van
+        // op hetzelfde spoor terug te rijden (dat gaf tegenliggers op één spoor die elkaar blokkeerden)
+        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; return; } }
         // eindstation: even wachten en terugrijden
         a.v = 0; a.wait = 20; a.reverseAfter = true; return;
       }
@@ -530,9 +566,63 @@ export class Traffic {
     }
   }
 
+  makeWarn() {
+    const m = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.07, 0.22), new THREE.MeshBasicMaterial({ color: 0xffa020, toneMapped: false }), 600);
+    m.count = 0; m.frustumCulled = false; this.group.add(m); this.warnMesh = m; return m;
+  }
+  // bestemmingsdisplay aan de voorkant (metro, tram, bus) met echte tekst: lijn en eindhalte van de rit.
+  // Alleen voor voertuigen binnen 140 m (hooguit 16 tegelijk); één textuur per tekst, hergebruikt.
+  headSign(a, s, yaw, x, y, z, player) {
+    if (!(a.kind === 'metro' || a.kind === 'tram' || a.kind === 'bus') || Math.hypot(x - player.x, z - player.z) > 140) return;
+    const dest = a.trip && a.trip.dest; if (!dest) return;
+    const text = `${a.line ? a.line + '  ' : ''}${dest.replace(/^Metro /, '')}`;
+    if (!this.signs) { this.signs = []; this.signTex = new Map(); this.signGeo = new THREE.PlaneGeometry(1, 1); }
+    if (this.signUsed >= 16) return;
+    let tex = this.signTex.get(text);
+    if (!tex) {
+      if (this.signTex.size > 64) { for (const t of this.signTex.values()) t.dispose(); this.signTex.clear(); }
+      const c = document.createElement('canvas'); c.width = 512; c.height = 96; const g = c.getContext('2d');
+      g.fillStyle = '#0a0d10'; g.fillRect(0, 0, 512, 96); g.fillStyle = '#ffb627'; g.font = 'bold 58px system-ui, sans-serif'; g.textBaseline = 'middle';
+      let fs = 58; while (g.measureText(text).width > 490 && fs > 26) { fs -= 4; g.font = `bold ${fs}px system-ui, sans-serif`; }
+      g.fillText(text, 256 - g.measureText(text).width / 2, 50);
+      tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; this.signTex.set(text, tex);
+    }
+    let m = this.signs[this.signUsed];
+    if (!m) { m = new THREE.Mesh(this.signGeo, new THREE.MeshBasicMaterial({ map: tex, toneMapped: false })); this.group.add(m); this.signs.push(m); }
+    if (m.material.map !== tex) { m.material.map = tex; m.material.needsUpdate = true; }
+    this.signUsed++;
+    const box = this.models[s.m] && this.models[s.m].paint && (this.models[s.m].paint.boundingBox || (this.models[s.m].paint.computeBoundingBox(), this.models[s.m].paint.boundingBox));
+    const top = box ? box.max.y : 3, front = box ? box.max.z : s.len / 2, w = a.kind === 'bus' ? 1.7 : 1.5;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw), ahead = front + 0.03;
+    // (x, y, z) = midden van het eerste deel; het display hangt net voor de voorkant, bovenaan
+    m.position.set(x + fx * ahead, y + top - 0.42, z + fz * ahead); m.rotation.set(0, yaw, 0); m.scale.set(w, w * 0.19, 1); m.visible = true;
+  }
+  // vaste onderdelen (trim) van één voertuigdeel: volledig of (ver weg) zonder interieur; matrix in this.m4
+  putTrim(M, far, cov) {
+    const lo = M.set.trimLo, hi = M.set.trim;
+    if (!lo) { if (hi) { hi.setMatrixAt(M.n - 1, this.m4); hi.setColorAt(M.n - 1, cov); } return; }
+    if (far) { const j = M.nLo++; lo.setMatrixAt(j, this.m4); lo.setColorAt(j, cov); this.lodStat.licht++; }
+    else { const j = M.nHi++; hi.setMatrixAt(j, this.m4); hi.setColorAt(j, cov); this.lodStat.vol++; }
+  }
+  // licht op een voertuig onder een dak (tunnel, metro, overkapt station): dezelfde lampverlichting als de wanden
+  // in de wereldshader (warm, ±0,62), in plaats van zon of nacht. Elke 0,5 s per voertuig opnieuw bepaald
+  // (kijkt in de echte blokken boven het dak). Geeft een kleurfactor terug t.o.v. het buitenlicht.
+  coverLight(a, h, light) {
+    if (!this.cov) { this.cov = new THREE.Color(); this.white = new THREE.Color(1, 1, 1); }
+    if (!this.solidAt) return this.white;
+    if (a.covT === undefined || this.clock - a.covT > 0.5) {
+      a.covT = this.clock; const y0 = Math.floor(h.y) + 5; let c = false;
+      for (let y = y0; y < y0 + 28 && !c; y += 2) if (this.solidAt(Math.floor(h.x), y, Math.floor(h.z))) c = true;
+      a.covered = c;
+    }
+    if (!a.covered) return this.white;
+    const k = 0.62 / Math.max(0.05, light);
+    return this.cov.setRGB(k, k * 0.9, k * 0.76);
+  }
+
   update(dt, player, day, hour = 12) {
     if (!this.tiles) return;
-    this.hour = hour; const period = this.period = periodOfHour(hour);
+    this.hour = hour; const period = this.period = periodOfHour(hour); this.pl = player;
     this.clock += dt; this.dt = dt;
     const now = this.clock;
     if (this.dirty && now - this.lastBuild > 1.5) { this.dirty = false; this.lastBuild = now; this.realBuild(); }
@@ -559,9 +649,9 @@ export class Traffic {
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0, metro: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA), d = Math.hypot(h.x - player.x, h.z - player.z);
-      if (d > RANGE + 120 && !a.player && !a.passenger) a.dead = true;
+      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) a.dead = true;
       // te veel voor deze periode: buiten zicht uit dienst nemen, of aan de volgende halte (eindrit)
-      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) a.dead = true;
+      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; }
       else have[a.kind]++;
     }
     this.have = have; this.want = want;
@@ -638,7 +728,12 @@ export class Traffic {
             const goal = Math.max(0.5, Math.min(e.len - 0.5, sd + half * r.dir));
             const dist = (goal - a.d) * r.dir;
             if (dist < -1 || dist > 120) continue;
-            if (dist < 0.6) { a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0; break; }
+            if (dist < 0.6) {
+              a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0;
+              // reizigers: bij bussen vlakbij doen de zichtbare wachtenden het (js/buspax.js), anders de ritlaag
+              if (a.trip) { const hh = this.behind(a, 0, this.tmpB2 || (this.tmpB2 = {})); if (a.kind !== 'bus' || Math.hypot(hh.x - player.x, hh.z - player.z) > 225) this.trips.stopLight(a, this.period || 'dal', a.trip.dest && a.atStop === a.trip.dest); a.trip.nextStop = null; }
+              break;
+            }
             target = Math.min(target, Math.sqrt(2 * 1.1 * dist) + 0.3);
           }
         }
@@ -659,7 +754,7 @@ export class Traffic {
       if (a.v > 0) this.move(a, a.v * dt);
       if (!a.dead) this.place(a);
     }
-    this.agents = this.agents.filter(a => !a.dead);
+    this.sweepDead();
     this.flush(player, day);
   }
 
@@ -743,8 +838,12 @@ export class Traffic {
   }
   // matrices klaarzetten (alleen wat dichtbij is)
   place(a) { a.vis = true; }
-  flush(player) {
-    for (const m of Object.values(this.meshes)) m.n = 0;
+  flush(player, day = 1) {
+    const light = 0.18 + 0.82 * day;
+    for (const m of Object.values(this.meshes)) { m.n = 0; m.nHi = 0; m.nLo = 0; }
+    if (this.warnMesh) this.warnMesh.count = 0;
+    this.signUsed = 0;
+    this.lodStat = { vol: 0, licht: 0 };
     let pn = 0;
     const P = this.people, A = this.tmpA, Bp = this.tmpB;
     // NPC's die op een vaste plek staan: personeel, wachtende reizigers, piloten, grondpersoneel
@@ -794,6 +893,10 @@ export class Traffic {
       }
       const h = this.behind(a, 0, A);
       if (Math.hypot(h.x - player.x, h.z - player.z) > RANGE + a.L) continue;
+      const cov = this.coverLight(a, h, light);
+      // voertuig-LOD: vanaf ±70 m de versie zonder interieur (met marge, zodat hij niet heen en weer springt);
+      // het voertuig waarin of waarmee de speler rijdt altijd volledig
+      { const d = Math.hypot(h.x - player.x, h.z - player.z); a.lodFar = !a.player && !a.rider && (a.lodFar ? d > 62 : d > 72); }
       const lift = a.kind === 'train' || a.kind === 'metro' ? 0.2 : a.kind === 'tram' ? 0.05 : 0;
       if (a.emergency === undefined) a.emergency = a.secs && a.secs[0] && ['police', 'ambulance', 'fire'].includes(a.secs[0].m) ? a.secs[0].m : null;
       // deuren open bij een halte (AI) of als de bestuurder ze opent
@@ -815,11 +918,23 @@ export class Traffic {
         this.m4.compose(this.v, this.q, this.s);
         const i = M.n++;
         for (const [kind, m] of Object.entries(M.set)) {
+          if (kind === 'trim' || kind === 'trimLo') continue;
           m.setMatrixAt(i, this.m4);
-          if (kind === 'paint') m.setColorAt(i, this.c.setHex(a.color));
+          if (kind === 'paint') m.setColorAt(i, this.c.setHex(a.color).multiply(cov));
         }
+        this.putTrim(M, a.lodFar, cov);
         if (s.beacon) { const side = Math.floor(this.clock * 5) % 2 ? 'L' : 'R', Bm = this.meshes['beacon' + s.beacon + side]; if (Bm && Bm.n < Bm.max) { const j = Bm.n++; for (const m of Object.values(Bm.set)) m.setMatrixAt(j, this.m4); } }
+        if (s === a.secs[0] && !s.flip) this.headSign(a, s, yaw, this.v.x, this.v.y, this.v.z, player);
         const leaves = METRO_LEAVES[s.m];
+        // deurwaarschuwing: de laatste 3 s voor het sluiten knipperen oranje lampjes boven de deuren aan de perronkant
+        if (leaves && a.doorsOpen && a.wait < 5.5) {
+          const W = this.warnMesh || this.makeWarn(), rx = Math.cos(yaw), rz = -Math.sin(yaw), pn = a.platN;
+          if (Math.floor(this.clock * 4) % 2) for (const lf of leaves) {
+            if (W.count >= 600 || lf.dir < 0 || (pn && lf.side * (rx * pn[0] + rz * pn[1]) <= 0)) continue;
+            this.tmpM.makeTranslation(lf.x * 1.01, 2.62, lf.z - 0.33); this.m4b.multiplyMatrices(this.m4, this.tmpM); W.setMatrixAt(W.count++, this.m4b);
+          }
+          a.doorWarn = true;
+        } else a.doorWarn = false;
         if (leaves) {
           // losse deurbladen die opzij schuiven (alleen aan de perronkant)
           const Lm = this.meshes.metroLeaf, rx = Math.cos(yaw), rz = -Math.sin(yaw), pn = a.platN;
@@ -858,13 +973,17 @@ export class Traffic {
       this.e.set(-(c.pitch || 0), c.yaw, c.roll || 0); this.q.setFromEuler(this.e);
       this.v.set(c.x, c.y, c.z); this.s.set(1, 1, 1); this.m4.compose(this.v, this.q, this.s);
       const i = M.n++;
-      for (const [kind, m] of Object.entries(M.set)) { m.setMatrixAt(i, this.m4); if (kind === 'paint') m.setColorAt(i, this.c.setHex(c0.color)); }
+      for (const [kind, m] of Object.entries(M.set)) { if (kind === 'trim' || kind === 'trimLo') continue; m.setMatrixAt(i, this.m4); if (kind === 'paint') m.setColorAt(i, this.c.setHex(c0.color)); }
+      this.putTrim(M, false, this.white || (this.white = new THREE.Color(1, 1, 1)));
       // deuren van een zelf bestuurde bus: dicht = deurpanelen tonen
       const D = c.doors && !c0.doorsOpen && this.meshes[c.doors];
       if (D && D.n < D.max) { const j = D.n++; for (const m of Object.values(D.set)) m.setMatrixAt(j, this.m4); }
     }
-    for (const M of Object.values(this.meshes)) for (const m of Object.values(M.set)) {
-      m.count = M.n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    if (this.warnMesh) this.warnMesh.instanceMatrix.needsUpdate = true;
+    if (this.signs) for (let i = this.signUsed; i < this.signs.length; i++) this.signs[i].visible = false;
+    for (const M of Object.values(this.meshes)) for (const [kind, m] of Object.entries(M.set)) {
+      m.count = !M.set.trimLo ? M.n : kind === 'trim' ? M.nHi : kind === 'trimLo' ? M.nLo : M.n;
+      m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
     for (const [k, m] of Object.entries(P)) {
       m.count = k === 'leg' || k === 'arm' || k === 'shoe' ? pn * 2 : pn;

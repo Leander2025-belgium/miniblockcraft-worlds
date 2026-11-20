@@ -22,6 +22,12 @@ import { B } from './blocks.js';
 export const NET = {
   id: 'greenisland', title: '🚆 OV-kaart Greenisland (trein, metro, tram, bus)', LINES, LINE, STATIONS_ALL, TRACK, trackOffset, LIFTS: [], CROSSINGS: levelCrossings(), groundAt, MW, ML, SERVICES,
   liveries: { AX: [B.PAINT_GREEN, B.PAINT_WHITE], GS: [B.PAINT_WHITE, B.PAINT_GREEN], GI: [B.PAINT_GREEN, B.PAINT_YELLOW], GV: [B.PAINT_GREEN, B.PAINT_ORANGE], GR: [B.PAINT_WHITE, B.PAINT_BLUE], GB: [B.PAINT_RED, B.PAINT_WHITE], ...metroLiv, TR: [B.PAINT_WHITE, B.PAINT_GREEN], TS: [B.PAINT_GREEN, B.PAINT_YELLOW], BC: [B.PAINT_GREEN, B.PAINT_WHITE], BR: [B.PAINT_YELLOW, B.PAINT_GREEN], BX: [B.PAINT_BLUE, B.PAINT_WHITE], BM: [B.PAINT_RED, B.PAINT_WHITE], BN: [B.PAINT_BLACK, B.PAINT_YELLOW] },
+  // automatische doorgaande treinen over de overloopwissels tussen IC1 en S1 (js/railroute.js): de rijweg wordt
+  // ingesteld, de wissel gaat om, de trein rijdt over het verbindingsspoor en de rijweg wordt na passage vrijgegeven
+  throughServices: [
+    { id: 'S11', from: 'IC1', to: 'S1', aDir: 1, name: 'S11 Easthaven – Eastport Central (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+    { id: 'S12', from: 'IC1', to: 'S1', aDir: -1, name: 'S12 Southbay – West Munkbay (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+  ],
   mapImage: './assets/greenisland-map.jpg',
   mapLabels: [...PEAKS.map(p => [`▲ ${p.name} ${p.h}`, p.x, p.z]), ...AREAS.filter(a => a.kind === 'airport').map(a => ['✈ Munkbay Airport', a.x, a.z, '#dfe'])],
   // internationale treinen: aan het einde van de Noordzeetunnel reis je verder naar een echte stad

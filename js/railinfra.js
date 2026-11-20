@@ -105,12 +105,13 @@ export class RailInfra {
       this.jsw.push({ c, x: q.x + nx * o, y: q.y, z: q.z + nz * o, nx, nz, yaw: Math.atan2(q.tx * dir, q.tz * dir), throw: -1, target: -1 });
     }
   }
-  animate(dt, trains, player) {
+  animate(dt, trains, player, routes) {
     let n = 0;
-    // wissel tussen lijnen: ligt om naar lijn B als de bestuurde trein hem zo gezet heeft
+    // wissel tussen lijnen: ligt om naar lijn B als de bestuurde trein hem zo gezet heeft, of als er een rijweg voor
+    // een automatische trein is ingesteld (rail.js updateRoutes)
     for (const sw of this.jsw) {
       if (this.at && (Math.abs(sw.x - this.at.x) > R || Math.abs(sw.z - this.at.z) > R)) continue;
-      sw.target = player && ((player.junction && player.junction.c === sw.c) || player.L === sw.c) ? 1 : -1;
+      sw.target = (player && ((player.junction && player.junction.c === sw.c) || player.L === sw.c)) || (routes && routes.has(sw.c.id)) ? 1 : -1;
       const step = dt * 0.5; sw.throw += Math.max(-step, Math.min(step, sw.target - sw.throw));
       for (const k of [-1, 1]) { if (n >= 400) break; const lat = k * 0.72 - sw.throw * 0.11; this.put(this.blade, n++, sw.x + sw.nx * lat, sw.y + 1.06, sw.z + sw.nz * lat, sw.yaw); }
     }

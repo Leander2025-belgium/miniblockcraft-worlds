@@ -276,6 +276,7 @@ export class Drive {
       info = `<div class="dh-row"><b>${kindName}</b>${a.line ? ` · lijn <b>${a.line}</b>` : ''}${this.dest ? ` → <b>${this.dest.replace(/^Metro /, '')}</b>` : ''}</div>
         <div class="dh-row">${ns ? `Volgende halte: <b>${ns.name.replace(/^Metro /, '')}</b> · ${nd > 1000 ? (nd / 1000).toFixed(1) + ' km' : nd + ' m'}` : 'Geen halte meer op deze rit'}</div>
         <div class="dh-row">🚪 Deuren <b>${a.doorsOpen ? 'open' : 'dicht'}</b> · 🎥 ${CAM_NAMES[this.cam] || this.cam}</div>
+        ${a.trip ? `<div class="dh-row">🎫 Rit <b>${a.trip.id}</b> · 👥 <b>${a.trip.occ}</b>/${a.trip.cap} reizigers</div>` : ''}
         <div class="dh-row muted">V camera · H uitstappen${this.cam === 'walk' ? ' · WASD lopen' : ''}</div>`;
     }
     if (this.rs) { const c = this.a.player; const dv = speed - (this.rsV ?? speed); this.rsV = speed; this.rs.update(dt, speed, c ? c.throttle : dv > 0.002 ? 0.7 : 0.05, c ? (c.emergency ? 1 : c.brake) : dv < -0.004 ? 0.8 : 0, !['chase', 'side'].includes(this.cam)); }

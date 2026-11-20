@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { meshChunk, CS, SMOOTH, OVER } from './mesher.js';
 import { actionFor, updateSeat } from './interact.js';
 import { B, BLOCKS, IS_SOLID, PLACEABLE } from './blocks.js';
+import { TONE_GLSL, installTone } from './materials.js';
 import { drawAtlas, ATLAS_COLS, ATLAS_ROWS, iconStyle, CELL, PAD, RES as TS, materialTexture } from './textures.js';
 import { districtAt, GROUND } from './city.js';
 import { skyAt, makeClouds, SkyDome } from './environment.js';
@@ -17,6 +18,7 @@ import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
 import { BusPax } from './buspax.js';
+import { Travelers } from './travelers.js';
 import { rleEncode, rleDecode } from './storage.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
@@ -70,6 +72,7 @@ uniform vec3 sunColor;
 uniform vec3 skyTop;
 uniform float fogNear;
 uniform float fogFar;
+uniform float streetY;   // straathoogte (strooilicht 's nachts)
 uniform float alphaTest;
 uniform float day;
 uniform vec3 sunDir;
@@ -88,6 +91,7 @@ varying vec3 vWorld;
 varying vec3 vNrm;
 varying vec3 vView;
 float h3(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+${TONE_GLSL}
 float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 float shadowAt(vec3 wp, vec3 n) {
   if (shadowOn < 0.5) return 1.0;
@@ -115,6 +119,8 @@ void main() {
   if (c.a < alphaTest) discard;
   vec4 m = texelFetch(matTex, ivec2(int(vTile.y * atlasCols + vTile.x + 0.5), 0), 0);
   float shine = m.r, bump = m.g, refl = m.b;
+  // materiaalklasse en ruwheid (js/materials.js): alfa = klasse × 16 + ruwheid
+  float mcode = floor(m.a * 255.0 + 0.5), mcls = floor(mcode / 16.0), rough = mod(mcode, 16.0) / 15.0;
   vec3 n = normalize(vNrm);
   if (!gl_FrontFacing) n = -n;
   vec3 viewDir = normalize(vView);
@@ -139,6 +145,10 @@ void main() {
   float vl = indoor > 0.5 ? vLight - 2.0 - 2.0 * lampLv : vLight;
   float ao = clamp(vl, 0.22, 1.0);
   vec3 light = ambientC * (0.5 + 0.4 * daylight) * daylight * ao + sunColor * (0.78 * sunF * sh * day) * (0.55 + 0.45 * ao);
+  // 's nachts buiten: koel maanlicht van boven en warm strooilicht van de stad laag bij de grond (straatlampen,
+  // etalages), zodat straten niet pikzwart zijn; verdwijnt overdag
+  float nightF = clamp(1.0 - day * 1.6, 0.0, 1.0);
+  light += (vec3(0.05, 0.065, 0.1) * upF + vec3(0.09, 0.065, 0.035) * (1.0 - smoothstep(4.0, 40.0, vWorld.y - streetY)) * (0.6 + 0.4 * upF)) * nightF * ao;
   if (indoor > 0.5) { float lf = clamp(lampLv / 2.4, 0.0, 1.0); light = vec3(1.0, 0.95, 0.86) * (0.06 + 0.86 * lf) * (0.55 + 0.45 * ao) + ambientC * 0.3 * daylight * ao; }
   if (isUnder > 0.5) light = vec3(1.0, 0.82, 0.6) * vl * 1.25 + vec3(0.035, 0.038, 0.048); // ondergronds: lampen
   // zaklamp
@@ -157,9 +167,11 @@ void main() {
   if (isLamp) col = c.rgb * mix(1.0, 1.4, 1.0 - day);
   if (distance(vTile, tvTile) < 0.1) col = c.rgb * 1.15;
   if (distance(vTile, fillTile) < 0.1) {
-    // achter het glas van een toren: verlichte kamers ('s nachts niet allemaal)
-    float on = step(0.3, h3(floor(vWorld - n * 0.5) * vec3(1.0, 0.25, 1.0)));
-    col = c.rgb * mix(mix(0.1, 0.85, on), 0.5, day);
+    // achter het glas van een toren: verlichte kamers per kamer (6 × 4 × 6 m), niet per blok; warm, neutraal of koel licht
+    vec3 room = floor((vWorld - n * 0.5) / vec3(6.0, 4.0, 6.0));
+    float on = step(0.42, h3(room)), tone = h3(room + 17.0);
+    vec3 lc = tone < 0.55 ? vec3(1.0, 0.8, 0.55) : tone < 0.85 ? vec3(0.96, 0.93, 0.84) : vec3(0.72, 0.84, 1.0);
+    col = mix(mix(c.rgb * 0.1, lc * (0.6 + 0.35 * h3(room + 3.0)), on), c.rgb * 0.5, day);
   }
   if (isWater) {
     float w1 = sin(vWorld.x * 0.55 + vWorld.z * 0.22 + time * 1.1);
@@ -180,19 +192,37 @@ void main() {
     float reflection = 0.14 + 0.66 * fr;
     col = mix(col, skyRefl + vec3(0.02, 0.04, 0.06), reflection);
     col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 90.0) * 1.3 * day;
-    vec3 cell = floor(vWorld - n * 0.5);
-    float lit = step(0.65, h3(cell)) * (1.0 - day);
-    col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.88);
+    // 's avonds verlichte kamers achter het glas: per kamer (6 × 4 × 6 m), met verschillende lichtkleuren
+    vec3 room = floor((vWorld - n * 0.5) / vec3(6.0, 4.0, 6.0));
+    float lit = step(0.62, h3(room)) * (1.0 - day), tone = h3(room + 17.0);
+    vec3 lc = tone < 0.55 ? vec3(1.0, 0.82, 0.55) : tone < 0.85 ? vec3(0.97, 0.94, 0.85) : vec3(0.74, 0.85, 1.0);
+    col = mix(col, lc * (0.75 + 0.25 * h3(room + 3.0)), lit * 0.88);
     a = mix(max(a, 0.34 + 0.48 * fr), 0.95, lit);
   } else {
     // glans (metaal, verf, tegels, natte straat) en weerspiegeling van de lucht
-    if (refl > 0.01) col = mix(col, skyRefl, refl * (0.08 + 0.6 * fr));
-    if (shine > 0.01) col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 8.0 + shine * 60.0) * shine * 0.55 * day * sh;
-    // natte oppervlakken: donkerder, met weerspiegeling van lucht en lichten op horizontale vlakken
-    if (wet > 0.01 && n.y > 0.5 && isUnder < 0.5) {
-      col *= 1.0 - 0.28 * wet;
-      float puddle = smoothstep(0.55, 0.75, h3(floor(vWorld * vec3(0.5, 1.0, 0.5))));
-      col = mix(col, skyRefl * 0.9, wet * (0.12 + 0.5 * fr) * (0.5 + 0.5 * puddle));
+    bool metal = abs(mcls - 2.0) < 0.5, emissive = abs(mcls - 10.0) < 0.5;
+    // metaal weerspiegelt in zijn eigen kleur; andere materialen neutraal
+    vec3 tint = metal ? c.rgb * 1.5 + 0.08 : vec3(1.0);
+    if (refl > 0.01) col = mix(col, skyRefl * tint, refl * (metal ? 0.22 + 0.55 * fr : 0.08 + 0.6 * fr));
+    // glans: ruwheid bepaalt hoe scherp de zon weerkaatst (gepolijst: klein en fel, ruw: breed en zwak)
+    if (shine > 0.01) { float pw = mix(90.0, 6.0, rough); col += sunColor * tint * pow(max(dot(reflect(-viewDir, n), L), 0.0), pw) * shine * mix(0.75, 0.3, rough) * day * sh; }
+    if (emissive) col = max(col, c.rgb * 0.92); // eigen licht (lampen, schermen, automaten)
+    // natte oppervlakken (regen): per materiaal
+    if (wet > 0.01 && isUnder < 0.5 && indoor < 0.5) {
+      bool porous = abs(mcls - 4.0) < 0.5 || abs(mcls - 5.0) < 0.5 || abs(mcls - 6.0) < 0.5 || mcls < 0.5;
+      if (n.y > 0.5) {
+        if (porous || abs(mcls - 3.0) < 0.5) {
+          col *= 1.0 - (porous ? 0.3 : 0.12) * wet;
+          // plassen alleen op asfalt, stoep, bestrating en beton (klasse 5)
+          float puddle = abs(mcls - 5.0) < 0.5 ? smoothstep(0.55, 0.75, h3(floor(vWorld * vec3(0.5, 1.0, 0.5)))) : 0.0;
+          col = mix(col, skyRefl * 0.9, wet * (0.1 + 0.45 * fr) * (0.35 + 0.65 * puddle));
+          col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 40.0) * puddle * wet * 0.5 * day * sh;
+        } else if (abs(mcls - 7.0) < 0.5) col = mix(col, skyRefl, wet * 0.06 * (0.3 + fr)); // natte bladeren: lichte glans
+      } else if (porous && n.y > -0.5) {
+        // natte muren: donkerder in verticale strepen (regen loopt naar beneden)
+        float streak = h3(vec3(floor(vWorld.x * 2.0 + vWorld.z * 2.0), 0.0, floor(vWorld.y * 0.25)));
+        col *= 1.0 - 0.2 * wet * (0.55 + 0.45 * streak);
+      }
     }
   }
   // atmosfeer: verre dingen nemen de luchtkleur aan, warmer in de richting van de zon
@@ -200,9 +230,8 @@ void main() {
   float heightHaze = 1.0 - 0.12 * clamp((vWorld.y - cameraPosition.y) / 180.0, 0.0, 1.0);
   fog = clamp(fog * heightHaze, 0.0, 1.0);
   vec3 fc = mix(fogColor, sunColor * 0.9 + fogColor * 0.3, pow(max(dot(-viewDir, L), 0.0), 6.0) * 0.35 * day);
-  col = max(col, vec3(0.0));
-  col = col / (vec3(1.0) + max(col - vec3(0.9), vec3(0.0)) * 0.35);
-  gl_FragColor = vec4(mix(col, fc, fog), a);
+  // gedeelde tonemapping (js/materials.js): fel licht zacht afremmen in plaats van hard wit; dezelfde curve als de voertuigen
+  gl_FragColor = vec4(tnToneSrgb(mix(max(col, vec3(0.0)), fc, fog)), a);
 }`;
 
 class World {
@@ -303,6 +332,7 @@ export class Game {
   constructor(ui) {
     this.ui = ui; // { root, canvas, hud, ... } DOM-elementen
     this.renderer = new THREE.WebGLRenderer({ canvas: ui.canvas, antialias: true, powerPreference: 'high-performance' });
+    installTone(THREE, this.renderer); // één tonemapping voor wereld en voertuigen
     this.settings = loadSettings();
     this.applyQuality();
     this.renderer.setClearColor(SKY);
@@ -336,7 +366,7 @@ export class Game {
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
       shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
-      wet: { value: 0 }, isUnder: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
+      wet: { value: 0 }, isUnder: { value: 0 }, streetY: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
       fillTile: { value: new THREE.Vector2(TILE_INDEX.room_fill % ATLAS_COLS, Math.floor(TILE_INDEX.room_fill / ATLAS_COLS)) },
@@ -391,7 +421,7 @@ export class Game {
     this.meta = meta;
     this.tiled = null;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
-    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; } if (this.travelers) { this.travelers.dispose(); this.travelers = null; }
     this.dropMountain(); this.leaveVehicle();
     this.mega?.dispose(); this.mega = null; this.seat = null;
     this.under?.dispose(); this.under = null;
@@ -620,7 +650,7 @@ export class Game {
         if (now - F.used < 4000) continue;
         I.full.delete(sct);
         this.queue = this.queue.filter(q => !(q[0] === t && q[3] === 'full' && q[4] === sct));
-        for (const [k, c] of this.chunks) if (c.src === t && c.kind === 'full' && c.sec === sct) { for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); } this.chunks.delete(k); }
+        for (const [k, c] of this.chunks) if (c.src === t && c.kind === 'full' && c.sec === sct) { for (const m of [c.o, c.t, c.uo, c.ut]) if (m) { this.scene.remove(m); m.geometry.dispose(); } this.chunks.delete(k); }
       }
     }
   }
@@ -652,7 +682,7 @@ export class Game {
     src.dead = true;
     for (const [k, c] of this.chunks) {
       if (c.src !== src) continue;
-      for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
+      for (const m of [c.o, c.t, c.uo, c.ut]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
       this.chunks.delete(k);
     }
   }
@@ -668,7 +698,7 @@ export class Game {
   tileBytes(src) {
     if (src.bytes) return src.bytes;
     let b = src.w.vox ? src.w.vox.length : (src.rle ? src.rle.length : 0);
-    for (const c of this.chunks.values()) if (c.src === src) for (const m of [c.o, c.t]) if (m) b += m.geometry.index ? m.geometry.index.count * 4 + m.geometry.attributes.position.count * 36 : 0;
+    for (const c of this.chunks.values()) if (c.src === src) for (const m of [c.o, c.t, c.uo, c.ut]) if (m) b += m.geometry.index ? m.geometry.index.count * 4 + m.geometry.attributes.position.count * 36 : 0;
     if (src.ready) src.bytes = b;
     return b;
   }
@@ -822,7 +852,7 @@ export class Game {
   clearChunks() {
     if (!this.chunks) return;
     for (const c of this.chunks.values()) {
-      for (const m of [c.o, c.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
+      for (const m of [c.o, c.t, c.uo, c.ut]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
     }
     this.chunks.clear();
   }
@@ -839,17 +869,49 @@ export class Game {
     }
     const key = src.key + ':' + (cz * src.w.nc + cx) + (kind === 'shell' ? ':s' + sct : kind === 'full' ? ':f' + sct : '');
     const old = this.chunks.get(key);
-    if (old) for (const m of [old.o, old.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
-    let out;
+    if (old) for (const m of [old.o, old.t, old.uo, old.ut]) if (m) { this.scene.remove(m); m.geometry.dispose(); }
+    let out, lo = null;
+    const ug = kind ? null : this.underSplit(src, cx, cz);
     if (kind === 'shell') out = meshChunk(src.w, 0, 0, { x0: I.x0, z0: I.z0, sx: I.x1 - I.x0, sz: I.z1 - I.z0, ylo: sct * SEC, yhi: (sct + 1) * SEC, fill: I.fillL });
     else if (kind === 'full') out = meshChunk(src.w, cx, cz, { ylo: sct * SEC, yhi: (sct + 1) * SEC, indoor: I.indoorL });
+    else if (ug && ug.split) { lo = meshChunk(src.w, cx, cz, { yhi: ug.gl + 1 }); out = meshChunk(src.w, cx, cz, { ylo: ug.gl + 1 }); } // ondergronds deel apart
     else out = meshChunk(src.w, cx, cz);
     const entry = { o: this.toMesh(out.opaque, this.matOpaque, src), t: this.toMesh(out.trans, this.matTrans, src), src,
-      wx: src.ox + (kind === 'shell' ? (I.x0 + I.x1) / 2 : cx * CS + 8), wz: src.oz + (kind === 'shell' ? (I.z0 + I.z1) / 2 : cz * CS + 8), kind, sec: sct };
+      wx: src.ox + (kind === 'shell' ? (I.x0 + I.x1) / 2 : cx * CS + 8), wz: src.oz + (kind === 'shell' ? (I.z0 + I.z1) / 2 : cz * CS + 8), kind, sec: sct,
+      ug: !!ug, y0: (src.w.y0 || 0) + (kind ? sct * SEC : 0) };
+    if (lo) { entry.uo = this.toMesh(lo.opaque, this.matOpaque, src); entry.ut = this.toMesh(lo.trans, this.matTrans, src); if (entry.ut) entry.ut.renderOrder = 1; }
     if (entry.t) entry.t.renderOrder = 1;
-    if (kind === 'full') { const F = I.full.get(sct); if (!F) { for (const m of [entry.o, entry.t]) if (m) { this.scene.remove(m); m.geometry.dispose(); } return; } if (!old) F.built++; }
+    if (kind === 'full') { const F = I.full.get(sct); if (!F) { for (const m of [entry.o, entry.t, entry.uo, entry.ut]) if (m) { this.scene.remove(m); m.geometry.dispose(); } return; } if (!old) F.built++; }
     else if (!old && src.pendingChunks > 0 && --src.pendingChunks === 0) src.ready = true; // alle chunks klaar: de verre blokken mogen weg
     this.chunks.set(key, entry);
+  }
+
+  // Renderprioriteit (TERRANOVA 14): heeft deze chunk ruimtes onder de straat (metrotunnel, station, kelder)?
+  // Dan krijgt hij de vlag ug, en bij hoge bebouwing erboven worden onder- en bovengronds deel apart gemesht
+  // (split), zodat de bovenbouw verborgen kan worden zolang de speler ondergronds is. Kijkt in de echte blokken
+  // (elke 3 m een kolom), dus ook voor zelfgebouwde kelders.
+  underSplit(src, cx, cz) {
+    if (!this.tiled || !this.world || !this.flatGround() || (src.interior && this.inInterior(src, cx, cz))) return null;
+    const w = src.w, y0 = w.y0 || 0, W = this.world;
+    const gAbs = W.groundAt ? W.groundAt(src.ox + cx * CS + 8, src.oz + cz * CS + 8) : W.G;
+    if (!(gAbs > y0 + 6)) return null;
+    const gl = Math.floor(gAbs) - y0;
+    for (let z = cz * CS + 1; z < cz * CS + CS; z += 3) for (let x = cx * CS + 1; x < cx * CS + CS; x += 3)
+      for (let y = 1; y < gl - 2; y++) if (!w.get(x, y + y0, z) && w.get(x, y + y0 - 1, z)) return { gl, split: w.chunkTop(cx, cz) > gl + 6 };
+    return null;
+  }
+  flatGround() { return !!this.tiled && (!this.world.groundAt || !!this.tiled.spec.megatower || !!this.tiled.spec.flat); }
+  // zit de camera ingesloten onder de grond (tunnel, metrostation, kelder)? Dan is de bovenwereld verder dan
+  // ±48 m niet te zien (hooguit door een trapgat vlakbij).
+  enclosedBelow() {
+    const W = this.world, e = this.camera.position;
+    // alleen in steden met een vlakke straat (Megatower City, Nova): in bergtunnels kijk je door de tunnelmond naar
+    // buiten, daar mag het landschap niet verdwijnen
+    if (!this.tiled || !W || !W.solidAt || !this.flatGround()) return false;
+    const g = W.groundAt ? W.groundAt(e.x, e.z) : W.G;
+    if (!(e.y < g - 3)) return false;
+    for (let y = Math.floor(e.y) + 1; y < g + 2; y++) if (W.solidAt(Math.floor(e.x), y, Math.floor(e.z))) return true;
+    return false;
   }
 
   toMesh(buf, mat, src) {
@@ -933,7 +995,7 @@ export class Game {
     this.suspended = false;
     this.running = false;
     if (this.lod) { this.lod.dispose(); this.lod = null; }
-    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; }
+    if (this.traffic) { this.traffic.dispose(); this.traffic = null; } if (this.busPax) { this.busPax.dispose(); this.busPax = null; } if (this.travelers) { this.travelers.dispose(); this.travelers = null; }
     this.dropMountain();
     cancelAnimationFrame(this.raf);
     if (document.pointerLockElement) document.exitPointerLock();
@@ -997,8 +1059,10 @@ export class Game {
     // onder de grond: donker, korte zichtafstand, geen lucht
     const ug = this.under && this.under.active && this.player.pos.y < (this.under.spec.top(Math.floor(p.pos.x), Math.floor(p.pos.z))) - 1;
     this.isUnderground = ug;
+    const W = this.world, streetY = W && W.groundAt ? W.groundAt(p.pos.x, p.pos.z) : W && W.G !== undefined ? W.G : (this.meta && this.meta.ground) || 0;
     for (const m of this.mats) {
       const u = m.uniforms;
+      u.streetY.value = streetY;
       u.flashOn.value = this.flash ? 1 : 0; u.flashPos.value.copy(this.camera.position); this.camera.getWorldDirection(u.flashDir.value);
       if (this.far) { u.fogNear.value = 3000; u.fogFar.value = 26000; }
       else if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
@@ -1017,6 +1081,8 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day, this.settings.hour);
       this.updateBusPax(dt, env.day);
+      // reizigers met een doel (js/travelers.js): alleen als er reizen gepland zijn
+      if (this.travelers && this.travelers.list.length) this.travelers.update(dt, this.player.pos);
     }
     // omgevingsgeluid (stad, wind, regen, galm ondergronds); start na de eerste toets of tik
     if (this.settings.ambient !== false) {
@@ -1047,12 +1113,20 @@ export class Game {
     this.camera.far = (this.tiled ? Math.max(far, this.settings.lod * 1.6) : far) + 60; this.camera.updateProjectionMatrix();
     this.updateInteriors();
     const pcx = p.pos.x, pcz = p.pos.z, lim = (far + CS * 1.5) ** 2;
+    // renderprioriteit: ondergronds alleen wat zichtbaar kan zijn (ondergrondse delen overal, de rest dichtbij)
+    // (noPrio: alleen voor vergelijkende tests)
+    const enc = this.enclosed = !this.noPrio && this.enclosedBelow(), NEAR2 = 48 * 48, gEnc = enc ? (this.world.groundAt ? this.world.groundAt(pcx, pcz) : this.world.G) : 0;
     for (const c of this.chunks.values()) {
       const dx = c.wx - pcx, dz = c.wz - pcz;
-      const vis = !c.src.parked && (!!this.tiled || dx * dx + dz * dz < lim) && (!c.kind || this.sectionVisible(c)); // grote kaarten: alle geladen tegels tonen; geparkeerde verbergen
+      let vis = !c.src.parked && (!!this.tiled || dx * dx + dz * dz < lim) && (!c.kind || this.sectionVisible(c)); // grote kaarten: alle geladen tegels tonen; geparkeerde verbergen
+      let visLo = vis;
+      if (enc && vis && dx * dx + dz * dz > NEAR2) { visLo = c.ug; vis = c.kind ? c.y0 < gEnc : !c.uo && c.ug; }
       if (c.o) c.o.visible = vis;
       if (c.t) c.t.visible = vis;
+      if (c.uo) c.uo.visible = visLo;
+      if (c.ut) c.ut.visible = visLo;
     }
+    if (this.lod && enc) for (const m of this.lod.meshes.values()) m.visible = false;
     if (this.under) this.under.update(p.pos, (x, y, z) => this.world.get(x, y, z));
     if (this.mega) this.mega.update(dt);
     if (this.lod) for (const m of this.lod.meshes.values()) if (ug) m.visible = false;
@@ -1293,8 +1367,18 @@ export class Game {
     S.frame = (S.frame || 0) + 1;
     if (this.touch && S.frame % 2 && S.ready) return; // telefoon: om de twee beelden
     const p = this.player.pos, cam = S.cam, texel = 220 / want;
-    const cx = Math.round(p.x / texel) * texel, cy = Math.round(p.y / texel) * texel, cz = Math.round(p.z / texel) * texel;
-    cam.position.set(cx + env.sun.x * 700, cy + env.sun.y * 700, cz + env.sun.z * 700);
+    // tegen flikkerende schaduwranden: het midden vastzetten op het pixelraster van de schaduwkaart, gemeten langs
+    // de assen van de zonnecamera zelf (niet langs x/y/z van de wereld, dat verschuift de kaart met halve pixels)
+    const sun = S.sun || (S.sun = new THREE.Vector3()), R = S.right || (S.right = new THREE.Vector3()), U = S.up || (S.up = new THREE.Vector3());
+    sun.set(env.sun.x, env.sun.y, env.sun.z).normalize();
+    // de zonrichting zelf in kleine stapjes (bij een lopende dag-nachtcyclus anders elk beeld een nieuwe kaart)
+    sun.set(Math.round(sun.x * 400) / 400, Math.round(sun.y * 400) / 400, Math.round(sun.z * 400) / 400).normalize();
+    R.set(0, 1, 0).cross(sun); if (R.lengthSq() < 1e-6) R.set(1, 0, 0); R.normalize(); U.copy(sun).cross(R).normalize();
+    const u = p.x * R.x + p.y * R.y + p.z * R.z, v = p.x * U.x + p.y * U.y + p.z * U.z;
+    const du = Math.round(u / texel) * texel - u, dv = Math.round(v / texel) * texel - v;
+    const cx = p.x + R.x * du + U.x * dv, cy = p.y + R.y * du + U.y * dv, cz = p.z + R.z * du + U.z * dv;
+    cam.up.copy(U);
+    cam.position.set(cx + sun.x * 700, cy + sun.y * 700, cz + sun.z * 700);
     cam.lookAt(cx, cy, cz); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
     const r = this.renderer, prevOverride = this.scene.overrideMaterial;
     this.scene.overrideMaterial = S.mat;
@@ -1304,11 +1388,14 @@ export class Game {
     set('shadowMap', S.rt.depthTexture); set('shadowOn', 1);
     S.ready = true;
   }
+  // reizigers met een doel aanmaken (gebruikt door de reistest en later door de wereld zelf)
+  travelersOn() { if (!this.travelers && this.traffic) this.travelers = new Travelers(this.scene, this.world, this.traffic); return this.travelers; }
   // wachtenden aan de bushaltes: instappen bij een bus met open deuren, uitstappen (js/buspax.js)
   updateBusPax(dt, day) {
     if (!this.busPax) this.busPax = new BusPax(this.scene, this.world);
     const tr = this.traffic, buses = [];
     for (const a of tr.agents || []) if (a.kind === 'bus' && !a.dead) { const h = tr.behind(a, a.L / 2, this.tmpBus || (this.tmpBus = {})); buses.push({ id: a, x: h.x, z: h.z, open: a.atStop !== false && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5, get served() { return a.paxServed; }, set served(v) { a.paxServed = v; } }); }
+    this.busPax.trips = tr.trips;
     this.busPax.update(dt, this.player.pos, tr.stops || [], buses, tr.period || 'dal');
     this.busPax.setDay(day);
   }

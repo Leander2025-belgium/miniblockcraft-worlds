@@ -1,5 +1,6 @@
 // Tekent alle bloktexturen (16×16 pixels) procedureel op één atlas-canvas.
 import { BLOCKS } from './blocks.js';
+import { encodeMaterial } from './materials.js';
 
 export const TILE = 16;
 export const ATLAS_COLS = 8;
@@ -426,7 +427,7 @@ export const ATLAS_ROWS = Math.ceil(TILE_NAMES.length / ATLAS_COLS);
 export const RES = 32;
 export const PAD = 8;
 export const CELL = RES + PAD * 2;
-// materiaal per tegel: glans, reliëf, weerspiegeling (0..255)
+// materiaal per tegel: glans, reliëf, weerspiegeling (0..255); klasse en ruwheid komen uit js/materials.js (alfakanaal)
 const MATERIAL = {
   glass: [255, 0, 200], darkglass: [255, 0, 220], glass_green: [255, 0, 210], glass_blue: [255, 0, 220], mirror: [255, 0, 255], water: [255, 0, 230], ice: [220, 20, 150],
   metal: [170, 40, 110], copper: [120, 60, 60], solar: [230, 10, 160], paint_red: [110, 0, 30], paint_blue: [110, 0, 30], paint_green: [110, 0, 30], paint_black: [140, 0, 40],
@@ -443,7 +444,7 @@ const GRAIN = { grass_top: 16, dirt: 14, sand: 12, stone: 14, gravel: 10, ballas
   leaves: 14, birch_leaves: 14, spruce: 12, pine_leaves: 12, hedge: 12, log: 9, birch: 6, planks: 6, dark_planks: 6, brick: 7, brick_dark: 7, ashlar: 6, cobble: 8, roof_red: 6, roof_dark: 6, clay_roof: 6 };
 export function materialTexture(THREE) {
   const n = TILE_NAMES.length, data = new Uint8Array(n * 4);
-  TILE_NAMES.forEach((name, i) => { const m = MATERIAL[name] || [20, 100, 0]; data[i * 4] = m[0]; data[i * 4 + 1] = m[1]; data[i * 4 + 2] = m[2]; data[i * 4 + 3] = 255; });
+  TILE_NAMES.forEach((name, i) => { const m = MATERIAL[name] || [20, 100, 0]; data[i * 4] = m[0]; data[i * 4 + 1] = m[1]; data[i * 4 + 2] = m[2]; data[i * 4 + 3] = encodeMaterial(name); });
   const t = new THREE.DataTexture(data, n, 1, THREE.RGBAFormat);
   t.needsUpdate = true;
   return t;

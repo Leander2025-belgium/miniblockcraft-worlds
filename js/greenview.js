@@ -1,6 +1,7 @@
 // Greenisland in de verte: het landschap van het hele eiland (145 × 50 km) en de zee eromheen, in stukken van 4 km
 // (fijn dichtbij, grof ver weg), stap voor stap opgebouwd. Zelfde opbouw als js/mountainview.js (Alpen).
 import * as THREE from 'three';
+import { TONE_GLSL } from './materials.js';
 import { natural, farColor, MW, ML, LIFTS } from './greenisland.js';
 import { LiftView } from './lift-view.js';
 
@@ -30,6 +31,7 @@ uniform vec3 sunColor;
 varying vec3 vColor;
 varying vec3 vRel;
 varying float vY;
+${TONE_GLSL}
 void main() {
   if (length(vRel.xz) < nearCut) discard; // dichtbij staan de echte blokken
   vec3 col = vColor * mix(0.16, 1.0, day) * mix(vec3(1.0), sunColor, 0.35);
@@ -42,7 +44,7 @@ void main() {
   float mist = exp(-max(0.0, vY - 80.0) / 650.0) * smoothstep(1200.0, 9000.0, dist) * 0.5;
   col = mix(col, mix(fogColor, vec3(0.86, 0.88, 0.9) * mix(0.25, 1.0, day), 0.5), mist);
   float fog = smoothstep(fogNear, fogFar, dist);
-  gl_FragColor = vec4(mix(col, fogColor, fog * 0.92), 1.0);
+  gl_FragColor = vec4(tnToneSrgb(mix(col, fogColor, fog * 0.92)), 1.0);
 }`;
 
 export class MountainView {

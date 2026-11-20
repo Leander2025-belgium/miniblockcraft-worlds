@@ -16,6 +16,7 @@ const checks = [
   ['Tunnels Megatower City: vrijprofiel van de metro', 'tools/check-tunnels.mjs', ['megatower']],
   ['Tunnels Greenisland: vrijprofiel trein (4,06 m breed, dak 5,5 m)', 'tools/check-tunnels.mjs', ['greenisland', '--snel']],
   ['Tunnels Alpen: vrijprofiel trein (4,06 m breed, dak 5,5 m)', 'tools/check-tunnels.mjs', ['alpen', '--snel']],
+  ['Greenisland: automatische treinen over de wissels, rijwegen zonder conflict', 'tools/check-wisselroutes.mjs'],
 ];
 let fail = 0;
 for (const [name, file, extra] of checks) {
