@@ -1,5 +1,6 @@
 // TERRANOVA 14.1 — reizigers verschijnen vanzelf rond de speler (js/travelers.js spawnTick) in Megatower City.
-// Versnelde simulatie met de echte wereld, het echte verkeer en de echte ritten bij Oude Markt (bus, tram, metro):
+// Versnelde simulatie met de echte wereld, het echte verkeer en de echte ritten bij Westpoort (bus en metro; sinds de
+// vaste buslijnen van 14.2 ligt er bij Oude Markt geen bushalte meer binnen 120 m, alleen de metro):
 // controles: er verschijnen reizigers, ze stappen in en uit (bezetting van de rit ±1), elk looppad is beloopbaar
 // (vaste grond, 2 blokken lucht, stappen ≤ 1,5 m en ≤ 1 blok), het aantal blijft binnen het maximum per periode,
 // en de A*-kost per frame blijft klein.
@@ -16,7 +17,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   await p.reload();
   await p.evaluate(() => document.getElementById('btn-mega').click());
   await p.waitForFunction(() => { const g = window.blokGame && window.blokGame(); return g && g.running && g.mega && g.traffic; }, null, { timeout: 180000 });
-  await p.evaluate(() => { const g = window.blokGame(); g.settings.view = 420; g.player.fly = true; g.player.pos.set(4160, g.meta.ground + 30, 5120); g.updateTiles(true); });
+  await p.evaluate(() => { const g = window.blokGame(); g.settings.view = 420; g.player.fly = true; g.player.pos.set(720, g.meta.ground + 30, 5120); g.updateTiles(true); });
   for (let i = 0; i < 240; i++) { await p.waitForTimeout(500); if (await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && g.tiled.inFlight === 0 && g.queue.length < 30; })) break; }
   await p.evaluate(() => { const g = window.blokGame(); g.traffic.rebuild(g.world.tiles, g.player.pos); g.running = false; cancelAnimationFrame(g.raf); });
   const R = { max: 0, spitsMax: 14, msPerTick: [] };

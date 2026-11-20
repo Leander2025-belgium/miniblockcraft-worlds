@@ -33,7 +33,8 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   if (target) {
     await clickAt(target.x, target.z);
     R.voertuigInfo = (await p.textContent('#ovmap-info')).trim();
-    R.ritKlopt = await p.evaluate((id) => { const g = window.blokGame(), T = g.traffic.trips.trips.get(id); const txt = document.getElementById('ovmap-info').textContent; return !!T && txt.includes(id) && txt.includes(`${T.occ}/${T.cap}`); }, target.trip);
+    // het infovak ververst elke seconde, de bezetting verandert live: een paar keer proberen, net na het verversen
+    for (let k = 0; k < 4 && !R.ritKlopt; k++) { if (k) await p.waitForTimeout(1000); R.ritKlopt = await p.evaluate((id) => { const g = window.blokGame(), T = g.traffic.trips.trips.get(id); const txt = document.getElementById('ovmap-info').textContent; return !!T && txt.includes(id) && txt.includes(`${T.occ}/${T.cap}`); }, target.trip); }
   }
   // klik op een halte: Metro Megatower
   await clickAt(40 * 128 + 64, 40 * 128);
@@ -50,12 +51,12 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   R.bus = await p.evaluate(async () => {
     const g = window.blokGame(), tr = g.traffic, mc = await import('./js/megacity.js');
     const axis = (line) => { const n = +line.slice(1); return n <= mc.BUS_NS.length ? { ax: 'x', v: mc.BUS_NS[n - 1] * 128 } : { ax: 'z', v: mc.BUS_EW[n - mc.BUS_NS.length - 1] * 128 }; };
-    let maxOff = 0, n = 0, zonder = 0; const dirs = new Map();
+    let maxOff = 0, n = 0, zonder = 0, buiten = 0; const dirs = new Map();
     for (let i = 0; i < 900; i++) {
       tr.update(0.1, g.player.pos, 1, 8);
       if (i % 10) continue;
       for (const a of tr.agents) {
-        if (a.dead || a.kind !== 'bus') continue;
+        if (a.dead || a.kind !== 'bus') continue; if (a.oos) { buiten++; continue; } // einde lijn: leeg en buiten dienst verder
         if (!a.line || a.line[0] !== 'B') { zonder++; continue; }
         const h = tr.behind(a, 0, {}), A = axis(a.line), off = Math.abs((A.ax === 'x' ? h.x : h.z) - A.v);
         if (a.route[0].e.conn) continue; // op het kruispunt
@@ -63,7 +64,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
       }
     }
     for (const q of tr.served?.values() || []) if (q.kind === 'bus') { const k = q.name; dirs.set(k, (dirs.get(k) || 0) + 1); }
-    return { metingen: n, zonderLijn: zonder, grootsteAfstandTotLaan: +maxOff.toFixed(1), bedieendeHaltes: [...(tr.served?.values() || [])].filter(q => q.kind === 'bus').length, lijnen: [...new Set(tr.agents.filter(a => a.kind === 'bus' && !a.dead).map(a => a.line))] };
+    return { metingen: n, zonderLijn: zonder, buitenDienst: buiten, grootsteAfstandTotLaan: +maxOff.toFixed(1), bedieendeHaltes: [...(tr.served?.values() || [])].filter(q => q.kind === 'bus').length, lijnen: [...new Set(tr.agents.filter(a => a.kind === 'bus' && !a.dead).map(a => a.line))] };
   });
   R.busPlan = await p.evaluate(async () => { const m = await import('./js/megaplan.js'); const r = m.plan({ x: 2 * 128 + 300, z: 1000, name: 'A' }, { x: 2 * 128 + 300, z: 8000, name: 'B' }, 8); return { modi: r.modi, legs: r.legs.map(l => l.mode === 'wandelen' ? 'lopen ' + l.m : l.line + ' (' + l.stops + ')') }; });
   // planner in het spel (knop), met tram in de uitleg

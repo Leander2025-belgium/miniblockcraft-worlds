@@ -232,7 +232,7 @@ export class Travelers {
       if (t.state === 'aan boord') {
         const v = t.vehicle, R = st.ride;
         const h = tr.behind(v, Math.min(v.L - 1, Math.max(1, t.boardOff ?? v.L / 2)), {}); t.x = h.x; t.z = h.z; t.y = h.y + 1.1; // rijdt mee
-        if (v.dead && t.auto) { t.state = 'uit beeld'; this.stats.uitBeeld = (this.stats.uitBeeld || 0) + 1; const w = (this.stats.uitBeeldWaarom || (this.stats.uitBeeldWaarom = {})); w[v.why || '?'] = (w[v.why || '?'] || 0) + 1; continue; } // rijdt buiten beeld verder mee (telt in de rit)
+        if ((v.dead || v.oos) && t.auto) { t.state = 'uit beeld'; this.stats.uitBeeld = (this.stats.uitBeeld || 0) + 1; const w = (this.stats.uitBeeldWaarom || (this.stats.uitBeeldWaarom = {})); w[v.why || '?'] = (w[v.why || '?'] || 0) + 1; continue; } // rijdt buiten beeld verder mee (telt in de rit)
         if (v.dead) { t.state = 'gestrand'; this.note(t, 'voertuig weg', null); continue; }
         // uitstappen aan de halte van de reis ('*' = de eerstvolgende halte na het instappen)
         if (doorsOpen(v) && (R.alight === '*' ? (v.stopSeq || 0) > t.boardSeq : v.atStop === R.alight)) {

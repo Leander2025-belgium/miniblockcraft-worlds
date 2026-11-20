@@ -562,6 +562,14 @@ export class Traffic {
         // eindstation: even wachten en terugrijden
         a.v = 0; a.wait = 20; a.reverseAfter = true; return;
       }
+      // einde van een vaste buslijn (de laan houdt op aan een groot gebouw of park, js/megaplan.js lineRuns):
+      // ver van de speler verdwijnt de bus (de rit blijft bewaard); dichtbij rijdt hij leeg en buiten dienst verder
+      if (a.kind === 'bus' && a.line && a.line[0] === 'B' && !a.player && !a.passenger && !opts.some(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line)))) {
+        const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {}));
+        if (!this.pl || Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.d = r.dir > 0 ? e.len : 0; a.dead = true; a.why = 'einde lijn'; return; }
+        if (a.trip) { this.trips.alight(a, a.trip.occ); a.trip.dest = 'Niet in dienst'; }
+        a.oos = true; a.line = null;
+      }
       const o = this.choose(a, opts);
       a.route.unshift({ e: o.e, dir: o.dir });
       a.d = o.dir > 0 ? over : o.e.len - over;
@@ -727,7 +735,7 @@ export class Traffic {
         a.gapAhead = gap;
         if (gap < 1e8) target = Math.min(target, Math.max(0, (gap - 3) * 0.9));
         // haltes
-        if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train' || a.kind === 'metro') && e.stops.length) {
+        if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train' || a.kind === 'metro') && e.stops.length && !a.oos) {
           const half = a.kind === 'bus' ? 0 : a.L / 2;
           for (const sd of e.stops) {
             const key = e.id + '@' + sd;
