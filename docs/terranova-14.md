@@ -1,7 +1,8 @@
-# TERRANOVA 14.0 — releasekandidaat (versie 2026-11-21a)
+# TERRANOVA 14.0 en 14.1 — rapport (versie 2026-11-22a)
 
-Branch `terranova-14`, gebaseerd op `main` 68765ba (versie 2026-11-20a). Niet naar productie gezet: dat gebeurt pas
-na een expliciete go/no-go.
+Branch `terranova-14`. 14.0 (versie 2026-11-21a) staat sinds PR #2 op `main` (na een expliciete go). 14.1 (versie
+2026-11-22a) staat op de branch en gaat pas naar productie na een nieuwe go/no-go. De open punten van 14.0 en wat
+14.1 eraan deed: zie de sectie *TERRANOVA 14.1* onderaan.
 
 ## Fase 0 — baseline en audit
 
@@ -169,7 +170,39 @@ telefoon):
 - Browserregressie: 29 tests, alle zonder fouten. Dat zijn de bestaande tests (treinen, kaart, mobiel, opslaan en herladen, OV-diagnose, Megatower, Greenisland, metro-interieur, voertuig-interieurs …) plus de nieuwe tests branding, savegame, graphics en reis.
 - Er was geen enkele shaderfout, en er waren geen paginafouten.
 
-## Niet gedaan of maar deels (eerlijk)
+## TERRANOVA 14.1 (versie 2026-11-22a) — de open punten van 14.0
+
+| Onderdeel | Wat er nu is | Bestanden | Controle |
+|---|---|---|---|
+| Reizigers verschijnen vanzelf | Rond de speler verschijnen reizigers op straat bij haltes die het verkeer echt bedient. Ze lopen er met A* naartoe (ook trappen af naar het metroperron), stappen in de juiste soort voertuig (bezetting van de rit +1), rijden mee tot de volgende halte, stappen uit en lopen verder. Het aantal hangt af van het uur: spits 14, dal 9, avond 6, nacht 2. Het A*-zoeken is over frames verdeeld: de piek daalt van 22 naar 8,8 ms per tik (SwiftShader). | `js/travelers.js`, `js/traffic.js`, `js/ovtrips.js`, `js/buspax.js`, `js/game.js` | `tests/browser/reizigers-auto.cjs`: 45 verschenen, 33 ingestapt, 7–12 uitgestapt en aangekomen, 0 niet-beloopbare punten, bezetting klopt |
+| Live OV-kaart | Kaart van Megatower City (pauzemenu en grote kaart) met M1, IC en T1–T4. Echte voertuigen rond de speler komen met rit en bezetting uit de ritlaag; daarbuiten tonen we voertuigen volgens de dienstregeling. Klik op een voertuig voor lijn, richting, rit, bezetting en volgende halte; klik op een halte voor de vertrekken en navigatie. Ververst elke seconde. | `js/ovmap.js`, `index.html`, `js/app.js` | `tests/browser/ovkaart.cjs`: 13 echte en 90 geplande voertuigen; de rit en bezetting op de kaart zijn gelijk aan de ritlaag; de kaart beweegt live |
+| Multimodale reisplanner | Tijdsafhankelijke Dijkstra over wandelen, metro M1, trein IC en trams T1–T4 (haltes zoals in de wereld). Blijft zitten op hetzelfde voertuig, overstappen te voet met 1 min overstaptijd. ± 3 ms per plan. | `js/megaplan.js` | `ovkaart.cjs`: tram + overstap gevonden; `mobiel.cjs` |
+| Remises | 4 remises (IC1 Easthaven en Southbay, IC3 Easthaven, IR4 Southbay) op vrije, vlakke plekken buiten de bebouwing. Elk heeft 4 opstelsporen van 240 m onder een hal en een keel naar het vertrekspoor. Omloop per materieelsoort: een keerrit binnen 7–45 min blijft aan het station; anders rukt een stel uit of in. Rangeerritten rijden alleen als het hoofdspoor vrij is. Niet-rijdende stellen staan zichtbaar op de opstelsporen. Het depot-tabblad toont per remise de stand en de volgende rangeerrit. | `js/depot.js`, `js/depotsim.js`, `js/greenisland.js`, `js/rail.js` | `tools/check-depots.mjs`: plek vrij en vlak, ballast 60/60, dak 52/52, sprong ≤ 2 m, aansluiting aan het perron ≤ 0,13 m, **0 conflicten** over een hele dag; `tests/browser/remise.cjs`: overdracht zonder sprong (0 m) |
+| Nieuw materieel per categorie | S-Bahn (22 m, 3 deuren), metro (18 m, noodfrontdeur, derde rail, geen stroomafnemer), Airport Express, regionale motorwagen, diesellocomotief. Ingezet in Greenisland en de Alpen. | `js/trainshell.js`, `js/rail.js`, dienstdata | `tests/browser/materieel.cjs`: elk model een andere geometrie, juiste lengtes en deuren |
+| Nieuwe gevels | 5 gevelsoorten voor de torens van Megatower City: vliesgevel, bandramen, tweekleurige banden, lamellen, natuursteen. Ze zijn gekozen op het aantal vlakken: samen 3 % minder driehoeken dan vroeger (1003k tegen 1034k op 6 tegels); een fijn raster kostte +50 % en is niet gebruikt. | `js/megacity.js` | `tools/check-gevels.mjs`; voor/na: `docs/terranova-14-gevels-voor.png` en `-na.png` |
+| Meten op echte toestellen | Knop **📊 Prestatietest op dit toestel** in het menu: 5 vaste scènes in Megatower City. Gemeten: FPS, mediaan, p95 en max van de frametijd, tekenopdrachten, driehoeken, laadtijd en heap. Daarbij komen de echte GPU-naam en schermgegevens. De eigen instellingen worden teruggezet; het resultaat is kopieerbaar. | `js/perftest.js`, `js/app.js`, `index.html` | `tests/browser/prestatietest.cjs` |
+
+Beelden: `docs/terranova-14-remise.png`, `docs/terranova-14-materieel.png`, `docs/terranova-14-ovkaart.png`.
+
+## Nog niet gedaan of maar deels (eerlijk, na 14.1)
+
+- **Echte GPU-metingen:** de prestatietest zit in het spel, maar ik heb zelf geen GPU of telefoon. Echte cijfers
+  komen er pas als iemand de test op een toestel draait en het resultaat doorstuurt.
+- **Bussen in de planner van Megatower City:** de bussen rijden er zonder vaste lijn (elke bus kiest zijn route). Een
+  planner die bussen belooft zou dus niet kloppen, daarom staan ze er niet in.
+- **Live OV-kaart buiten Megatower City:** Greenisland en de Alpen hebben hun eigen OV-kaart met live treinen. Nova en de
+  echte steden hebben nog geen klikbare kaart.
+- **Remises:** alleen in Greenisland (IC1, IC3, IR4). De S1 en de metro's liggen volledig in de stad: daar is geen
+  vrije plek gevonden. Bij meer dan 4 stellen in één remise staan de extra stellen in de telling, niet zichtbaar.
+- **Gevels:** verre torens (buiten het zichtbereik, als eenvoudige LOD-blokken) tonen de nieuwe gevel nog niet. De
+  middelhoge bouwblokken zijn niet veranderd.
+- **Materieel:** geen dubbeldekstreinen (het interieur is 1 verdieping hoog). De bussen, trams en metro's van de
+  verkeerswerelden (`js/vehicles.js`) zijn niet vernieuwd.
+- **Reizigers:** de types verschillen alleen in wandeltempo; nog geen eigen routevoorkeuren.
+- **Stations:** geen nieuwe stationsmodules (roltrappen, cafés). OV-diagnose niet uitgebreid. Geen test van 30 minuten
+  spelen.
+
+## Wat in 14.0 nog open stond (ter vergelijking)
 
 - **Depot:** niet gebouwd. Daarvoor zijn nieuwe sporen in de wereldgenerator nodig (opstelsporen, onderhoudshal,
   aansluiting), en dat verandert de tegels van Greenisland.
