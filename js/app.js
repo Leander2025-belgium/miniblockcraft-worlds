@@ -239,7 +239,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan') },
+      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1152,7 +1152,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-21a';
+const APP_VERSION = '2026-11-23a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
@@ -1197,7 +1197,7 @@ refreshList().then(() => {
       setTimeout(() => game && game.toast && game.toast(`⚠ De browser had te weinig geheugen en startte de pagina opnieuw. Kijkafstand verlaagd (${before} → ${st.view} m) om dit te voorkomen.`), 4000);
     } catch { /* geen opslag */ }
   }
-  if (ing && ing.id) { $('#menu').hidden = true; (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => { setInGame(null); $('#menu').hidden = false; }); } // niet eerst de startpagina tonen
+  if (ing && ing.id && location.hash !== '#prestatietest') { $('#menu').hidden = true; (ing.kind === 'map' ? playMap(ing.id) : play(ing.id)).catch(() => { setInGame(null); $('#menu').hidden = false; }); } // niet eerst de startpagina tonen
 });
 
 // diagnose in het pauzemenu
@@ -1220,12 +1220,48 @@ $('#btn-megaplan')?.addEventListener('click', async () => {
     for (const el of [from, to, hr]) el.addEventListener('change', run);
     $('#mp-close').addEventListener('click', () => game.resume());
     $('#mp-nav').addEventListener('click', () => { const r = game.mega.lastPlan; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
-      if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (perron ${ride.perron}, vertrek ${hm(ride.dep)})` : `Je bent er al`);
+      if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (${ride.perron ? `perron ${ride.perron}, ` : ''}vertrek ${hm(ride.dep)})` : `Je bent er al`);
       else { game.mega.navTo = { name: first.name, x: first.x, z: first.z }; game.toast(`🧭 Navigatie naar ${first.name}${ride ? ` · daar de ${ride.line} richting ${ride.dir} (${hm(ride.dep)})` : ''}`); } } game.resume(); });
     game.mega.planRun = run;
   }
   game.mega.planRun(); game.showOverlay('megaplan');
 });
+// ---------- prestatietest op dit toestel (js/perftest.js) ----------
+// Start: eigen instellingen bewaren (sessionStorage), vast profiel zetten, herladen met #prestatietest (schoon geheugen).
+// Na de test: instellingen terug, resultaat tonen en kopiëren.
+$('#btn-perftest')?.addEventListener('click', async () => {
+  const m = await import('./perftest.js');
+  const cur = localStorage.getItem('blokstad-settings');
+  try { sessionStorage.setItem('tn-perf-restore', cur === null ? '__none__' : cur); } catch { /* geen opslag */ }
+  const st = (() => { try { return JSON.parse(cur || '{}') || {}; } catch { return {}; } })();
+  localStorage.setItem('blokstad-settings', JSON.stringify({ ...st, ...m.PROFILE }));
+  location.hash = 'prestatietest'; location.reload();
+});
+async function perfTestRun() {
+  const m = await import('./perftest.js'), hud = $('#perf-hud');
+  const restore = () => { try { const r = sessionStorage.getItem('tn-perf-restore'); if (r !== null) { if (r === '__none__') localStorage.removeItem('blokstad-settings'); else localStorage.setItem('blokstad-settings', r); sessionStorage.removeItem('tn-perf-restore'); } } catch { /* geen opslag */ } };
+  history.replaceState(null, '', location.pathname + location.search);
+  try {
+    hud.hidden = false; hud.textContent = '📊 Prestatietest: Megatower City laden…';
+    $('#menu').hidden = true;
+    await playMap(MEGA.id);
+    for (let i = 0; i < 600 && !(game && game.running && game.mega); i++) await new Promise(r => setTimeout(r, 200));
+    const res = await m.runPerfTest(game, (i, S) => { hud.textContent = `📊 Prestatietest ${i + 1}/${m.SCENES.length}: ${S.naam} (niet bewegen)`; });
+    res.versie = APP_VERSION;
+    restore(); hud.hidden = true;
+    $('#perf-result').innerHTML = m.resultHtml(res);
+    $('#perf-json').value = JSON.stringify(res);
+    window.__perfResult = res;
+    game.setPaused?.(true); game.showOverlay('perf');
+  } catch (e) { restore(); hud.textContent = '📊 Prestatietest mislukt: ' + (e && e.message || e); diag('prestatietest mislukt', String(e && e.message || e)); }
+}
+$('#perf-copy')?.addEventListener('click', async () => { const t = $('#perf-json'); t.hidden = false; t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
+$('#perf-close')?.addEventListener('click', () => { location.reload(); });
+if (location.hash === '#prestatietest') setTimeout(perfTestRun, 300);
+// live OV-kaart Megatower City (pauzemenu en grote kaart)
+const openOvMap = async () => { if (!game || !game.mega) return; const m = await import('./ovmap.js'); m.openOvMap(game); };
+$('#btn-ovmap')?.addEventListener('click', openOvMap);
+$('#btn-map-ov')?.addEventListener('click', openOvMap);
 $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());

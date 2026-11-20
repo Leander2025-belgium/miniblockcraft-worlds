@@ -465,7 +465,7 @@ export class Game {
     if (this.lod) this.lod.dispose();
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
-    this.traffic = new Traffic(this.scene, spec.ground); { const w = this.world; this.traffic.solidAt = (x, y, z) => w.solidAt(x, y, z); } // perronkant voor de deuren
+    this.traffic = new Traffic(this.scene, spec.ground); { const w = this.world; this.traffic.solidAt = (x, y, z) => w.solidAt(x, y, z); } if (spec.megatower) this.traffic.busLinesOnly = true; // Megatower City: bussen rijden op vaste lijnen (js/megacity.js BUS_NS/BUS_EW) // perronkant voor de deuren
     this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
     this.airports?.dispose(); this.airports = new Airports(this);
     this.dropMountain(); this.leaveVehicle();
@@ -1081,7 +1081,8 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day, this.settings.hour);
       this.updateBusPax(dt, env.day);
-      // reizigers met een doel (js/travelers.js): alleen als er reizen gepland zijn
+      // reizigers met een doel (js/travelers.js): verschijnen vanzelf rond de speler (instelling 'reizigers', standaard aan)
+      if (this.settings.travelers !== false) { const T = this.travelersOn(); if (T) T.spawnTick(dt, this.player.pos, this.traffic.period || 'dal'); }
       if (this.travelers && this.travelers.list.length) this.travelers.update(dt, this.player.pos);
     }
     // omgevingsgeluid (stad, wind, regen, galm ondergronds); start na de eerste toets of tik
@@ -1389,7 +1390,7 @@ export class Game {
     S.ready = true;
   }
   // reizigers met een doel aanmaken (gebruikt door de reistest en later door de wereld zelf)
-  travelersOn() { if (!this.travelers && this.traffic) this.travelers = new Travelers(this.scene, this.world, this.traffic); return this.travelers; }
+  travelersOn() { if (!this.travelers && this.traffic) { this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground; } return this.travelers; }
   // wachtenden aan de bushaltes: instappen bij een bus met open deuren, uitstappen (js/buspax.js)
   updateBusPax(dt, day) {
     if (!this.busPax) this.busPax = new BusPax(this.scene, this.world);
@@ -1524,6 +1525,7 @@ export class Game {
         this.resume();
       });
     }
+    { const ob = document.getElementById('btn-map-ov'); if (ob) ob.hidden = !this.mega; }
     this.invOpen = true; this.invWhich = 'map'; // zelfde gedrag als de inventaris: muis vrij, spel pauzeert
     if (document.pointerLockElement) document.exitPointerLock();
     this.paused = true;
@@ -1923,7 +1925,7 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
   }
   resume() {

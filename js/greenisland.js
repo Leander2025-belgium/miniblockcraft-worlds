@@ -22,8 +22,29 @@ export { META } from './greenisland-meta.js';
 import { META } from './greenisland-meta.js';
 import { boreColumn, ventShaft, BORE_W, BORE_H } from './carve.js';
 import { buildCrossovers, crossoverNear } from './crossover.js';
+import { depotAt, depotNear, tailDepotAt } from './depot.js';
 // overloopwissels tussen evenwijdige lijnen (dezelfde als in js/rail.js)
 const XO = buildCrossovers(LINES, trackOffset);
+// remises (TERRANOVA 14.1, js/depot.js): opstelterreinen buiten de bebouwing, gezocht met findDepot en hier vastgelegd
+// (tools/check-depots.mjs controleert dat de plekken vrij en vlak zijn); dezelfde lijst gebruikt js/rail.js
+export const DEPOT_DEF = [
+  { line: 'IC1', end: 'start', u: 3980, name: 'Remise Easthaven' },
+  { line: 'IC1', end: 'end', u: 1380, name: 'Remise Southbay' },
+  { line: 'IC3', end: 'end', u: 2460, name: 'Remise Easthaven-Noord' },
+  { line: 'IR4', end: 'end', u: 2920, name: 'Remise Southbay-West' },
+  // kopsporen in een tunnelhal voorbij het eindstation (TERRANOVA 14.2, js/depot.js tailDepotAt): de metro's liggen
+  // volledig onder de stad. Gekozen waar de tunnelhal (310 × 21 m) minstens 10 m onder de grond ligt en geen ander spoor
+  // raakt; M5 en M10 liggen aan beide einden te ondiep.
+  { line: 'M1', end: 'start', tail: true, under: true, name: 'Metroremise Munkbay-Noord (M1)' },
+  { line: 'M2', end: 'start', tail: true, under: true, name: 'Metroremise West Munkbay (M2)' },
+  { line: 'M3', end: 'start', tail: true, under: true, name: 'Metroremise Munkbay-Oost (M3)' },
+  { line: 'M4', end: 'start', tail: true, under: true, name: 'Metroremise Forum (M4)' },
+  { line: 'M6', end: 'start', tail: true, under: true, name: 'Metroremise Munkbay-West (M6)' },
+  { line: 'M7', end: 'start', tail: true, under: true, name: 'Metroremise Parkrand (M7)' },
+  { line: 'M8', end: 'end', tail: true, under: true, name: 'Metroremise Hogeschool (M8)' },
+  { line: 'M9', end: 'end', tail: true, under: true, name: 'Metroremise Munkbay-Oost (M9)' },
+];
+export const DEPOTS = DEPOT_DEF.map(d => d.tail ? tailDepotAt(LINES.find(L => L.id === d.line), d.end, trackOffset, d.name, d.under) : depotAt(LINES.find(L => L.id === d.line), d.end, d.u, trackOffset, d.name));
 
 class Grid {
   constructor(C) { this.C = C; this.m = new Map(); }
@@ -1104,7 +1125,41 @@ function fillColumn(x, z, col, slope, ctx, h) {
     for (let k = y + 1; k <= y + 7; k++) if (col[k]) col[k] = 0;
     t = Math.max(t, y);
   }
-  return ctx.metro && ctx.metro.length ? metroCarve(x, z, col, t, Math.round(G + h), ctx) : t;
+  if (ctx.metro && ctx.metro.length) t = metroCarve(x, z, col, t, Math.round(G + h), ctx);
+  // remise: opstelsporen op een vlak terrein (talud tot de grond, niets erboven) en een hal over de sporen; ondergronds
+  // (kopsporen van de metro) een tunnelhal. Na de metrotunnels, zodat hun wanden de waaier niet weer dichtmaken.
+  const dp = depotNear(DEPOTS, x + 0.5, z + 0.5);
+  if (dp) t = depotColumn(col, t, dp);
+  return t;
+}
+function depotColumn(col, t, dp) {
+  const y = Math.round(dp.y), D = dp.D, H = D.hall, a = Math.abs(dp.sd), o0 = H.o0 !== undefined ? Math.abs(H.o0) : 0, o1 = H.o1 !== undefined ? Math.abs(H.o1) : D.half;
+  if (D.under) {
+    // tunnelhal: vloer en sporen, 7 m vrij, betonnen plafond met lampen; de grond erboven blijft (straten en gebouwen)
+    if (dp.d <= 3.6 || dp.inHall) {
+      col[y - 1] = B.CONCRETE; col[y] = dp.d < 1.9 ? B.BALLAST : B.CONCRETE;
+      for (let k = y + 1; k <= y + 7; k++) col[k] = 0;
+      col[y + 8] = dp.inHall && Math.round(dp.u) % 8 === 4 && Math.abs(((a + 5) % 5) - 2.5) < 0.6 ? B.LAMP : B.CONCRETE;
+      if (dp.inHall && a > D.half - 1) for (let k = y + 1; k <= y + 7; k++) col[k] = B.CONCRETE; // wanden
+    }
+    return t;
+  }
+  if (dp.d <= 3.6 || dp.inHall) {
+    for (let k = y - 1; k > y - 12 && k > 0 && !col[k]; k--) col[k] = B.GRAVEL; // talud
+    col[y - 1] = B.GRAVEL; col[y] = dp.d < 1.9 ? B.BALLAST : dp.inHall ? B.CONCRETE : B.GRAVEL;
+    for (let k = y + 1; k <= y + 12; k++) col[k] = 0;
+    t = Math.max(t, y);
+  }
+  if (dp.inHall) {
+    // hal: dak op 9 m (lichtstraat in het midden), zijwanden met ramen, achterwand dicht, voorkant open voor de sporen
+    const roof = y + 9, edge = (o0 > 0 && a < o0 + 1) || a > o1 - 1, back = dp.u > H.u1 - 1.2;
+    col[roof] = Math.abs(a - (o0 + o1) / 2) < 1.5 ? B.GLASS : B.ROOF_DARK;
+    if (edge || back) for (let k = y + 1; k < roof; k++) col[k] = (k === y + 5 || k === y + 6) && Math.round(dp.u) % 8 < 5 && !back ? B.GLASS : B.PANEL_DARK;
+    else if (Math.round(dp.u) % 24 === 0 && Math.abs(((a - o0 - 2.5) % 5 + 5) % 5) < 0.6) for (let k = y + 1; k < roof; k++) col[k] = B.METAL; // kolommen tussen de sporen
+    else if (Math.round(dp.u) % 12 === 6 && Math.abs(((a - o0 - 2.5) % 5 + 5) % 5) < 0.6) col[roof - 1] = B.LAMP;
+    t = Math.max(t, roof);
+  }
+  return t;
 }
 // ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------
 const M_PIN = TRACK + 2.2, M_POUT = M_PIN + 4.2, M_STAIR = 4; // perron 4,2 m breed, trap 4 m breed
@@ -1303,7 +1358,7 @@ export function generateTile(tx, tz) {
     lines: lines.filter(L => !L.metro && !L.tram), metro: lines.filter(L => L.metro), lots: new Map(),
     bridgeOver: () => false,
     fitLandmark: (b) => { let f = lmFit.get(b.id); if (f === undefined) { let lo = 1e9, hi = -1e9; for (const [x, z] of [[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]]) { const hh = G + natural(x, z); lo = Math.min(lo, hh); hi = Math.max(hi, hh); } f = Math.round(Math.max(lo, Math.min(hi, G + natural((b.x0 + b.x1) / 2, b.z1 + 3)))); lmFit.set(b.id, f); } return f; },
-    noTree: (x, z) => { if (roadNear(x, z, 12) || nearLift(x, z, 6)) return true; for (const L of lines) if (!L.metro && !L.tram && L.near(x, z, 12)) return true; return false; },
+    noTree: (x, z) => { if (roadNear(x, z, 12) || nearLift(x, z, 6) || depotNear(DEPOTS, x, z) || depotNear(DEPOTS, x + 3, z) || depotNear(DEPOTS, x - 3, z) || depotNear(DEPOTS, x, z + 3) || depotNear(DEPOTS, x, z - 3)) return true; for (const L of lines) if (!L.metro && !L.tram && L.near(x, z, 12)) return true; return false; },
   };
   const cols = new Array(T * T);
   const col = new Uint8Array(3200);

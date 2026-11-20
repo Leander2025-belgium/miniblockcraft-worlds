@@ -189,18 +189,21 @@ class Network {
 // lengte en bakken per soort (offset = afstand van de neus tot het midden van de bak)
 function consist(kind, r) {
   if (kind === 'metro') {
-    const s = [{ m: 'metroCab', len: 18, off: 9, doors: 'metroDoorsCab' }];
+    // vloot: helft nieuwe generatie (metro2*, js/vehicles.js), zelfde deuren
+    const gen = ((r * 977) % 1) < 0.5 ? 'metro2' : 'metro';
+    const s = [{ m: gen + 'Cab', len: 18, off: 9, doors: 'metroDoorsCab' }];
     const mids = r < 0.5 ? 2 : 4; let o = 18;
-    for (let i = 0; i < mids; i++) { s.push({ m: 'metroMid', len: 18, off: o + 9, doors: 'metroDoorsMid' }); o += 18; }
-    s.push({ m: 'metroCab', len: 18, off: o + 9, flip: true, doors: 'metroDoorsCab' });
+    for (let i = 0; i < mids; i++) { s.push({ m: gen + 'Mid', len: 18, off: o + 9, doors: 'metroDoorsMid' }); o += 18; }
+    s.push({ m: gen + 'Cab', len: 18, off: o + 9, flip: true, doors: 'metroDoorsCab' });
     return { secs: s, L: o + 18 };
   }
   if (kind === 'tram') {
-    const s = [{ m: 'tramCab', len: 7.6, off: 3.8, doors: 'tramDoorsCab' }];
+    const gen = ((r * 677) % 1) < 0.5 ? 'tram2' : 'tram';
+    const s = [{ m: gen + 'Cab', len: 7.6, off: 3.8, doors: 'tramDoorsCab' }];
     const mids = r < 0.5 ? 2 : 3;
     let o = 7.6;
-    for (let i = 0; i < mids; i++) { s.push({ m: 'tramMid', len: 7.0, off: o + 3.5, doors: 'tramDoorsMid' }); o += 7.0; }
-    s.push({ m: 'tramCab', len: 7.6, off: o + 3.8, flip: true, doors: 'tramDoorsCab' });
+    for (let i = 0; i < mids; i++) { s.push({ m: gen + 'Mid', len: 7.0, off: o + 3.5, doors: 'tramDoorsMid' }); o += 7.0; }
+    s.push({ m: gen + 'Cab', len: 7.6, off: o + 3.8, flip: true, doors: 'tramDoorsCab' });
     return { secs: s, L: o + 7.6 };
   }
   if (kind === 'train') {
@@ -221,7 +224,7 @@ function consist(kind, r) {
     // vloot: stadsbussen, gelede bussen (scharnier volgt de bocht: elke wagen heeft zijn eigen as), elektrische bussen,
     // touringcars en buurtbussen; deuren gaan open aan de halte
     if (r < 0.3) return { secs: [{ m: 'busArtF', len: 11, off: 5.5, doors: 'busArtFDoors' }, { m: 'busArtR', len: 7, off: 11.6 + 3.5, doors: 'busArtRDoors' }], L: 18.6 };
-    const m = r < 0.5 ? 'busElec' : r < 0.56 ? 'busCoach' : r < 0.62 ? 'busMini' : r < 0.7 ? 'busDD' : r < 0.78 ? 'busRegio' : 'busCity', len = { busElec: 12, busCoach: 13, busMini: 8, busCity: 12, busDD: 11.5, busRegio: 12.5 }[m];
+    const m = r < 0.4 ? 'busNew' : r < 0.5 ? 'busElec' : r < 0.56 ? 'busCoach' : r < 0.62 ? 'busMini' : r < 0.7 ? 'busDD' : r < 0.78 ? 'busRegio' : 'busCity', len = { busNew: 12, busElec: 12, busCoach: 13, busMini: 8, busCity: 12, busDD: 11.5, busRegio: 12.5 }[m];
     return { secs: [{ m, len, off: len / 2, doors: m + 'Doors' }], L: len };
   }
   const cars = ['sedan', 'sedan', 'hatch', 'hatch', 'suv', 'van', 'taxi', 'sedan', 'suv', 'hatch'];
@@ -231,7 +234,7 @@ function consist(kind, r) {
   if (em) return { secs: [{ m, len, off: len / 2, beacon: em === 'police' ? 'Car' : em === 'ambulance' ? 'Van' : 'Truck' }], L: len, emergency: em };
   return { secs: [{ m, len, off: len / 2 }], L: len };
 }
-const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
+const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metro2Cab: 24, metro2Mid: 48, tram2Cab: 40, tram2Mid: 60, busNew: 24, busNewDoors: 24, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
 
 export class Traffic {
@@ -293,7 +296,7 @@ export class Traffic {
     const E = this.net.edges;
     // voertuigen op randen die niet meer bestaan: weg
     for (const a of this.agents) {
-      if (!E.has(a.route[0].e.id)) { a.dead = true; continue; }
+      if (!E.has(a.route[0].e.id)) { a.dead = true; a.why = 'net'; continue; }
       const keep = [];
       for (const r of a.route) { if (!E.has(r.e.id)) break; keep.push({ e: E.get(r.e.id), dir: r.dir }); }
       a.route = keep;
@@ -393,6 +396,7 @@ export class Traffic {
     for (const e of this.net.edges.values()) {
       if ((net === 'ship' ? (e.net !== 'water' && e.net !== 'sea') : e.net !== net) || e.conn || e.len < 8) continue;
       if (kind === 'bus' && this.net.len.major > 300 && !e.major) continue;
+      if (kind === 'bus' && this.busLinesOnly && !(e.line && e.line[0] === 'B')) continue; // vaste buslijnen (Megatower City)
       if (kind === 'car' && e.cls === 'boat') continue;
       const mx = e.pts[Math.floor(e.pts.length / 6) * 3], mz = e.pts[Math.floor(e.pts.length / 6) * 3 + 2];
       const dd = Math.hypot(mx - player.x, mz - player.z);
@@ -420,6 +424,7 @@ export class Traffic {
         : kind === 'tram' ? TRAM_COLORS[Math.floor(rr * 7) % TRAM_COLORS.length]
         : kind === 'train' ? 0xffffff : 0, phase: Math.random() * 10 };
     if (kind === 'train') a.color = a.ice ? 0xf4f4f2 : 0xc8102e;
+    if (kind === 'bus' && e.line && e.line[0] === 'B') a.line = e.line;
     if (kind === 'metro') { a.line = e.line || ('M' + (1 + Math.floor(rr * 6))); let h = 0; for (const ch of a.line) h = (h * 31 + ch.charCodeAt(0)) >>> 0; a.color = METRO_COLORS[h % METRO_COLORS.length]; }
     if (kind === 'walk') {
       a.shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)]; a.pants = PANTS[Math.floor(Math.random() * PANTS.length)];
@@ -517,6 +522,8 @@ export class Traffic {
     if (a.kind === 'walk') return opts[Math.floor(Math.random() * opts.length)];
     const sorted = opts.slice().sort((x, y) => score(y) - score(x));
     const straightP = a.kind === 'train' || a.kind === 'tram' ? 0.85 : a.kind === 'bus' ? 0.75 : 0.55;
+    // vaste buslijn: op de laan van de lijn blijven (rechtdoor of de verbinding naar hetzelfde lijnstuk)
+    if (a.kind === 'bus' && a.line && a.line[0] === 'B') { const on = sorted.find(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line))); if (on) return on; }
     if (a.kind === 'bus') { const maj = sorted.find(o => o.e.major || (o.e.conn && o.e.next[1][0]?.e.major)); if (maj && Math.random() < 0.8) return maj; }
     return Math.random() < straightP ? sorted[0] : sorted[1 + Math.floor(Math.random() * (sorted.length - 1))];
   }
@@ -547,13 +554,21 @@ export class Traffic {
         a.d = r.dir > 0 ? e.len : 0;
         if (a.player) { a.v = 0; a.endOfLine = true; return; }
         if (a.passenger && (a.kind === 'car' || a.kind === 'bus')) { a.v = 0; a.wait = 3; a.reverseAfter = true; return; } // met passagier: keren
-        if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; return; }
+        if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; a.why = 'eind weg'; return; }
         if (a.kind === 'walk') { r.dir = -r.dir; return; }
         // einde van het geladen net ver van de speler: uit beeld (de rit blijft bewaard, js/ovtrips.js) in plaats van
         // op hetzelfde spoor terug te rijden (dat gaf tegenliggers op één spoor die elkaar blokkeerden)
-        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; return; } }
+        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; a.why = 'rand net'; return; } }
         // eindstation: even wachten en terugrijden
         a.v = 0; a.wait = 20; a.reverseAfter = true; return;
+      }
+      // einde van een vaste buslijn (de laan houdt op aan een groot gebouw of park, js/megaplan.js lineRuns):
+      // ver van de speler verdwijnt de bus (de rit blijft bewaard); dichtbij rijdt hij leeg en buiten dienst verder
+      if (a.kind === 'bus' && a.line && a.line[0] === 'B' && !a.player && !a.passenger && !opts.some(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line)))) {
+        const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {}));
+        if (!this.pl || Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.d = r.dir > 0 ? e.len : 0; a.dead = true; a.why = 'einde lijn'; return; }
+        if (a.trip) { this.trips.alight(a, a.trip.occ); a.trip.dest = 'Niet in dienst'; }
+        a.oos = true; a.line = null;
       }
       const o = this.choose(a, opts);
       a.route.unshift({ e: o.e, dir: o.dir });
@@ -649,9 +664,9 @@ export class Traffic {
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0, metro: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA), d = Math.hypot(h.x - player.x, h.z - player.z);
-      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) a.dead = true;
+      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) { a.dead = true; a.why = 'ver'; }
       // te veel voor deze periode: buiten zicht uit dienst nemen, of aan de volgende halte (eindrit)
-      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; }
+      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && !a.npc && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; a.why = 'uit dienst'; }
       else have[a.kind]++;
     }
     this.have = have; this.want = want;
@@ -720,7 +735,7 @@ export class Traffic {
         a.gapAhead = gap;
         if (gap < 1e8) target = Math.min(target, Math.max(0, (gap - 3) * 0.9));
         // haltes
-        if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train' || a.kind === 'metro') && e.stops.length) {
+        if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train' || a.kind === 'metro') && e.stops.length && !a.oos) {
           const half = a.kind === 'bus' ? 0 : a.L / 2;
           for (const sd of e.stops) {
             const key = e.id + '@' + sd;
@@ -730,6 +745,8 @@ export class Traffic {
             if (dist < -1 || dist > 120) continue;
             if (dist < 0.6) {
               a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0;
+              // haltes die echt bediend worden (voor de reizigers die vanzelf verschijnen, js/travelers.js): plek van het voertuig aan de halte
+              a.stopSeq = (a.stopSeq || 0) + 1; { const hm = this.behind(a, a.L / 2, {}); (this.served || (this.served = new Map())).set(key + '|' + a.kind, { name: a.atStop, kind: a.kind, x: hm.x, y: hm.y, z: hm.z, t: this.clock || 0 }); }
               // reizigers: bij bussen vlakbij doen de zichtbare wachtenden het (js/buspax.js), anders de ritlaag
               if (a.trip) { const hh = this.behind(a, 0, this.tmpB2 || (this.tmpB2 = {})); if (a.kind !== 'bus' || Math.hypot(hh.x - player.x, hh.z - player.z) > 225) this.trips.stopLight(a, this.period || 'dal', a.trip.dest && a.atStop === a.trip.dest); a.trip.nextStop = null; }
               break;

@@ -51,7 +51,7 @@ export class BusPax {
       const S = [...this.stops.values()].find(S => Math.hypot(S.st.x - b.x, S.st.z - b.z) < 14); if (!S) continue;
       // uitstappen: een deel van de echte bezetting van de rit (js/ovtrips.js); hooguit 3 ervan lopen zichtbaar weg
       if (!b.served) { b.served = true; const T = this.trips; let n = Math.floor(this.rnd() * 3);
-        if (T && b.id.trip) { const tot = T.alight(b.id, Math.round(b.id.trip.occ * (0.12 + 0.18 * this.rnd()))); this.stats.uitgestaptRit = (this.stats.uitgestaptRit || 0) + tot; n = Math.min(3, tot); }
+        if (T && b.id.trip) { const tot = T.alight(b.id, Math.min(Math.max(0, b.id.trip.occ - (b.id.npc || 0) - (b.id.riders || 0)), Math.round(b.id.trip.occ * (0.12 + 0.18 * this.rnd())))); this.stats.uitgestaptRit = (this.stats.uitgestaptRit || 0) + tot; n = Math.min(3, tot); }
         for (let i = 0; i < n; i++) { const p = this.add(S.st, 'out', { x: b.x, z: b.z, y: this.feet(b.x, b.z, S.st.y + 1) ?? S.st.y + 1 }); if (p) { const a = this.rnd() * 6.28; p.tx = b.x + Math.cos(a) * 12; p.tz = b.z + Math.sin(a) * 12; this.stats.uitgestapt++; } } }
       const full = this.trips && this.trips.full(b.id); // volle bus: wachtenden blijven staan
       if (!full) for (const p of this.list) if (p.st === S.st && p.state === 'wait') { p.state = 'board'; p.tx = b.x; p.tz = b.z; p.bus = b.id; }

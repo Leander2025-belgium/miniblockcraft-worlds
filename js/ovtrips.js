@@ -9,7 +9,7 @@
 //
 // Reizigers: zichtbare wachtenden aan bushaltes (js/buspax.js) stappen in en uit via board()/alight(); buiten het
 // zichtbare gebied rekent stopLight() het in- en uitstappen per halte uit (volgens de periode van de dienstregeling).
-export const CAPACITY = { busCity: 70, busElec: 70, busArtF: 110, busCoach: 50, busMini: 25, busDD: 90, busRegio: 60, bus: 60, tramCab: 0, tram: 180, metro: 600, train: 700 };
+export const CAPACITY = { busCity: 70, busElec: 70, busNew: 70, busArtF: 110, busCoach: 50, busMini: 25, busDD: 90, busRegio: 60, bus: 60, tramCab: 0, tram: 180, metro: 600, train: 700 };
 const LOAD = { spits: 0.55, dal: 0.28, avond: 0.18, nacht: 0.06 }; // gemiddelde bezetting per periode
 const GHOST_MAX_AGE = 900; // s: zo lang blijft een rit buiten beeld bewaard
 
@@ -63,7 +63,9 @@ export class Trips {
   // halte buiten het zichtbare gebied: uitstappen (deel van de bezetting) en instappen (volgens de periode)
   stopLight(a, period, terminus) {
     const T = a.trip; if (!T) return;
-    const out = terminus ? T.occ : Math.round(T.occ * (0.12 + 0.18 * this.r()));
+    // zichtbare reizigers aan boord (js/travelers.js) stappen zelf uit: die blijven buiten deze telling
+    const keep = (a.npc || 0) + (a.riders || 0), free = Math.max(0, T.occ - keep);
+    const out = terminus ? free : Math.min(free, Math.round(T.occ * (0.12 + 0.18 * this.r())));
     this.alight(a, out);
     if (!terminus) this.board(a, Math.round(T.cap * (LOAD[period] ?? 0.25) * 0.18 * (0.5 + this.r())));
     T.served++; this.stats.bijgewerkt++;

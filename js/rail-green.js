@@ -1,7 +1,7 @@
 // Treinnet van Greenisland voor rail.js: lijnen en stations uit het centrale netwerkmodel (green-net.js),
 // diensten uit greenisland-data.js (canon en voorstellen), de spoorkaart en de internationale reizen.
 import { LINES as RAIL_LINES, TRACK, trackOffset, stationsOf } from './green-net.js';
-import { groundAt, MW, ML, PEAKS, AREAS, BUS_LINES, levelCrossings } from './greenisland.js';
+import { groundAt, MW, ML, PEAKS, AREAS, BUS_LINES, levelCrossings, DEPOTS } from './greenisland.js';
 import { SERVICES as RAIL_SERVICES, METRO_SERVICES, METRO_LINES, tramServices } from './greenisland-data.js';
 import { TRAMS } from './greenisland-trams.js';
 
@@ -25,9 +25,11 @@ export const NET = {
   // automatische doorgaande treinen over de overloopwissels tussen IC1 en S1 (js/railroute.js): de rijweg wordt
   // ingesteld, de wissel gaat om, de trein rijdt over het verbindingsspoor en de rijweg wordt na passage vrijgegeven
   throughServices: [
-    { id: 'S11', from: 'IC1', to: 'S1', aDir: 1, name: 'S11 Easthaven – Eastport Central (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
-    { id: 'S12', from: 'IC1', to: 'S1', aDir: -1, name: 'S12 Southbay – West Munkbay (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+    { id: 'S11', from: 'IC1', to: 'S1', aDir: 1, name: 'S11 Easthaven – Eastport Central (via wissel)', liv: 'GS', cars: ['sbCab', 'sbMid', 'sbCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+    { id: 'S12', from: 'IC1', to: 'S1', aDir: -1, name: 'S12 Southbay – West Munkbay (via wissel)', liv: 'GS', cars: ['sbCab', 'sbMid', 'sbCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
   ],
+  // remises (js/depot.js, js/depotsim.js): opstelsporen, omloop, uit- en inrukken
+  depots: DEPOTS,
   mapImage: './assets/greenisland-map.jpg',
   mapLabels: [...PEAKS.map(p => [`▲ ${p.name} ${p.h}`, p.x, p.z]), ...AREAS.filter(a => a.kind === 'airport').map(a => ['✈ Munkbay Airport', a.x, a.z, '#dfe'])],
   // internationale treinen: aan het einde van de Noordzeetunnel reis je verder naar een echte stad

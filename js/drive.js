@@ -145,7 +145,7 @@ export class Drive {
     }
     // op de plaats van de schermen boven de 3 deuren van het rijtuig waar je zit (beide kanten van het scherm)
     const sec = a.secs.find(sc => this.seat >= sc.off - sc.len / 2 && this.seat <= sc.off + sc.len / 2) || a.secs[0];
-    const doorZ = sec.m === 'metroCab' ? [-5.7, -0.3, 5.1] : [-6, 0, 6], lift = 0.2;
+    const doorZ = sec.m === 'metroCab' || sec.m === 'metro2Cab' ? [-5.7, -0.3, 5.1] : [-6, 0, 6], lift = 0.2;
     let k = 0;
     for (const dz of doorZ) {
       const z = dz * (sec.flip ? -1 : 1), q = this.railPose(sec.off - z);
@@ -388,7 +388,7 @@ export class Drive {
       <div class="bus-ind"><span style="opacity:${il ? 1 : 0.2}">⬅</span><span style="opacity:${ir ? 1 : 0.2}">➡</span></div>
       <div class="sig-lamp" style="background:${lc}" title="Verkeerslicht"></div></div>
       <div class="dh-speed" style="display:none">${kmh}</div>
-      <div class="small"><b>🚌 ${{ busCity: 'Stadsbus', busElec: 'Elektrische bus', busArtF: 'Gelede bus', busCoach: 'Touringcar', busMini: 'Buurtbus', busDD: 'Dubbeldekker', busRegio: 'Streekbus' }[c.m] || 'Bus'}</b>${c.rear && this.knik ? ` · knik ${Math.round(Math.abs(this.knik) * 57.3)}°` : ''} · deuren <b>${c.doorsOpen ? 'open' : 'dicht'}</b>${this.ind === 2 ? ' · alarmlichten' : ''}<br>
+      <div class="small"><b>🚌 ${{ busCity: 'Stadsbus', busElec: 'Elektrische bus', busNew: 'Nieuwe e-bus', busArtF: 'Gelede bus', busCoach: 'Touringcar', busMini: 'Buurtbus', busDD: 'Dubbeldekker', busRegio: 'Streekbus' }[c.m] || 'Bus'}</b>${c.rear && this.knik ? ` · knik ${Math.round(Math.abs(this.knik) * 57.3)}°` : ''} · deuren <b>${c.doorsOpen ? 'open' : 'dicht'}</b>${this.ind === 2 ? ' · alarmlichten' : ''}<br>
       ${this.stop ? `🚏 Volgende halte: <b>${this.stop.name}</b> over ${Math.round(this.stop.d)} m${this.stop.d < 25 && Math.abs(c.speed) < 0.4 ? ' · <b class="ok">aan de halte — Q deuren</b>' : ''}` : '🚏 Geen bushalte in zicht'}<br>
       ${L ? `🚦 Verkeerslicht <b style="color:${lc}">${L.state}</b> over ${Math.round(L.d)} m` : '🚦 Geen verkeerslicht vóór je'}${this.reds ? ` · ${this.reds}× door rood` : ''}<br>
       <span class="muted">W/S gas/rem · A/D sturen · Q deuren · Z/C richtingaanwijzer · X alarmlichten · N omroep · V camera · H uitstappen</span></div>`;

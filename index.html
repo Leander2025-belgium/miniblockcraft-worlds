@@ -262,6 +262,7 @@
   .mp-result { background: rgba(255,255,255,.05); border-radius: 10px; padding: 8px 12px; margin: 8px 0; max-height: 46vh; overflow: auto; }
   .plan-legs { margin: 6px 0 0 18px; padding: 0; line-height: 1.5; }
   #ov-megaplan select { max-width: 46vw; }
+  #ovmap { width: 100%; max-height: 62vh; object-fit: contain; cursor: pointer; display: block; }
   #nav-hud { position: absolute; left: 50%; top: 104px; transform: translateX(-50%); background: rgba(16,20,28,.85); color: #9fe0ff; padding: 5px 12px; border-radius: 10px; font-size: 14px; z-index: 28; white-space: nowrap; }
   #use-hint { position: absolute; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); background: rgba(10,14,20,.72); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 13px; pointer-events: none; white-space: nowrap; z-index: 6; }
   #lift-panel { position: absolute; right: 12px; top: 70px; width: min(420px, calc(100vw - 24px)); max-height: calc(100vh - 160px); overflow: auto; background: rgba(16,20,28,.94); border: 1px solid #e8b830; border-radius: 12px; padding: 10px; z-index: 30; color: #fff; }
@@ -529,6 +530,8 @@
     <label class="file btn"><input type="file" id="import" accept=".blokstad,.blokstad-bouw,.terranova,.terranova-bouw,.terranova-backup,application/octet-stream">Bestand importeren…</label>
     <button class="btn" id="btn-backup" type="button">🛟 Volledige back-up maken</button>
     <p class="help">Een back-up (<code>.terranova-backup</code>) bevat al je opgeslagen stukken, bouwwerken en instellingen. Terugzetten gaat via <i>Bestand importeren…</i> en wist nooit iets.</p>
+    <button class="btn" id="btn-perftest" type="button">📊 Prestatietest op dit toestel</button>
+    <p class="help">Meet hoe vlot TERRANOVA op jouw toestel en grafische kaart draait: 5 vaste scènes in Megatower City (± 2 minuten), met hetzelfde grafische profiel als de ontwikkeltests. Je eigen instellingen worden daarna teruggezet. Het resultaat kan je kopiëren en doorsturen.</p>
 
     <h2 id="tn-help">Besturing</h2>
     <div class="keys">
@@ -554,7 +557,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help tn-version" id="app-version">TERRANOVA 14.0 (releasekandidaat) · versie 2026-11-21a <span class="muted">(vroeger Blokstad)</span></p>
+    <p class="help tn-version" id="app-version">TERRANOVA 14.2 · versie 2026-11-23a <span class="muted">(vroeger Blokstad)</span></p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als TERRANOVA-bestand (<code>.blokstad</code>, het bestandsformaat van Blokstad) om te delen of te back-uppen. Oude <code>.blokstad</code>- en <code>.blokstad-bouw</code>-bestanden blijven werken.</p>
   </aside>
 </div>
@@ -654,7 +657,7 @@
       <h2>Kaart</h2>
       <p class="help" style="margin-top:0">Klik ergens om erheen te vliegen. Grijze delen zijn nog niet gedownload.</p>
       <canvas id="bigmap"></canvas>
-      <div class="row"><button class="btn primary" id="btn-map-close">Terug naar het spel</button></div>
+      <div class="row"><button class="btn primary" id="btn-map-close">Terug naar het spel</button><button class="btn" id="btn-map-ov" hidden>🗺 Live OV-kaart</button></div>
     </div>
   </div>
   <div class="ov" id="ov-rail" hidden>
@@ -675,12 +678,31 @@
   <div class="ov" id="ov-megaplan" hidden>
     <div class="card map-card">
       <h2>🧭 Reisplanner Megatower City</h2>
-      <p class="help" style="margin-top:0">Metro M1 (Westpoort – Megatower – Luchthaven), de trein Megatower Centraal – Luchthaven en wandelen, volgens de dienstregeling van het speluur (spits, daluren, avond, nacht).</p>
+      <p class="help" style="margin-top:0">Metro M1 (Westpoort – Megatower – Luchthaven), trams T1–T4, de trein Megatower Centraal – Luchthaven en wandelen (ook om over te stappen), volgens de dienstregeling van het speluur (spits, daluren, avond, nacht). Bussen B1–B38 rijden op vaste lijnen langs de buslanen.</p>
       <div class="row"><label>Van <select id="mp-from"></select></label><label>Naar <select id="mp-to"></select></label><label>Vertrek <select id="mp-hour"></select></label></div>
       <div id="mp-result" class="mp-result"></div>
       <div class="row"><button class="btn primary" id="mp-nav">🧭 Navigeer naar de eerste halte</button><button class="btn" id="mp-close">Terug naar het spel</button></div>
     </div>
   </div>
+  <div class="ov" id="ov-ovmap" hidden>
+    <div class="card map-card">
+      <h2>🗺 Live OV-kaart Megatower City</h2>
+      <p class="help" style="margin-top:0">Metro M1, trein IC, trams T1–T4 en bussen B1–B38 (groen). Volle vierkantjes met witte rand: echte voertuigen rond je (met rit en bezetting); de andere rijden volgens de dienstregeling. Klik op een voertuig of een halte.</p>
+      <canvas id="ovmap"></canvas>
+      <div class="small muted" id="ovmap-count"></div>
+      <div id="ovmap-info" class="mp-result"></div>
+      <div class="row"><button class="btn" id="ovmap-close">Terug naar het spel</button></div>
+    </div>
+  </div>
+  <div class="ov" id="ov-perf" hidden>
+    <div class="card map-card">
+      <h2>📊 Prestatietest op dit toestel</h2>
+      <div id="perf-result" class="mp-result"></div>
+      <div class="row"><button class="btn primary" id="perf-copy">📋 Resultaat kopiëren</button><button class="btn" id="perf-close">Terug naar het menu</button></div>
+      <textarea id="perf-json" readonly rows="4" style="width:100%;font-size:11px" hidden></textarea>
+    </div>
+  </div>
+  <div id="perf-hud" hidden style="position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(16,20,28,.85);color:#9fe0ff;padding:6px 14px;border-radius:10px;font-size:14px;z-index:40"></div>
   <div class="ov" id="ov-diag" hidden>
     <div class="card map-card">
       <h2>🩺 Diagnose</h2>
@@ -719,6 +741,7 @@
         <button class="btn" id="btn-diag">🩺 Diagnose</button>
         <button class="btn" id="btn-ovdiag">🛠 OV-diagnose</button>
         <button class="btn" id="btn-megaplan" hidden>🧭 Reisplanner</button>
+        <button class="btn" id="btn-ovmap" hidden>🗺 Live OV-kaart</button>
       </div>
       <label>Opdrachten</label>
       <div id="missions" class="missions"></div>
@@ -820,6 +843,6 @@
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
-<script type="module" src="./js/app.js?v=2026-11-21a"></script>
+<script type="module" src="./js/app.js?v=2026-11-23a"></script>
 </body>
 </html>

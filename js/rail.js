@@ -2,10 +2,11 @@
 // meerijden (zitplaats kiezen, in- en uitstappen aan perrons), zelf rijden vanuit de cabine (tractie, rem,
 // noodrem, seinen, snelheidsbeperkingen, haltes, deuren, omroepen) en een interactieve kaart met reisplanner.
 import * as THREE from 'three';
-import { TrainShells, LOD_DIST } from './trainshell.js';
+import { TrainShells, LOD_DIST, CAR_BASE } from './trainshell.js';
 import { RailInfra } from './railinfra.js';
 import { RailSound } from './sound.js';
 import { buildCrossovers } from './crossover.js';
+import { depotPlan, depotState } from './depotsim.js';
 import { routeServices } from './railroute.js';
 import { Passengers } from './passengers.js';
 import { B, IS_SOLID } from './blocks.js';
@@ -74,7 +75,8 @@ const LIVERY = {
 // massa (t), tractiekracht (kN) en vermogen (kW) per rijtuigsoort; aangedreven rijtuigen tellen mee voor de kleefkracht
 const CAR_PHYS = { loco: [86, 240, 6400], emuCab: [56, 70, 1600], emuMid: [48, 55, 1200], iceHead: [72, 150, 4000], ice: [52, 30, 800],
   coach1: [46, 0, 0], coach2: [44, 0, 0], dining: [52, 0, 0], sleeper: [54, 0, 0], panorama: [42, 0, 0], rack: [32, 45, 900], rackLoco: [44, 70, 1400],
-  tram: [36, 45, 500], bus: [16, 0, 0], box: [58, 0, 0], tank: [72, 0, 0], flat: [40, 0, 0] };
+  tram: [36, 45, 500], bus: [16, 0, 0], box: [58, 0, 0], tank: [72, 0, 0], flat: [40, 0, 0],
+  ddCab: [58, 70, 1500], ddMid: [50, 60, 1200], sbCab: [44, 60, 1300], sbMid: [38, 50, 1100], mCab: [32, 55, 1000], mMid: [30, 50, 900], axCab: [54, 70, 1700], axMid: [46, 55, 1200], regCab: [52, 60, 1400], regMid: [46, 50, 1100], locoD: [90, 260, 2400] };
 export function trainPhysics(tr) {
   let M = 0, Md = 0, F = 0, P = 0, len = 0;
   for (const c of tr.cars) { const [m, f, p] = CAR_PHYS[c.d.type] || [45, 0, 0]; M += m; if (f) { Md += m; F += f; P += p; } len += c.d.L + GAP; }
@@ -82,9 +84,12 @@ export function trainPhysics(tr) {
 }
 // kleefkracht wiel–rail: droog 0,30; regen 0,20; onweer 0,17; sneeuw 0,12
 export function adhesion(w) { return w === 'snow' ? 0.12 : w === 'storm' ? 0.17 : w === 'rain' ? 0.2 : 0.3; }
-const CAR_LEN = { loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
-function design(type, liv) {
-  const L = CAR_LEN[type], W = 4, H = 6, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
+const CAR_LEN = { ddCab: 26, ddMid: 26, sbCab: 22, sbMid: 22, mCab: 18, mMid: 18, axCab: 26, axMid: 26, regCab: 26, regMid: 26, locoD: 20, loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
+function design(vtype, liv) {
+  // materieel per categorie (js/trainshell.js CAR_BASE): eigen lengte en deuren, de indeling van het basistype
+  const type = CAR_BASE[vtype] || vtype;
+  if (vtype === 'ddCab' || vtype === 'ddMid') return designDD(vtype, liv);
+  const L = CAR_LEN[vtype], W = 4, H = 6, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
   const set = (x, y, z, b) => { if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) vox[(z * size + x) * H + y] = b; };
   const box = (x0, y0, z0, x1, y1, z1, b) => { for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) set(x, y, z, b); };
   const [c1, c2] = LIVERY[liv] || LIVERY.AE;
@@ -98,7 +103,7 @@ function design(type, liv) {
     if (type === 'box') { box(0, 1, 0, W - 1, 4, L - 1, c1); for (let z = 2; z < L; z += 3) box(0, 1, z, W - 1, 4, z, B.PAINT_BLACK); }
     else if (type === 'tank') { box(1, 1, 1, 2, 4, L - 2, B.METAL); box(0, 2, 1, W - 1, 3, L - 2, B.METAL); box(1, 5, L >> 1, 2, 5, L >> 1, B.PAINT_BLACK); }
     else { box(0, 1, 0, W - 1, 1, L - 1, B.DARK_PLANKS); box(0, 2, 1, W - 1, 4, 6, B.PAINT_BLUE); box(0, 2, 8, W - 1, 4, 13, B.PAINT_ORANGE); }
-    return { W, H, L, size, vox, seats, doors, cab, type, walk: false };
+    return { W, H, L, size, vox, seats, doors, cab, type: vtype, walk: false };
   }
   const glassRoof = type === 'panorama';
   // vloer, wanden, ramen, dak
@@ -112,7 +117,8 @@ function design(type, liv) {
   // kopwanden met een doorgang naar het volgende rijtuig
   for (const z of [0, L - 1]) { for (let x = 0; x < W; x++) for (let y = 2; y <= 4; y++) set(x, y, z, c1); set(1, 2, z, 0); set(2, 2, z, 0); set(1, 3, z, 0); set(2, 3, z, 0); }
   // deuren (geel, dicht tijdens de rit; in- en uitstappen met J)
-  for (const z of [2, L - 3]) { for (const x of [0, W - 1]) { set(x, 2, z, B.PAINT_YELLOW); set(x, 3, z, B.GLASS_GREEN); } doors.push(z); }
+  const DOORS = { sbCab: [2, 10, L - 5], sbMid: [2, 10, L - 3], mCab: [2, 8, L - 5], mMid: [2, 8, L - 3], regCab: [6, L - 9], regMid: [6, L - 7] };
+  for (const z of DOORS[vtype] || [2, L - 3]) { for (const x of [0, W - 1]) { set(x, 2, z, B.PAINT_YELLOW); set(x, 3, z, B.GLASS_GREEN); } doors.push(z); }
   const cabFront = type === 'loco' || type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'rackLoco' || type === 'tram' || type === 'bus';
   if (cabFront) {
     // cabine vooraan: lessenaar, frontruit, stoel van de machinist
@@ -132,6 +138,7 @@ function design(type, liv) {
   if (type === 'coach1' || type === 'coach2' || type === 'emuCab' || type === 'emuMid' || type === 'ice' || type === 'iceHead' || type === 'panorama' || type === 'rack' || type === 'tram' || type === 'bus') {
     const z0 = 4, z1 = cabFront ? L - 5 : L - 4;
     for (let z = z0; z <= z1; z++) {
+      if (doors.includes(z)) continue;
       if ((z - z0) % 2 === 0) { set(1, 2, z, type === 'coach1' ? B.WOOL_RED : type === 'panorama' ? B.PAINT_ORANGE : B.PAINT_BLUE); seats.push([1.5, 3, z + 0.5]); }
       if (type === 'coach1' && (z - z0) % 4 === 1) set(1, 2, z, B.DARK_PLANKS); // tafeltje
     }
@@ -147,9 +154,45 @@ function design(type, liv) {
       else if (z % 4 === 2) { set(1, 2, z, B.WOOL_RED); set(1, 4, z, B.WOOL_RED); seats.push([1.5, 3, z + 0.5]); } // onder- en bovenbed
     }
   }
-  return { W, H, L, size, vox, seats, doors, cab, type, walk: true };
+  return { W, H, L, size, vox, seats, doors, cab, type: vtype, walk: true };
 }
 
+// dubbeldekker (TERRANOVA 14.2): twee verdiepingen. Benedendek vloer y1 (stahoogte y2–3), bovendek vloer y4 (stahoogte
+// y5–6), dak y7. Aan beide kanten een instaphal bij de deuren; daar een trap van 3 treden naar boven, met ernaast een
+// vrije doorgang naar het benedendek. Zitplaatsen op beide verdiepingen.
+function designDD(vtype, liv) {
+  const cab = vtype === 'ddCab', L = CAR_LEN[vtype], W = 4, H = 8, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
+  const set = (x, y, z, b) => { if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) vox[(z * size + x) * H + y] = b; };
+  const box = (x0, y0, z0, x1, y1, z1, b) => { for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) set(x, y, z, b); };
+  const [c1, c2] = LIVERY[liv] || LIVERY.AE, seats = [], doors = [];
+  box(0, 0, 1, W - 1, 0, L - 2, B.METAL); for (const z of [2, 3, L - 4, L - 3]) box(0, 0, z, W - 1, 0, z, B.PAINT_BLACK);
+  box(0, 1, 0, W - 1, 1, L - 1, B.TILE);                                                  // vloer benedendek en instaphallen
+  const zA = 7, zB = cab ? L - 9 : L - 8;                                                 // bovendek tussen de trappen
+  box(1, 4, zA, 2, 4, zB, B.TILE);                                                        // vloer bovendek
+  for (let z = 0; z < L; z++) for (const x of [0, W - 1]) {
+    set(x, 2, z, c1); set(x, 3, z, z % 4 === 0 || z < 1 || z > L - 2 ? c1 : B.GLASS);   // benedendek: ramen
+    set(x, 4, z, c2);                                                                     // band tussen de verdiepingen
+    set(x, 5, z, c1); set(x, 6, z, z % 4 === 0 || z < 1 || z > L - 2 ? c1 : B.GLASS);   // bovendek: ramen
+  }
+  for (let z = 0; z < L; z++) for (let x = 0; x < W; x++) set(x, 7, z, x > 0 && x < W - 1 && z % 6 === 3 ? B.LAMP : B.PAINT_WHITE);
+  for (let z = zA; z <= zB; z++) if (z % 6 === 3) set(1, 4, z, B.LAMP);                 // lampen benedendek: in het plafond (de vloer van het bovendek)
+  // kopwanden met doorgang (beide verdiepingen dicht behalve beneden in het midden)
+  for (const z of [0, L - 1]) { for (let x = 0; x < W; x++) for (let y = 2; y <= 6; y++) set(x, y, z, c1); set(1, 2, z, 0); set(2, 2, z, 0); set(1, 3, z, 0); set(2, 3, z, 0); }
+  // deuren in de instaphallen
+  for (const z of [2, L - 3]) { for (const x of [0, W - 1]) { set(x, 2, z, B.PAINT_YELLOW); set(x, 3, z, B.GLASS_GREEN); } doors.push(z); }
+  // trappen: x = 2 omhoog naar het bovendek (3 treden), x = 1 blijft vrij naar het benedendek
+  for (const [z0, dz] of [[zA - 3, 1], [zB + 3, -1]]) for (let i = 0; i < 3; i++) { const z = z0 + dz * i; for (let y = 2; y <= 2 + i; y++) set(2, y, z, B.PLANKS); }
+  if (cab) {
+    const zf = L - 1;
+    for (let x = 0; x < W; x++) { set(x, 2, zf, c1); set(x, 3, zf, B.GLASS); set(x, 4, zf, c2); set(x, 5, zf, c1); set(x, 6, zf, c1); }
+    set(1, 2, zf - 1, B.PANEL_DARK); set(2, 2, zf - 1, B.PANEL_DARK);
+    for (let x = 0; x < W; x++) if (x !== 1) for (let y = 2; y <= 3; y++) set(x, y, zf - 3, c1); // wand achter de cabine
+  }
+  // zitplaatsen: beneden langs x = 2 (gangpad x = 1, vrij vanuit de instaphal), boven langs x = 1 (gangpad x = 2, waar de trap uitkomt)
+  for (let z = zA + 1; z < zB; z += 2) { set(2, 2, z, B.PAINT_BLUE); seats.push([2.5, 3, z + 0.5]); }
+  for (let z = zA + 1; z < zB; z += 2) { set(1, 5, z, B.WOOL_RED); seats.push([1.5, 6, z + 0.5]); }
+  return { W, H, L, size, vox, seats, doors, cab: cab ? [2, 2, L - 3] : null, type: vtype, walk: true, decks: 2 };
+}
 
 // ---------- snelheidsbeperkingen per lijn ----------
 function speedLimits() { for (const L of LINES) {
@@ -319,6 +362,9 @@ function doorsOpenAt(a) {
 }
 // voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
 export function activeAt(now) { return activeTrains(now); }
+// voor de remises (js/depotsim.js) en controles zonder browser
+export function _depotHelpers() { return { runs, delayOf, posAt, trackOffset }; }
+export function _design(type, liv) { return design(type, liv); } // voor controles zonder browser (interieur)
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
@@ -559,7 +605,7 @@ export class AlpRail {
       const grp = new THREE.Group(); grp.rotation.order = 'YXZ';
       for (const [geo, mat] of d.geos) { const m = new THREE.Mesh(geo, mat); m.position.set(-d.W / 2, 0, -d.L / 2); m.layers.enable(1); if (mat === this.g.matTrans) m.renderOrder = 1; grp.add(m); }
       this.group.add(grp);
-      const flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (type === 'emuCab' || type === 'iceHead' || type === 'rack' || type === 'tram');
+      const bt = CAR_BASE[type] || type, flip = i === sv.cars.length - 1 && sv.cars.length > 1 && (bt === 'emuCab' || bt === 'iceHead' || bt === 'rack' || bt === 'tram');
       const shell = this.shells.make(d, LIVERY[sv.liv] || LIVERY.AE, null, `${sv.id} ${a.run.pr.last.name}`, sv.style || '');
       tr.cars.push({ d, grp, body: new CarBody(tr, i, d), flip, shell });
     }
@@ -688,6 +734,7 @@ export class AlpRail {
       const th = snd.br < 0 ? (dv > 0.002 ? 0.7 : 0.05) : snd.th, br = snd.br < 0 ? (dv < -0.004 ? 0.8 : 0) : snd.br;
       this.snd.update(dt, snd.v, th, br, !snd.out);
     } else if (this.snd) { this.snd.stop(); this.snd = null; this.sndV = undefined; }
+    this.updateDepots(now, p, dt, seen);
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
     this.shells.update(day);
     this.updateSignals(act);
@@ -698,10 +745,13 @@ export class AlpRail {
       const list = [], tmpv = new THREE.Vector3();
       for (const [id, tr] of this.trains) {
         if (!tr.L || Math.abs(tr.L.at(tr.s).x - p.x) > 400) continue;
+        // doorgaande route over een wissel of rangeerpad: de reizigers gebruiken het echte spoor waar de trein nu staat
+        const mine0 = this.player && this.player.tr === tr, loc = !mine0 && tr.L.route && tr.a && tr.a.loc && tr.a.loc.L ? tr.a.loc : null;
+        const LL = mine0 ? this.player.L : loc ? loc.L : tr.L; if (typeof LL.near !== 'function') continue;
         const mine = this.player && this.player.tr === tr, open = mine ? (this.player.doors && this.player.v < 0.1) : (tr.a ? !!doorsOpenAt(tr.a) : false);
         const doors = [];
-        if (open) for (const c of tr.cars) for (const dz of c.d.doors) { const w = c.body.toWorld(tmpv.set(c.d.W / 2, 1, dz + 0.5), new THREE.Vector3()); const r = tr.L.near(Math.floor(w.x), Math.floor(w.z), 12); if (r) doors.push(r.s); }
-        list.push({ key: id, L: mine ? this.player.L : tr.L, dir: mine ? this.player.dir : tr.dir, s: mine ? this.player.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
+        if (open) for (const c of tr.cars) for (const dz of c.d.doors) { const w = c.body.toWorld(tmpv.set(c.d.W / 2, 1, dz + 0.5), new THREE.Vector3()); const r = LL.near(Math.floor(w.x), Math.floor(w.z), 12); if (r) doors.push(r.s); }
+        list.push({ key: id, L: LL, dir: mine ? this.player.dir : loc ? loc.dir : tr.dir, s: mine ? this.player.s : loc ? loc.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
       }
       this.pax.update(dt, p, LINES, list, periodOf(railClock()));
       // stationsomroep: een trein staat klaar aan het perron waar de speler staat (niet aan boord)
@@ -1102,6 +1152,30 @@ export class AlpRail {
     const blockLen = 1200, distToSignal = best.ds - blockLen;
     return { red: distToSignal < 0, dist: Math.max(0, best.ds - 150), ahead: best.ds };
   }
+  // ---------- remises (js/depot.js, js/depotsim.js) ----------
+  // plannen per dag (en opnieuw bij een andere dienstregeling of ander weer: vertragingen veranderen de omloop)
+  depotPlans() {
+    const key = dayNr() + '|' + delayFactor + '|' + RUNS.length;
+    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, posAt, trackOffset })); }
+    return this._dp;
+  }
+  updateDepots(now, p, dt, seen) {
+    if (!NET.depots || !NET.depots.length) return;
+    for (const plan of this.depotPlans()) {
+      const D = plan.D, c = D.sidings[0].at(D.sidings[0].len - 100);
+      if (Math.hypot(c.x - p.x, c.z - p.z) > 3000) continue;
+      const st = depotState(plan, now);
+      const dirP = D.placeDir || 1; // kopsporen: kop naar het station (−1 in de padrichting)
+      const train = (id, sv, path, u) => {
+        let tr = this.trains.get(id);
+        if (!tr) { tr = this.makeTrain({ id, run: { sv, pr: { last: { name: D.name } } } }); tr.depot = D.name; this.trains.set(id, tr); }
+        tr.L = path; tr.dir = dirP; tr.s = u; tr.v = 0; this.place(tr, path, u, dirP); this.dressTrain(tr, false, dt, 0); seen.add(id);
+      };
+      const lenOf = (sv) => sv.cars.reduce((a, c) => a + CAR_LEN[c] + GAP, 0) - GAP;
+      st.sidings.forEach((set, k) => { if (!set) return; const sv = plan.compSv[set.comp] || SERVICES[0], P = D.sidings[k]; train(`dep:${set.id}`, sv, P, dirP > 0 ? P.len - 12 : P.len - 12 - lenOf(sv)); });
+      for (const m of st.moving) train(`sh:${m.s.set.id}:${m.s.kind}:${Math.round(m.s.t0)}`, m.s.sv, m.s.path, m.u);
+    }
+  }
   // ---------- scherm ----------
   showHud(tr, a) {
     if (!this.hud || this.g.drive) return;
@@ -1184,6 +1258,8 @@ export class AlpRail {
       ctx.beginPath(); ctx.arc(st.x * k, st.z * k, st.name === this.sel ? 7 : 5, 0, 7); ctx.fill(); ctx.stroke();
       label(st.name, st.x, st.z, st.name === this.sel ? '#ffd34d' : '#fff', -10);
     }
+    // remises
+    for (const D of NET.depots || []) { const q = D.sidings[0].at(D.sidings[0].len - 120); ctx.fillStyle = '#9aa4b2'; ctx.fillRect(q.x * k - 5, q.z * k - 4, 10, 8); label('🏭 ' + D.name, q.x, q.z, '#cfd6e0', 16); }
     // treinen live
     for (const a of this.active || []) {
       if (a.t < 0) continue;
@@ -1287,7 +1363,7 @@ export class AlpRail {
   }
   resetTrains() { for (const tr of this.trains.values()) { if (this.g.aboard && this.g.aboard.train === tr) continue; this.dropTrain(tr); } for (const [id, tr] of [...this.trains]) if (!(this.g.aboard && this.g.aboard.train === tr)) this.trains.delete(id); }
   ovPanel(tab, now, esc) {
-    const CAR_NAMES = { iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
+    const CAR_NAMES = { ddCab: 'dubbeldeks-stuurrijtuig', ddMid: 'dubbeldeksrijtuig', sbCab: 'S-Bahn-stuurrijtuig', sbMid: 'S-Bahn-tussenrijtuig', mCab: 'metro-kopwagen', mMid: 'metro-tussenwagen', axCab: 'Airport Express-kop', axMid: 'Airport Express-rijtuig', regCab: 'regionale motorwagen', regMid: 'regionaal tussenrijtuig', locoD: 'diesellocomotief', iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
     const kindOf = (sv) => sv.bus ? 'bus' : sv.tram ? 'tram' : sv.metro ? 'metro' : 'trein';
     const kinds = [...new Set(NET.SERVICES.map(kindOf))], kind = kinds.includes(this.ovKind) ? this.ovKind : kinds[0];
     const filt = kinds.length > 1 ? `<div class="row" style="gap:4px;margin:0 0 6px">${kinds.map(k => `<button class="btn${k === kind ? ' primary' : ''}" data-kind="${k}">${{ trein: '🚆 Trein', metro: 'Ⓜ Metro', tram: '🚋 Tram', bus: '🚌 Bus' }[k]}</button>`).join('')}</div>` : '';
@@ -1326,7 +1402,17 @@ export class AlpRail {
       const cars = Object.entries(sv.cars.reduce((m, c) => (m[c] = (m[c] || 0) + 1, m), {})).map(([c, n]) => `${n}× ${CAR_NAMES[c] || c}`).join(', ');
       h += `<tr><td><span style="color:${rs[0].pr.L.color}">■</span> ${esc(sv.name)}</td><td>${esc(depot)}</td><td align="center">${need}</td><td align="center">${on}</td><td align="center">${Math.max(0, need - on)}</td><td>${esc(cars)}</td></tr>`;
     }
-    return h + `</table></div><div class="small" style="margin-top:6px">Totaal (${kind}): <b>${tot}</b> stellen nodig, <b>${totRun}</b> nu onderweg, <b>${Math.max(0, tot - totRun)}</b> in de remises (incl. reserve bij nacht en daluren).</div>`;
+    h += `</table></div><div class="small" style="margin-top:6px">Totaal (${kind}): <b>${tot}</b> stellen nodig, <b>${totRun}</b> nu onderweg, <b>${Math.max(0, tot - totRun)}</b> in de remises (incl. reserve bij nacht en daluren).</div>`;
+    // echte remises met opstelsporen: wat er nu staat en de volgende rangeerritten
+    if (NET.depots && NET.depots.length && kind === 'trein') {
+      h += '<h4 style="margin:8px 0 2px">🏭 Remises met opstelsporen</h4><table class="small" style="width:100%"><tr><th align="left">Remise</th><th>Opgesteld</th><th align="left">Volgende rangeerrit</th></tr>';
+      for (const plan of this.depotPlans()) {
+        const st = depotState(plan, now), nx = plan.shunts.map(q => ({ q, t: ((q.t0 - now) % P + P) % P })).sort((a, b) => a.t - b.t)[0];
+        h += `<tr><td>${esc(plan.D.name)} <span class="muted">(${esc(plan.D.L.id)}, ${esc(plan.D.st.name)})</span></td><td align="center">${st.total}</td><td>${nx ? `${hhmm(now + nx.t)} ${nx.q.kind === 'uit' ? 'uitrukken' : 'inrukken'} ${esc(nx.q.sv.id)}${nx.q.shift ? ` (rijweg: ${Math.round(nx.q.shift / 60)} min ${nx.q.kind === 'uit' ? 'eerder' : 'later'})` : ''}` : '—'}</td></tr>`;
+      }
+      h += '</table>';
+    }
+    return h;
   }
   renderPanel() {
     const box = document.getElementById('rail-panel'); if (!box) return;

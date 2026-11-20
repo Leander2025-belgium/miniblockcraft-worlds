@@ -1,6 +1,7 @@
 // Verre gebouwen (eenvoudige blokken per 8 × 8 m) en de minikaart.
 import * as THREE from 'three';
 import { TONE_GLSL } from './materials.js';
+import { facadeAt } from './megacity.js';
 
 const VERT = `
 attribute vec3 color;
@@ -34,10 +35,20 @@ ${TONE_GLSL}
 void main() {
   vec3 col = vColor * mix(0.16, 1.0, day);
   if (vSide > 0.5) {
-    // gevel: raamraster, 's nachts deels verlicht
+    // gevel: raamraster, 's nachts deels verlicht. Torens van Megatower City (TERRANOVA 14.2): hetzelfde patroon als hun
+    // gevel van dichtbij (js/megacity.js facadeBlock): 2 vliesgevel, 3 bandramen, 4 banden, 5 lamellen, 6 natuursteen
     vec3 cell = floor(vWorld / vec3(2.0, 3.0, 2.0));
-    float win = step(0.35, fract(vWorld.y / 3.0)) * step(0.3, fract((vWorld.x + vWorld.z) / 2.0));
-    col *= 1.0 - win * 0.18;
+    float along = vWorld.x + vWorld.z, st = floor(vSide + 0.5);
+    float win = step(0.35, fract(vWorld.y / 3.0)) * step(0.3, fract(along / 2.0));
+    if (st < 1.5) col *= 1.0 - win * 0.18;
+    else {
+      float floorLine = step(fract(vWorld.y / 4.0), 0.25);
+      if (st < 2.5) { win = 1.0 - floorLine; col = mix(col, col * 0.55, floorLine); }                                 // vliesgevel
+      else if (st < 3.5) { float sp = step(fract(vWorld.y / 4.0), 0.5); win = 1.0 - sp; col = mix(col * 0.8, vec3(0.78, 0.78, 0.76), sp); } // bandramen
+      else if (st < 4.5) { float b = step(0.5, fract(vWorld.y / 24.0)); win = 1.0 - floorLine; col = mix(col, col.bgr * 0.9, b); col *= 1.0 - floorLine * 0.4; } // tweekleurige banden
+      else if (st < 5.5) { float fin = step(fract(along / 12.0), 0.17); win = (1.0 - fin) * (1.0 - step(fract(vWorld.y / 8.0), 0.12)); col = mix(col, col * 0.45, fin); } // lamellen
+      else { float pil = max(step(fract(along / 12.0), 0.17), step(fract(vWorld.y / 8.0), 0.12)); win = 1.0 - pil; col = mix(col * 0.75, vec3(0.86, 0.83, 0.74), pil); } // natuursteen
+    }
     float lit = win * step(0.66, h3(cell)) * (1.0 - day);
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
   }
@@ -78,6 +89,8 @@ export class FarView {
     ctx.fillStyle = '#1b2230'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
   key(tx, tz) { return tz * 4096 + tx; }
+  // gevelsoort van een verre gevel (1 = gewoon raamraster; Megatower City: 1 + gevelsoort van de toren)
+  sideId(x, z) { return this.spec.megatower ? 1 + facadeAt(x, z) : 1; }
   // alles opnieuw opbouwen uit de bewaarde gegevens (na een verloren grafische context)
   rebuild() {
     const all = [...this.data];
@@ -140,12 +153,12 @@ export class FarView {
       const i = z * n + x, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
       const x0 = tx * this.T + x * s, x1 = x0 + s, z0 = tz * this.T + z * s, z1 = z0 + s, y1 = h + 1;
       quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
-      const sideRgb = rgb.map(v => v * 0.85 + 0.08);
+      const sideRgb = rgb.map(v => v * 0.85 + 0.08), sd = this.sideId(x0 + s / 2, z0 + s / 2);
       const yb = (nh) => Math.max(G + 1, nh + 1);
-      if (H(x - 1, z) < h) quad([x0, yb(H(x - 1, z)), z0], [x0, yb(H(x - 1, z)), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, 1);
-      if (H(x + 1, z) < h) quad([x1, yb(H(x + 1, z)), z1], [x1, yb(H(x + 1, z)), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, 1);
-      if (H(x, z - 1) < h) quad([x1, yb(H(x, z - 1)), z0], [x0, yb(H(x, z - 1)), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, 1);
-      if (H(x, z + 1) < h) quad([x0, yb(H(x, z + 1)), z1], [x1, yb(H(x, z + 1)), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, 1);
+      if (H(x - 1, z) < h) quad([x0, yb(H(x - 1, z)), z0], [x0, yb(H(x - 1, z)), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, sd);
+      if (H(x + 1, z) < h) quad([x1, yb(H(x + 1, z)), z1], [x1, yb(H(x + 1, z)), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, sd);
+      if (H(x, z - 1) < h) quad([x1, yb(H(x, z - 1)), z0], [x0, yb(H(x, z - 1)), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, sd);
+      if (H(x, z + 1) < h) quad([x0, yb(H(x, z + 1)), z1], [x1, yb(H(x, z + 1)), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, sd);
     }
     if (!pos.length) return null;
     const g = new THREE.BufferGeometry();
@@ -185,12 +198,12 @@ export class FarView {
       const i = z * n + x, h = lod.h[i], g0 = lod.g[i] + 1, rgb = [lod.c[i * 3] / 255, lod.c[i * 3 + 1] / 255, lod.c[i * 3 + 2] / 255];
       const x0 = X0 + x * s, x1 = x0 + s, z0 = Z0 + z * s, z1 = z0 + s, y1 = h + 1;
       quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], rgb, 1.0, 0);
-      const sideRgb = rgb.map(v => v * 0.85 + 0.08);
+      const sideRgb = rgb.map(v => v * 0.85 + 0.08), sd = this.sideId(x0 + s / 2, z0 + s / 2);
       const yb = (nx, nz) => Math.max(g0 - 1, bld(nx, nz) ? Hh(nx, nz) + 1 : g0 - 1);
-      if (yb(x - 1, z) < y1) quad([x0, yb(x - 1, z), z0], [x0, yb(x - 1, z), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, 1);
-      if (yb(x + 1, z) < y1) quad([x1, yb(x + 1, z), z1], [x1, yb(x + 1, z), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, 1);
-      if (yb(x, z - 1) < y1) quad([x1, yb(x, z - 1), z0], [x0, yb(x, z - 1), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, 1);
-      if (yb(x, z + 1) < y1) quad([x0, yb(x, z + 1), z1], [x1, yb(x, z + 1), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, 1);
+      if (yb(x - 1, z) < y1) quad([x0, yb(x - 1, z), z0], [x0, yb(x - 1, z), z1], [x0, y1, z1], [x0, y1, z0], sideRgb, 0.78, sd);
+      if (yb(x + 1, z) < y1) quad([x1, yb(x + 1, z), z1], [x1, yb(x + 1, z), z0], [x1, y1, z0], [x1, y1, z1], sideRgb, 0.78, sd);
+      if (yb(x, z - 1) < y1) quad([x1, yb(x, z - 1), z0], [x0, yb(x, z - 1), z0], [x0, y1, z0], [x1, y1, z0], sideRgb, 0.64, sd);
+      if (yb(x, z + 1) < y1) quad([x0, yb(x, z + 1), z1], [x1, yb(x, z + 1), z1], [x1, y1, z1], [x0, y1, z1], sideRgb, 0.64, sd);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

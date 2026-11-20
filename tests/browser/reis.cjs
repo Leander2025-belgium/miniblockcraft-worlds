@@ -1,6 +1,6 @@
 // TERRANOVA 14 — een volledige reis met overstap door reizigers-AI (js/travelers.js) in Megatower City:
 // straat bij Oude Markt → trap af naar het metroperron → metro M1 richting Megatower (juiste richting) → uitstappen
-// in Metro Megatower → trappen op naar de straat → bushalte Megatower Plaza → bus → uitstappen aan de volgende halte.
+// in Metro Megatower → trappen op naar de straat → de dichtste halte van een buslijn → bus → uitstappen aan de volgende halte.
 // Controles: elk punt van elk looppad is beloopbaar (vaste grond, 2 blokken lucht), elke stap ≤ 1,5 m horizontaal en
 // ≤ 1 blok hoog; nooit in een muur; geen sprong in de positie (behalve meerijden met het voertuig, dat ook gemeten
 // wordt); juiste voertuig (lijn en richting); bezetting +1 bij instappen en −1 bij uitstappen; in- en uitstappen
@@ -72,9 +72,12 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   const t1 = await p.evaluate(() => { const t = window.__R; return { state: t.state, hist: t.hist }; });
   R.metro = t1.hist.filter(h => h.wat !== 'vertrek');
   if (t1.state === 'aangekomen') {
-    await p.evaluate(() => {
-      const g = window.blokGame(), tr = g.traffic, T = g.travelers, t = window.__R;
-      const bs = tr.stops.filter(s => s.kind === 'busstop').sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0];
+    await p.evaluate(async () => {
+      const g = window.blokGame(), tr = g.traffic, T = g.travelers, t = window.__R, mc = await import('./js/megacity.js');
+      // sinds 14.2 rijden lijnbussen alleen op de buslijnlanen: de dichtste halte van een buslijn (hokjes op andere lanen
+      // blijven staan voor wie zelf met de bus rijdt, maar daar komt geen lijnbus)
+      const onLine = (s) => mc.BUS_NS.some(i => Math.abs(s.x - i * 128) < 16) || mc.BUS_EW.some(j => Math.abs(s.z - j * 128) < 16);
+      const bs = tr.stops.filter(s => s.kind === 'busstop' && onLine(s)).sort((a, b) => Math.hypot(a.x - t.x, a.z - t.z) - Math.hypot(b.x - t.x, b.z - t.z))[0];
       t.steps.push({ ride: { kind: 'bus', board: bs.name, alight: '*', wait: { x: bs.x, y: bs.y + 1, z: bs.z } } }); t.done = false; t.state = 'volgende';
       window.__bus = bs.name;
     });
