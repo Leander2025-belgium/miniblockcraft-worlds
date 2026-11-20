@@ -25,8 +25,8 @@ export const NET = {
   // automatische doorgaande treinen over de overloopwissels tussen IC1 en S1 (js/railroute.js): de rijweg wordt
   // ingesteld, de wissel gaat om, de trein rijdt over het verbindingsspoor en de rijweg wordt na passage vrijgegeven
   throughServices: [
-    { id: 'S11', from: 'IC1', to: 'S1', aDir: 1, name: 'S11 Easthaven – Eastport Central (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
-    { id: 'S12', from: 'IC1', to: 'S1', aDir: -1, name: 'S12 Southbay – West Munkbay (via wissel)', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+    { id: 'S11', from: 'IC1', to: 'S1', aDir: 1, name: 'S11 Easthaven – Eastport Central (via wissel)', liv: 'GS', cars: ['sbCab', 'sbMid', 'sbCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
+    { id: 'S12', from: 'IC1', to: 'S1', aDir: -1, name: 'S12 Southbay – West Munkbay (via wissel)', liv: 'GS', cars: ['sbCab', 'sbMid', 'sbCab'], vmax: 40, h: 3600, acc: 1.0, hours: [6, 22], canon: false },
   ],
   // remises (js/depot.js, js/depotsim.js): opstelsporen, omloop, uit- en inrukken
   depots: DEPOTS,

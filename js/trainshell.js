@@ -9,8 +9,15 @@ import { BLOCKS } from './blocks.js';
 
 const GLASS = 0x1f2a36, PILLAR = 0x2a2e33, DARK = 0x222428, BOGIE = 0x2b2d31, STEEL = 0x9aa1a9, ROOF = 0xb9bec4, HEAD = 0xfff4d6, TAIL = 0xd0181c, AMBER = 0xffb22a;
 const hexOf = (id) => { const c = BLOCKS[id] ? BLOCKS[id].color : [200, 200, 200]; return (c[0] << 16) | (c[1] << 8) | c[2]; };
-const CAB = new Set(['loco', 'emuCab', 'iceHead', 'rack', 'rackLoco', 'tram', 'bus']);
-const ELECTRIC = new Set(['loco', 'emuCab', 'iceHead', 'tram', 'rackLoco']);
+// materieel per categorie (TERRANOVA 14.1): eigen buitenkant, lengte en deuren; het interieur volgt het basistype
+//   sbCab/sbMid   S-Bahn: korte bakken (22 m), 3 deuren per kant, grote ramen, ronde kop met omlopende voorruit
+//   mCab/mMid     metro: 18 m, 3 brede deuren, vlakke kop met noodfrontdeur, geen stroomafnemer (derde rail)
+//   axCab/axMid   Airport Express: lange gestroomlijnde neus, doorlopende ramenband, bagageruimte
+//   regCab/regMid regionale motorwagen: hoekige kop met zwart masker, deuren op een derde van de bak
+//   locoD         diesellocomotief voor goederentreinen: kap met looppaden, cabine aan één kant, uitlaten
+export const CAR_BASE = { sbCab: 'emuCab', sbMid: 'emuMid', mCab: 'emuCab', mMid: 'emuMid', axCab: 'emuCab', axMid: 'emuMid', regCab: 'emuCab', regMid: 'emuMid', locoD: 'loco' };
+const CAB = new Set(['loco', 'emuCab', 'iceHead', 'rack', 'rackLoco', 'tram', 'bus', 'sbCab', 'mCab', 'axCab', 'regCab', 'locoD']);
+const ELECTRIC = new Set(['loco', 'emuCab', 'iceHead', 'tram', 'rackLoco', 'sbCab', 'axCab', 'regCab']);
 
 // geometrie per rijtuigsoort (gedeeld door alle treinen): { body: {paint,trim,light}, door: geometry }
 const cache = new Map();
@@ -54,6 +61,23 @@ export function shellParts(d, liv, style = '') {
     s = { body: P.done(), door: null, doorsZ: [], key, bogie: null, bogieZ: [], panto: null, lod: lodParts(L, 0x1d3b26, false) };
     cache.set(key, s); return s;
   }
+  if (type === 'locoD') {
+    // diesellocomotief: smalle kap met looppaden en leuningen, hoge cabine aan de voorkant, uitlaten en radiatoren
+    P.box('trim', 3.9, 0.35, L - 0.6, 0, 1.15, 0, DARK);                                         // frame en looppad
+    P.box('paint', 2.9, 2.9, L - 6.5, 0, 2.75, -2.6, c1);                                       // kap
+    P.box('paint', 2.95, 0.3, L - 6.5, 0, 2.2, -2.6, c2);                                       // sierlijn
+    for (let z = -hz + 2; z < hz - 6; z += 1.4) for (const sx of [1, -1]) P.box('trim', 0.04, 1.4, 0.9, sx * 1.47, 3.0, z, 0x3a3f45); // luchtroosters
+    P.box('trim', 2.2, 0.5, 2.6, 0, 4.4, -hz + 3.4, 0x50555b); P.box('trim', 0.5, 0.6, 0.5, 0, 4.85, -2.0, 0x1b1c1e); P.box('trim', 0.5, 0.6, 0.5, 0, 4.85, -0.6, 0x1b1c1e); // radiator en uitlaten
+    P.box('paint', 3.9, 3.5, 4.4, 0, 3.05, hz - 2.6, c1);                                       // cabine
+    P.box('trim', 3.6, 1.1, 0.06, 0, 3.75, hz - 0.38, GLASS); for (const sx of [1, -1]) P.box('win', 0.05, 1.0, 1.4, sx * 1.96, 3.75, hz - 2.4, 0xffe9c4);
+    P.box('trim', 4.0, 0.3, 4.6, 0, 4.95, hz - 2.6, ROOF);
+    for (const sx of [1, -1]) P.box('trim', 0.06, 0.9, L - 6.5, sx * 1.95, 1.8, -2.6, STEEL);   // leuningen
+    P.box('trim', 3.4, 0.5, 0.3, 0, 1.1, hz - 0.1, 0xd9b41a).box('trim', 3.4, 0.5, 0.3, 0, 1.1, -hz + 0.1, 0xd9b41a); // bufferbalken (geel)
+    P.box('light', 0.45, 0.22, 0.06, 1.1, 1.75, hz - 0.33, HEAD).box('light', 0.45, 0.22, 0.06, -1.1, 1.75, hz - 0.33, HEAD).box('light', 0.3, 0.3, 0.06, 0, 4.55, hz - 0.36, HEAD);
+    P.box('light', 0.18, 0.18, 0.06, 1.6, 1.4, -hz + 0.05, TAIL).box('light', 0.18, 0.18, 0.06, -1.6, 1.4, -hz + 0.05, TAIL);
+    s = { body: P.done(), door: null, doorsZ: [], key, c1, bogie: B.done(), bogieZ, panto: null, lod: lodParts(L, c1, true) };
+    cache.set(key, s); return s;
+  }
   if (freight) {
     if (type === 'tank') {
       const g = new THREE.CylinderGeometry(1.55, 1.55, L - 1.6, 20); g.rotateX(Math.PI / 2); g.translate(0, 2.9, 0); P.add('paint', g, c1);
@@ -78,6 +102,7 @@ export function shellParts(d, liv, style = '') {
   // ramen: aparte ruiten met stijlen, niet bij de deuren
   const doorsZ = d.doors.map(z => z - hz + 0.5);
   const sleeper = type === 'sleeper', mountain = type === 'rack' || type === 'rackLoco' || type === 'panorama', hist = style === 'hist';
+  const fam = type.startsWith('sb') ? 'sb' : type.startsWith('m') && CAR_BASE[type] ? 'm' : type.startsWith('ax') ? 'ax' : type.startsWith('reg') ? 'reg' : null;
   if (sleeper) for (const sx of [1, -1]) P.box('paint', 0.03, 0.3, bl - 1, sx * 2.045, 4.45, bc, c2);                    // slaaprijtuig: band met 'WL'
   if (hist) for (const sx of [1, -1]) { P.box('trim', 0.03, 0.08, bl, sx * 2.05, 2.75, bc, 0xc9a24a); P.box('trim', 0.03, 0.9, bl, sx * 2.04, 3.6, bc, 0xe9dfc0); } // goudlijn, crème ramenband
   for (const sx of [1, -1]) {
@@ -87,12 +112,20 @@ export function shellParts(d, liv, style = '') {
       if (sleeper) { P.box('win', 0.05, 0.75, 1.1, sx * 2.04, 3.75, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 0.85, 0.12, sx * 2.04, 3.75, z + 1.55, PILLAR); continue; }
       if (mountain) { P.box('win', 0.05, 1.6, 1.95, sx * 2.04, 3.65, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 1.7, 0.1, sx * 2.04, 3.65, z + 1.95, PILLAR); continue; }
       if (hist) { P.box('win', 0.05, 0.8, 1.2, sx * 2.05, 3.6, z + 0.9, 0xffe9c4); continue; }
+      if (fam === 'ax') continue;                                                         // doorlopende ramenband (hieronder)
+      if (fam === 'sb' || fam === 'm') { P.box('win', 0.05, 1.4, 1.85, sx * 2.04, 3.6, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 1.5, 0.12, sx * 2.04, 3.6, z + 1.9, PILLAR); continue; }
       P.box('win', 0.05, 1.05, 1.8, sx * 2.04, 3.55, z + 0.9, 0xffe9c4);
       P.box('trim', 0.06, 1.15, 0.12, sx * 2.04, 3.55, z + 1.9, PILLAR);
     }
-    // deurkozijnen
-    for (const dz of doorsZ) P.box('trim', 0.05, 2.5, 1.7, sx * 2.035, 2.85, dz, DARK);
+    // deurkozijnen (metro en S-Bahn: brede deuren met een rood-gele rand)
+    for (const dz of doorsZ) { P.box('trim', 0.05, 2.5, fam === 'm' || fam === 'sb' ? 1.9 : 1.7, sx * 2.035, 2.85, dz, DARK); if (fam === 'm' || fam === 'sb') P.box('trim', 0.04, 0.12, 1.9, sx * 2.05, 4.15, dz, fam === 'm' ? 0xd0181c : 0xffb22a); }
+    if (fam === 'ax') { // Airport Express: doorlopende getinte ramenband, bagageruimte achter de kop (kleine ramen)
+      P.box('win', 0.05, 1.0, bl - 4, sx * 2.045, 3.6, bc, 0xcfe3f5);
+      for (const dz of doorsZ) P.box('trim', 0.06, 1.1, 1.9, sx * 2.05, 3.6, dz, c1);
+    }
+    if (fam === 'reg') P.box('paint', 0.03, 0.18, bl, sx * 2.045, 1.35, bc, c2);         // regionale trein: tweede sierlijn onderaan
   }
+  if (fam === 'm') for (const bz of bogieZ) for (const sx of [1, -1]) B.box('trim', 0.5, 0.18, 0.9, sx * 1.75, 0.45, 0, 0x2b2b2b); // stroomsloffen voor de derde rail
   if (type === 'panorama') P.box('trim', 3.2, 0.3, bl - 3, 0, 5.4, bc, GLASS, { sx: 0.9 });
   if (hist) { P.box('trim', 1.6, 0.45, bl - 2, 0, 5.65, bc, 0x5a3b26); for (let z = z0 + 2; z < z1 - 2; z += 1.6) for (const sx of [1, -1]) P.box('win', 0.04, 0.22, 0.7, sx * 0.81, 5.65, z, 0xffe9c4); // lichtkap met raampjes
     for (const ez of [hz + 0.35, -hz - 0.35]) { P.box('trim', 3.4, 0.12, 0.7, 0, 1.3, ez, 0x2a2b2e); for (const sx of [1, -1]) P.box('trim', 0.06, 1.0, 0.7, sx * 1.6, 1.85, ez, 0xb8bec6); } } // balkons met hekjes
@@ -102,7 +135,7 @@ export function shellParts(d, liv, style = '') {
   P.box('trim', 2.6, 3.4, 0.25, 0, 3.1, -hz - 0.12, 0x1a1b1e);
   if (cab) {
     // gestroomlijnde neus: onderkant en kap schuin naar voren, grote voorruit, lichten, bestemmingsbord
-    const nz = hz - 1.1, nose = type === 'iceHead' ? 1.6 : type === 'tram' || type === 'bus' ? 0.4 : 1.0;
+    const nz = hz - 1.1, nose = type === 'iceHead' ? 1.6 : type === 'tram' || type === 'bus' ? 0.4 : fam === 'm' ? 0.12 : fam === 'sb' ? 0.7 : fam === 'ax' ? 1.9 : fam === 'reg' ? 0.55 : 1.0;
     P.box('paint', 4.06, 2.5, 2.2, 0, 2.15, nz, c1, { sx: 0.9, front: nose * 0.8 });
     P.box('trim', 3.6, 1.35, 2.0, 0, 3.95, nz - 0.1, GLASS, { sx: 0.82, front: nose });
     P.box('paint', 3.7, 0.7, 1.6, 0, 5.0, nz - 0.4, c2, { sx: 0.8, front: nose * 0.6 });
@@ -111,6 +144,10 @@ export function shellParts(d, liv, style = '') {
     P.box('light', 0.18, 0.18, 0.06, 1.6, 1.4, hz - 0.03, TAIL).box('light', 0.18, 0.18, 0.06, -1.6, 1.4, hz - 0.03, TAIL);
     P.box('light', 2.0, 0.32, 0.06, 0, 4.85, hz - 1.0, AMBER);                     // bestemmingsbord
     P.box('trim', 0.12, 0.35, 0.12, 2.15, 3.3, hz - 1.4, DARK).box('trim', 0.12, 0.35, 0.12, -2.15, 3.3, hz - 1.4, DARK); // spiegels
+    if (fam === 'm') { P.box('trim', 1.0, 2.6, 0.08, 0, 2.95, hz - 0.02, DARK); P.box('trim', 0.8, 1.0, 0.09, 0, 3.6, hz - 0.01, GLASS); } // noodfrontdeur
+    if (fam === 'reg') P.box('trim', 4.0, 1.9, 0.08, 0, 3.75, hz - 1.15, 0x111316);                       // zwart masker rond de voorruit
+    if (fam === 'sb') for (const sx of [1, -1]) P.box('trim', 0.06, 1.2, 1.4, sx * 2.0, 3.85, hz - 1.6, GLASS); // omlopende voorruit
+    if (fam === 'ax') P.box('paint', 4.0, 0.25, 2.4, 0, 2.95, nz + 0.2, c2, { sx: 0.88, front: 1.4 });     // sierstreep over de neus
   }
   if (ELECTRIC.has(type)) {
     // pantograaf en dakinstallaties

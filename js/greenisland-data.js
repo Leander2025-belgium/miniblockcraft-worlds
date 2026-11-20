@@ -160,17 +160,17 @@ export const LINE_PLAN = {
 // diensten (canon: alleen wat eerder vastgelegd is; de rest voorstel). hours = [van, tot] in uren.
 export const SERVICES = [
   { id: 'ICE-F', line: 'ICEF', name: 'ICE naar Frankfurt', liv: 'ICE', cars: ['iceHead', 'ice', 'ice', 'dining', 'ice', 'iceHead'], vmax: 69, h: 3600, acc: 0.8, international: 'frankfurt', canon: true, platform: { 'Munkbay Central': 1 } },
-  { id: 'AX1', line: 'AX1', name: 'AX1 Airport Express', liv: 'AX', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 44, h: 900, acc: 1.0, canon: true, platform: { 'Munkbay Central': 2 } },
+  { id: 'AX1', line: 'AX1', name: 'AX1 Airport Express', liv: 'AX', cars: ['axCab', 'axMid', 'axCab'], vmax: 44, h: 900, acc: 1.0, canon: true, platform: { 'Munkbay Central': 2 } },
   { id: 'ICE-A', line: 'ICEA', name: 'ICE naar Amsterdam', liv: 'ICE', cars: ['iceHead', 'ice', 'ice', 'dining', 'ice', 'iceHead'], vmax: 69, h: 3600, acc: 0.8, international: 'amsterdam', canon: true, platform: { 'Munkbay Central': 3 } },
-  { id: 'S1', line: 'S1', name: 'S1 Munkbay S-Bahn', liv: 'GS', cars: ['emuCab', 'emuMid', 'emuCab'], vmax: 25, h: 900, acc: 1.0, hours: [5, 24], canon: true, platform: { 'Munkbay Central': 5 } },
-  { id: 'S1N', line: 'S1', name: 'S1 nachtdienst', liv: 'GS', cars: ['emuCab', 'emuCab'], vmax: 25, h: 3600, acc: 1.0, hours: [0, 5], canon: false },
+  { id: 'S1', line: 'S1', name: 'S1 Munkbay S-Bahn', liv: 'GS', cars: ['sbCab', 'sbMid', 'sbCab'], vmax: 25, h: 900, acc: 1.0, hours: [5, 24], canon: true, platform: { 'Munkbay Central': 5 } },
+  { id: 'S1N', line: 'S1', name: 'S1 nachtdienst', liv: 'GS', cars: ['sbCab', 'sbCab'], vmax: 25, h: 3600, acc: 1.0, hours: [0, 5], canon: false },
   { id: 'IC1', line: 'IC1', name: 'IC1 Oostkustlijn', liv: 'GI', cars: ['loco', 'coach1', 'coach2', 'coach2', 'dining', 'coach2'], vmax: 44, h: 1800, canon: true, platform: { 'Munkbay Central': 4 } },
   { id: 'IC2', line: 'IC2', name: 'IC2 Viridonia Express', liv: 'GV', cars: ['loco', 'coach1', 'coach2', 'dining', 'coach2', 'coach2'], vmax: 44, h: 1800, canon: true, platform: { 'Munkbay Central': 6 } },
   { id: 'IC3', line: 'IC3', name: 'IC3 Noordlijn', liv: 'GI', cars: ['loco', 'coach1', 'coach2', 'coach2'], vmax: 39, h: 3600, canon: false },
-  { id: 'IR4', line: 'IR4', name: 'IR4 Zuidlijn', liv: 'GR', cars: ['emuCab', 'emuMid', 'emuMid', 'emuCab'], vmax: 39, h: 3600, canon: false },
+  { id: 'IR4', line: 'IR4', name: 'IR4 Zuidlijn', liv: 'GR', cars: ['regCab', 'regMid', 'regMid', 'regCab'], vmax: 39, h: 3600, canon: false },
   { id: 'VB', line: 'VB', name: 'Silverpine Bergbahn', liv: 'GB', cars: ['rack', 'rack'], vmax: 12, h: 3600, acc: 0.5, canon: false },
   { id: 'NT', line: 'IC2', name: 'Nachttrein Westport–Munkbay', liv: 'EN', stops: ['Westport', 'Viridonia', 'Munkbay Central'], cars: ['loco', 'sleeper', 'sleeper', 'dining', 'coach2'], vmax: 39, h: 86400, hours: [22, 6], canon: false },
-  { id: 'GW', line: 'IC2', name: 'Goederentrein Westport–Munkbay', liv: 'G', stops: [], cars: ['loco', 'box', 'tank', 'box', 'flat', 'box', 'tank'], vmax: 25, h: 7200, freight: true, acc: 0.35, canon: false },
+  { id: 'GW', line: 'IC2', name: 'Goederentrein Westport–Munkbay', liv: 'G', stops: [], cars: ['locoD', 'box', 'tank', 'box', 'flat', 'box', 'tank'], vmax: 25, h: 7200, freight: true, acc: 0.35, canon: false },
 ];
 
 // ---------- metro (fase 4) ----------
@@ -197,7 +197,7 @@ export const METRO_LINES = {
 };
 export const METRO_SERVICES = Object.entries(METRO_LINES).map(([id, L]) => {
   const canon = !!METRO_PLAN.canonFrequency[id];
-  return { id, line: id, name: L.name, liv: 'M' + id.slice(1), cars: ['emuCab', 'emuCab'], vmax: L.vmax, h: canon ? 900 : 600, acc: 1.1, hours: canon ? [6.5, 23] : [5.5, 0.5], canon, metro: true };
+  return { id, line: id, name: L.name, liv: 'M' + id.slice(1), cars: ['mCab', 'mMid', 'mCab'], vmax: L.vmax, h: canon ? 900 : 600, acc: 1.1, hours: canon ? [6.5, 23] : [5.5, 0.5], canon, metro: true };
 });
 export const TRAM_PLAN = { lines: 15, canonFrequency: { T1: [15, '06:30', '23:00'], T1s: [15, '06:30', '23:00'] } };
 // tramdiensten: de lijnen zelf staan in greenisland-trams.js (gepland door tools/plan-tram.mjs).
