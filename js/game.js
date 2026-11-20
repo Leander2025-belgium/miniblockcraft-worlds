@@ -1081,7 +1081,8 @@ export class Game {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
       this.traffic.update(dt, p.pos, env.day, this.settings.hour);
       this.updateBusPax(dt, env.day);
-      // reizigers met een doel (js/travelers.js): alleen als er reizen gepland zijn
+      // reizigers met een doel (js/travelers.js): verschijnen vanzelf rond de speler (instelling 'reizigers', standaard aan)
+      if (this.settings.travelers !== false) { const T = this.travelersOn(); if (T) T.spawnTick(dt, this.player.pos, this.traffic.period || 'dal'); }
       if (this.travelers && this.travelers.list.length) this.travelers.update(dt, this.player.pos);
     }
     // omgevingsgeluid (stad, wind, regen, galm ondergronds); start na de eerste toets of tik
@@ -1389,7 +1390,7 @@ export class Game {
     S.ready = true;
   }
   // reizigers met een doel aanmaken (gebruikt door de reistest en later door de wereld zelf)
-  travelersOn() { if (!this.travelers && this.traffic) this.travelers = new Travelers(this.scene, this.world, this.traffic); return this.travelers; }
+  travelersOn() { if (!this.travelers && this.traffic) { this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground; } return this.travelers; }
   // wachtenden aan de bushaltes: instappen bij een bus met open deuren, uitstappen (js/buspax.js)
   updateBusPax(dt, day) {
     if (!this.busPax) this.busPax = new BusPax(this.scene, this.world);

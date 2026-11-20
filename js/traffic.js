@@ -293,7 +293,7 @@ export class Traffic {
     const E = this.net.edges;
     // voertuigen op randen die niet meer bestaan: weg
     for (const a of this.agents) {
-      if (!E.has(a.route[0].e.id)) { a.dead = true; continue; }
+      if (!E.has(a.route[0].e.id)) { a.dead = true; a.why = 'net'; continue; }
       const keep = [];
       for (const r of a.route) { if (!E.has(r.e.id)) break; keep.push({ e: E.get(r.e.id), dir: r.dir }); }
       a.route = keep;
@@ -547,11 +547,11 @@ export class Traffic {
         a.d = r.dir > 0 ? e.len : 0;
         if (a.player) { a.v = 0; a.endOfLine = true; return; }
         if (a.passenger && (a.kind === 'car' || a.kind === 'bus')) { a.v = 0; a.wait = 3; a.reverseAfter = true; return; } // met passagier: keren
-        if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; return; }
+        if (a.kind === 'car' || a.kind === 'bus') { a.dead = true; a.why = 'eind weg'; return; }
         if (a.kind === 'walk') { r.dir = -r.dir; return; }
         // einde van het geladen net ver van de speler: uit beeld (de rit blijft bewaard, js/ovtrips.js) in plaats van
         // op hetzelfde spoor terug te rijden (dat gaf tegenliggers op één spoor die elkaar blokkeerden)
-        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; return; } }
+        if (!a.passenger && !a.riders && this.pl) { const h = this.behind(a, 0, this.tmpEnd || (this.tmpEnd = {})); if (Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.dead = true; a.why = 'rand net'; return; } }
         // eindstation: even wachten en terugrijden
         a.v = 0; a.wait = 20; a.reverseAfter = true; return;
       }
@@ -649,9 +649,9 @@ export class Traffic {
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0, metro: 0 };
     for (const a of this.agents) {
       const h = this.behind(a, 0, this.tmpA), d = Math.hypot(h.x - player.x, h.z - player.z);
-      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) a.dead = true;
+      if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) { a.dead = true; a.why = 'ver'; }
       // te veel voor deze periode: buiten zicht uit dienst nemen, of aan de volgende halte (eindrit)
-      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; }
+      else if (have[a.kind] >= want[a.kind] && want[a.kind] !== undefined && !a.player && !a.passenger && !a.riders && !a.npc && a.kind !== 'walk' && a.kind !== 'ship' && (d > 220 || (a.wait > 0 && a.atStop))) { a.dead = true; a.retired = true; a.why = 'uit dienst'; }
       else have[a.kind]++;
     }
     this.have = have; this.want = want;
@@ -730,6 +730,8 @@ export class Traffic {
             if (dist < -1 || dist > 120) continue;
             if (dist < 0.6) {
               a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0;
+              // haltes die echt bediend worden (voor de reizigers die vanzelf verschijnen, js/travelers.js): plek van het voertuig aan de halte
+              a.stopSeq = (a.stopSeq || 0) + 1; { const hm = this.behind(a, a.L / 2, {}); (this.served || (this.served = new Map())).set(key + '|' + a.kind, { name: a.atStop, kind: a.kind, x: hm.x, y: hm.y, z: hm.z, t: this.clock || 0 }); }
               // reizigers: bij bussen vlakbij doen de zichtbare wachtenden het (js/buspax.js), anders de ritlaag
               if (a.trip) { const hh = this.behind(a, 0, this.tmpB2 || (this.tmpB2 = {})); if (a.kind !== 'bus' || Math.hypot(hh.x - player.x, hh.z - player.z) > 225) this.trips.stopLight(a, this.period || 'dal', a.trip.dest && a.atStop === a.trip.dest); a.trip.nextStop = null; }
               break;

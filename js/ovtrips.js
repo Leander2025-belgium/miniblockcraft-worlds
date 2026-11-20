@@ -63,7 +63,9 @@ export class Trips {
   // halte buiten het zichtbare gebied: uitstappen (deel van de bezetting) en instappen (volgens de periode)
   stopLight(a, period, terminus) {
     const T = a.trip; if (!T) return;
-    const out = terminus ? T.occ : Math.round(T.occ * (0.12 + 0.18 * this.r()));
+    // zichtbare reizigers aan boord (js/travelers.js) stappen zelf uit: die blijven buiten deze telling
+    const keep = (a.npc || 0) + (a.riders || 0), free = Math.max(0, T.occ - keep);
+    const out = terminus ? free : Math.min(free, Math.round(T.occ * (0.12 + 0.18 * this.r())));
     this.alight(a, out);
     if (!terminus) this.board(a, Math.round(T.cap * (LOAD[period] ?? 0.25) * 0.18 * (0.5 + this.r())));
     T.served++; this.stats.bijgewerkt++;
