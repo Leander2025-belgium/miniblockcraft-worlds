@@ -238,6 +238,9 @@ const ROOFS = [B.ROOF_RED, B.ROOF_DARK, B.CLAY_ROOF, B.ROOF_GREEN];
 const SHOP_COLORS = [B.PAINT_RED, B.PAINT_GREEN, B.PAINT_BLUE, B.PAINT_ORANGE, B.PAINT_YELLOW, B.PAINT_BLACK];
 const lotCache = new Map();
 export { lotDesc as _lotDesc }; // voor controles en schermafdrukken
+// gevelsoort voor verre gebouwen (js/lod.js): 0 = gewoon raamraster, 1..5 = vliesgevel, bandramen, banden, lamellen, natuursteen
+const FACADE_ID = { curtain: 1, ribbon: 2, bands: 3, fins: 4, stone: 5 };
+export function facadeAt(x, z) { const L = lotDesc(Math.floor(x / 64), Math.floor(z / 64)); return L.type === 'tower' ? FACADE_ID[L.facade] || 0 : 0; }
 function lotDesc(qx, qz) {
   const key = qx * 1000 + qz;
   let L = lotCache.get(key);
