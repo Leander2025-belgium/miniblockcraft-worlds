@@ -182,6 +182,11 @@ telefoon):
 | Nieuwe gevels | 5 gevelsoorten voor de torens van Megatower City: vliesgevel, bandramen, tweekleurige banden, lamellen, natuursteen. Ze zijn gekozen op het aantal vlakken: samen 3 % minder driehoeken dan vroeger (1003k tegen 1034k op 6 tegels); een fijn raster kostte +50 % en is niet gebruikt. | `js/megacity.js` | `tools/check-gevels.mjs`; voor/na: `docs/terranova-14-gevels-voor.png` en `-na.png` |
 | Meten op echte toestellen | Knop **📊 Prestatietest op dit toestel** in het menu: 5 vaste scènes in Megatower City. Gemeten: FPS, mediaan, p95 en max van de frametijd, tekenopdrachten, driehoeken, laadtijd en heap. Daarbij komen de echte GPU-naam en schermgegevens. De eigen instellingen worden teruggezet; het resultaat is kopieerbaar. | `js/perftest.js`, `js/app.js`, `index.html` | `tests/browser/prestatietest.cjs` |
 
+**Regressie 14.1:**
+- `node tests/run-all.mjs`: alle controles geslaagd, ook de nieuwe remise- en gevelcontroles. Reuzenberg exact behouden.
+- Browserregressie: 33 tests (de 28 bestaande plus 5 nieuwe), allemaal exit 0.
+- Twee tests (`nooduitgang`, `greenisland-geen-herlaad`) meldden een paginafout. Een doorgaande trein over een wissel stond met open deuren aan een perron, en het reizigerssysteem verwachtte een gewone lijn. Hersteld (reizigers gebruiken het echte spoor van de trein); beide tests opnieuw gedraaid: geen fouten.
+
 Beelden: `docs/terranova-14-remise.png`, `docs/terranova-14-materieel.png`, `docs/terranova-14-ovkaart.png`.
 
 ## Nog niet gedaan of maar deels (eerlijk, na 14.1)

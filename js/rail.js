@@ -707,10 +707,13 @@ export class AlpRail {
       const list = [], tmpv = new THREE.Vector3();
       for (const [id, tr] of this.trains) {
         if (!tr.L || Math.abs(tr.L.at(tr.s).x - p.x) > 400) continue;
+        // doorgaande route over een wissel of rangeerpad: de reizigers gebruiken het echte spoor waar de trein nu staat
+        const mine0 = this.player && this.player.tr === tr, loc = !mine0 && tr.L.route && tr.a && tr.a.loc && tr.a.loc.L ? tr.a.loc : null;
+        const LL = mine0 ? this.player.L : loc ? loc.L : tr.L; if (typeof LL.near !== 'function') continue;
         const mine = this.player && this.player.tr === tr, open = mine ? (this.player.doors && this.player.v < 0.1) : (tr.a ? !!doorsOpenAt(tr.a) : false);
         const doors = [];
-        if (open) for (const c of tr.cars) for (const dz of c.d.doors) { const w = c.body.toWorld(tmpv.set(c.d.W / 2, 1, dz + 0.5), new THREE.Vector3()); const r = tr.L.near(Math.floor(w.x), Math.floor(w.z), 12); if (r) doors.push(r.s); }
-        list.push({ key: id, L: mine ? this.player.L : tr.L, dir: mine ? this.player.dir : tr.dir, s: mine ? this.player.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
+        if (open) for (const c of tr.cars) for (const dz of c.d.doors) { const w = c.body.toWorld(tmpv.set(c.d.W / 2, 1, dz + 0.5), new THREE.Vector3()); const r = LL.near(Math.floor(w.x), Math.floor(w.z), 12); if (r) doors.push(r.s); }
+        list.push({ key: id, L: LL, dir: mine ? this.player.dir : loc ? loc.dir : tr.dir, s: mine ? this.player.s : loc ? loc.s : tr.s, open: open && doors.length > 0, doors, get alighted() { return tr.paxOut; }, set alighted(v) { tr.paxOut = v; } });
       }
       this.pax.update(dt, p, LINES, list, periodOf(railClock()));
       // stationsomroep: een trein staat klaar aan het perron waar de speler staat (niet aan boord)
