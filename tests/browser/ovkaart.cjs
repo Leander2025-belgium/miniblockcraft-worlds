@@ -46,6 +46,26 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   await p.screenshot({ path: process.env.SHOT || '/tmp/ovkaart.png' });
   // planner: van de tramlaan in het noorden naar het zuidoosten (tram + overstap)
   R.plan = await p.evaluate(async () => { const m = await import('./js/megaplan.js'); const r = m.plan({ x: 3840, z: 900, name: 'A' }, { x: 6656, z: 7168, name: 'B' }, 8); return { modi: r.modi, overstappen: r.overstappen, legs: r.legs.map(l => l.mode === 'wandelen' ? 'lopen ' + l.m : l.line + ' ' + l.from.name + '>' + l.to.name), html: m.planHtml(r).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) }; });
+  // buslijnen (14.2): elke bus heeft een lijn, blijft op zijn laan en stopt aan haltes in beide richtingen
+  R.bus = await p.evaluate(async () => {
+    const g = window.blokGame(), tr = g.traffic, mc = await import('./js/megacity.js');
+    const axis = (line) => { const n = +line.slice(1); return n <= mc.BUS_NS.length ? { ax: 'x', v: mc.BUS_NS[n - 1] * 128 } : { ax: 'z', v: mc.BUS_EW[n - mc.BUS_NS.length - 1] * 128 }; };
+    let maxOff = 0, n = 0, zonder = 0; const dirs = new Map();
+    for (let i = 0; i < 900; i++) {
+      tr.update(0.1, g.player.pos, 1, 8);
+      if (i % 10) continue;
+      for (const a of tr.agents) {
+        if (a.dead || a.kind !== 'bus') continue;
+        if (!a.line || a.line[0] !== 'B') { zonder++; continue; }
+        const h = tr.behind(a, 0, {}), A = axis(a.line), off = Math.abs((A.ax === 'x' ? h.x : h.z) - A.v);
+        if (a.route[0].e.conn) continue; // op het kruispunt
+        maxOff = Math.max(maxOff, off); n++;
+      }
+    }
+    for (const q of tr.served?.values() || []) if (q.kind === 'bus') { const k = q.name; dirs.set(k, (dirs.get(k) || 0) + 1); }
+    return { metingen: n, zonderLijn: zonder, grootsteAfstandTotLaan: +maxOff.toFixed(1), bedieendeHaltes: [...(tr.served?.values() || [])].filter(q => q.kind === 'bus').length, lijnen: [...new Set(tr.agents.filter(a => a.kind === 'bus' && !a.dead).map(a => a.line))] };
+  });
+  R.busPlan = await p.evaluate(async () => { const m = await import('./js/megaplan.js'); const r = m.plan({ x: 2 * 128 + 300, z: 1000, name: 'A' }, { x: 2 * 128 + 300, z: 8000, name: 'B' }, 8); return { modi: r.modi, legs: r.legs.map(l => l.mode === 'wandelen' ? 'lopen ' + l.m : l.line + ' (' + l.stops + ')') }; });
   // planner in het spel (knop), met tram in de uitleg
   await p.click('#ovmap-close');
   await p.evaluate(() => window.blokGame().setPaused(true));
@@ -54,7 +74,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   R.plannerUI = (await p.textContent('#mp-result')).replace(/\s+/g, ' ').slice(0, 200);
   console.log('ovkaart:', JSON.stringify(R));
   const ok = R.knop && R.echt > 0 && R.dienstregeling > 20 && R.ritKlopt && /bezetting \d+\/\d+/.test(R.voertuigInfo) && /Metro Megatower/.test(R.halteInfo) && /\d\d:\d\d/.test(R.halteInfo) && R.verschoven > 0
-    && R.plan.modi.includes('tram') && R.plan.overstappen >= 1 && /tram om de/.test(R.plannerUI);
+    && R.bus.metingen > 20 && R.bus.zonderLijn === 0 && R.bus.grootsteAfstandTotLaan <= 13 && R.bus.bedieendeHaltes >= 2 && R.busPlan.modi.includes('bus') && R.plan.modi.includes('tram') && R.plan.overstappen >= 1 && /tram om de/.test(R.plannerUI);
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');
   await b.close();

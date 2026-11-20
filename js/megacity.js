@@ -35,7 +35,14 @@ const RAIL_END = 70 * T + 120;                        // eindpunt aan de luchtha
 const METRO_END = 70 * T + 112;
 const METRO_ST = [5, 12, 24, 32, 40, 48, 56, 64, 70]; // stations (tegelkolom)
 const METRO_NAMES = { 5: 'Westpoort', 12: 'Parkzicht', 24: 'Universiteit', 32: 'Oude Markt', 40: 'Megatower', 48: 'Oostkade', 56: 'Ziekenhuis', 64: 'Fabriekshallen', 70: 'Luchthaven' };
-export const TRAM_X = [30, 52], TRAM_Z = [26, 56];          // laantegelgrenzen met een tram in de middenberm
+export const TRAM_X = [30, 52], TRAM_Z = [26, 56];
+// buslijnen (TERRANOVA 14.2): om de 4 lanen een vaste buslijn die de hele laan volgt (niet op de tramlanen);
+// noord-zuid B1–B19, oost-west daarna. Haltes om de 384 m aan beide kanten van de laan (js/traffic.js stopt per rijrichting).
+export const BUS_NS = [], BUS_EW = [];
+for (let i = 2; i < 80; i += 4) { if (!TRAM_X.includes(i)) BUS_NS.push(i); }
+for (let j = 2; j < 80; j += 4) { if (!TRAM_Z.includes(j)) BUS_EW.push(j); }
+export const busLineNS = (i) => { const k = BUS_NS.indexOf(i); return k < 0 ? '' : 'B' + (k + 1); };
+export const busLineEW = (j) => { const k = BUS_EW.indexOf(j); return k < 0 ? '' : 'B' + (BUS_NS.length + k + 1); };          // laantegelgrenzen met een tram in de middenberm
 const AIRPORT = LM[2], RUNWAY_X = 76 * T + 64, RUNWAY_Z0 = 31 * T, RUNWAY_Z1 = 50 * T + 100;
 
 const TOWER_LM = { id: 'tower', group: 'towerplaza', single: false };
@@ -866,7 +873,7 @@ function makePaths(tx, tz) {
     const X = i * T - X0;
     for (const [o, dir] of [[-9.5, 1], [-6.5, 1], [5.5, -1], [8.5, -1]]) {
       const x = X + o; if (x < -2 || x > T + 2) continue;
-      add('carM', dir > 0 ? [x, 0, G - 1, x, T, G - 1] : [x, T, G - 1, x, 0, G - 1]);
+      add('carM', dir > 0 ? [x, 0, G - 1, x, T, G - 1] : [x, T, G - 1, x, 0, G - 1], busLineNS(i) ? { line: busLineNS(i) } : undefined);
     }
     for (const o of [-13, 12]) { const x = X + o; if (x > -2 && x < T + 2) add('walk', [x, 0, G - 1, x, T, G - 1]); }
     if (TRAM_X.includes(i)) for (const [o, dir] of [[-3, 1], [2, -1]]) { const x = X + o; if (x > -2 && x < T + 2) add('tram', dir > 0 ? [x, 0, G - 1, x, T, G - 1] : [x, T, G - 1, x, 0, G - 1], { line: 'T' + (TRAM_X.indexOf(i) + 1) }); }
@@ -876,7 +883,7 @@ function makePaths(tx, tz) {
     const Z = j * T - Z0;
     for (const [o, dir] of [[-9.5, -1], [-6.5, -1], [5.5, 1], [8.5, 1]]) {
       const z = Z + o; if (z < -2 || z > T + 2) continue;
-      add('carM', dir > 0 ? [0, z, G - 1, T, z, G - 1] : [T, z, G - 1, 0, z, G - 1]);
+      add('carM', dir > 0 ? [0, z, G - 1, T, z, G - 1] : [T, z, G - 1, 0, z, G - 1], busLineEW(j) ? { line: busLineEW(j) } : undefined);
     }
     for (const o of [-13, 12]) { const z = Z + o; if (z > -2 && z < T + 2) add('walk', [0, z, G - 1, T, z, G - 1]); }
     if (TRAM_Z.includes(j)) for (const [o, dir] of [[-3, -1], [2, 1]]) { const z = Z + o; if (z > -2 && z < T + 2) add('tram', dir > 0 ? [0, z, G - 1, T, z, G - 1] : [T, z, G - 1, 0, z, G - 1], { line: 'T' + (TRAM_Z.indexOf(j) + 3) }); }
@@ -889,6 +896,9 @@ function makePaths(tx, tz) {
     const gx = X0 + a, gz = Z0 + a;
     if (stopAt(gz) === 42 && avenueNS(tx, tz)) add('busstop', [12, a, G - 1], { name: 'Halte ' + zoneName(X0, gz) });
     if (stopAt(gx) === 42 && avenueEW(tz, tx)) add('busstop', [a, 12, G - 1], { name: 'Halte ' + zoneName(gx, Z0) });
+    // overkant van een buslaan (andere rijrichting): zelfde naam, alleen in het verkeersnet (de wachtenden staan op de stoep)
+    if (stopAt(gz) === 42 && busLineNS(tx + 1) && avenueNS(tx + 1, tz)) add('busstop', [T - 12, a, G - 1], { name: 'Halte ' + zoneName(X0 + T, gz) });
+    if (stopAt(gx) === 42 && busLineEW(tz + 1) && avenueEW(tz + 1, tx)) add('busstop', [a, T - 12, G - 1], { name: 'Halte ' + zoneName(gx, Z0 + T) });
     if (stopAt(gz) === 80 && TRAM_X.includes(tx)) add('busstop', [0, a, G - 1], { name: 'Tramhalte ' + zoneName(X0, gz) });
     if (stopAt(gx) === 80 && TRAM_Z.includes(tz)) add('busstop', [a, 0, G - 1], { name: 'Tramhalte ' + zoneName(gx, Z0) });
   }

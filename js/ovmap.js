@@ -1,4 +1,4 @@
-// Live OV-kaart van Megatower City (TERRANOVA 14.1): alle lijnen (metro M1, trein IC, trams T1–T4), haltes en de
+// Live OV-kaart van Megatower City (TERRANOVA 14.1/14.2): alle lijnen (metro M1, trein IC, trams T1–T4, bussen B1–B38), haltes en de
 // voertuigen die nu rijden. Rond de speler (±430 m) zijn dat de echte voertuigen van het verkeer (js/traffic.js), met
 // hun rit uit de ritlaag (js/ovtrips.js): ritnummer, bezetting, volgende halte. Daarbuiten rekent de kaart de
 // voertuigen uit de dienstregeling van de planner (js/megaplan.js) en toont ze als 'volgens dienstregeling'.
@@ -23,15 +23,16 @@ export function openOvMap(game) {
     ctx.fillStyle = 'rgba(10,14,22,.35)'; ctx.fillRect(0, 0, W, H);
     // lijnen
     for (const L of LINES) {
-      ctx.strokeStyle = L.color; ctx.lineWidth = L.mode === 'tram' ? 3 : 5; ctx.lineCap = 'round'; ctx.setLineDash(L.mode === 'metro' ? [8, 5] : []);
-      ctx.beginPath(); L.stops.forEach((s, i) => (i ? ctx.lineTo(s.x * k, s.z * k) : ctx.moveTo(s.x * k, s.z * k))); ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha = L.mode === 'bus' ? 0.55 : 1;
+      ctx.strokeStyle = L.color; ctx.lineWidth = L.mode === 'bus' ? 1.5 : L.mode === 'tram' ? 3 : 5; ctx.lineCap = 'round'; ctx.setLineDash(L.mode === 'metro' ? [8, 5] : []);
+      ctx.beginPath(); L.stops.forEach((s, i) => (i ? ctx.lineTo(s.x * k, s.z * k) : ctx.moveTo(s.x * k, s.z * k))); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     }
     S.items = [];
     // haltes
     for (const L of LINES) for (const s of L.stops) {
       const big = L.mode !== 'tram';
       ctx.fillStyle = S.sel?.stop === s.name ? '#ffd34d' : '#fff'; ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(s.x * k, s.z * k, big ? 5 : 3, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(s.x * k, s.z * k, big ? 5 : L.mode === 'bus' ? 1.8 : 3, 0, 7); ctx.fill(); if (L.mode !== 'bus') ctx.stroke();
       if (big) { ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillText(s.name.replace('Metro ', '').replace('Station ', ''), s.x * k + 1, s.z * k - 8); ctx.fillStyle = '#fff'; ctx.fillText(s.name.replace('Metro ', '').replace('Station ', ''), s.x * k, s.z * k - 9); }
       S.items.push({ type: 'stop', x: s.x, z: s.z, name: s.name, line: L.line, mode: L.mode });
     }
@@ -69,7 +70,7 @@ export function openOvMap(game) {
           : `<span class="small">Volgens dienstregeling · rit ${esc(v.id)} · volgende halte ${esc(v.next)} om ${fmtTime(v.nextT)}</span>`);
       return;
     }
-    const deps = departures(s.stop, hourNow(), 6);
+    const deps = departures(s.stop, hourNow(), 6, { x: s.x, z: s.z });
     info.innerHTML = `<b>${esc(s.stop)}</b><br>` + (deps.length ? `<table class="small">${deps.map(d => `<tr><td>${d.hhmm}</td><td><b style="color:${d.color}">${esc(d.line)}</b></td><td>→ ${esc(d.dir)}</td><td>${d.perron ? 'perron ' + d.perron : ''}</td></tr>`).join('')}</table>` : '<span class="small muted">Geen vertrekken meer vandaag.</span>') +
       `<div class="row" style="margin-top:4px"><button class="btn" id="ovmap-go">🧭 Reisplanner naar hier</button></div>`;
     document.getElementById('ovmap-go')?.addEventListener('click', () => {

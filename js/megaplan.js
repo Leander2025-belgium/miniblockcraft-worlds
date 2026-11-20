@@ -4,11 +4,12 @@
 // dienstregeling van het speluur (js/service.js: interval en haltetijd per periode). De planner zoekt met een
 // tijdsafhankelijke Dijkstra de vroegste aankomst: wachten op het eerstvolgende vertrek aan elke halte, blijven zitten
 // op hetzelfde voertuig, en overstappen te voet (met 1 minuut overstaptijd).
-// Bussen rijden in Megatower City zonder vaste lijn (elke bus kiest zijn route): die staan daarom niet in de planner.
+// Bussen (TERRANOVA 14.2): vaste lijnen B1–B38 langs de buslanen (js/megacity.js), haltes om de 384 m; het verkeer laat
+// de bussen op hun lijn rijden en aan beide kanten stoppen.
 // Wat de kaart toont: de voertuigen van het verkeer rond de speler (echt, met rit en bezetting) en daarbuiten de
 // voertuigen volgens deze dienstregeling.
 import { periodOfHour, HEADWAY, DWELL, PERIOD_LABEL } from './service.js';
-import { TRAM_X, TRAM_Z, TILES, avenueNS, avenueEW, zoneName } from './megacity.js';
+import { TRAM_X, TRAM_Z, TILES, avenueNS, avenueEW, zoneName, BUS_NS, BUS_EW, busLineNS, busLineEW } from './megacity.js';
 
 const T = 128, METRO_Z = 40 * T, RAIL_Z = 47 * T;
 const METRO = [[5, 'Westpoort'], [12, 'Parkzicht'], [24, 'Universiteit'], [32, 'Oude Markt'], [40, 'Megatower'], [48, 'Oostkade'], [56, 'Ziekenhuis'], [64, 'Fabriekshallen'], [70, 'Luchthaven']]
@@ -36,34 +37,38 @@ const nextDep = (t, h, off) => Math.ceil((t - off) / h) * h + off;
 // ---------- lijnen ----------
 // tramhaltes: zoals in de wereld (om de 3 tegels, op 80 m), alleen waar de laan (en dus het tramspoor) doorloopt;
 // een onderbreking (park, rivier, landmark) splitst de lijn in delen
-function tramLines() {
+function lineRuns(mode, off, colorOf, defs) {
   const out = [], step = 3 * T;
   const mk = (line, axis, b) => {
     let run = [];
-    const flush = () => { if (run.length >= 2) out.push({ id: line + '/' + out.filter(l => l.line === line).length, line, mode: 'tram', color: TRAM_COLOR[line], stops: run }); run = []; };
-    for (let g = 80; g < TILES * T; g += step) {
+    const flush = () => { if (run.length >= 2) out.push({ id: line + '/' + out.filter(l => l.line === line).length, line, mode, color: colorOf(line), stops: run }); run = []; };
+    for (let g = off; g < TILES * T; g += step) {
       const t = Math.floor(g / T), ok = axis === 'x' ? avenueNS(b, t) : avenueEW(b, t);
       // spoor tussen de vorige halte en deze: alle tegels ertussen hebben de laan
       if (run.length) { const t0 = Math.floor((g - step) / T); let cont = true; for (let q = t0; q <= t; q++) if (!(axis === 'x' ? avenueNS(b, q) : avenueEW(b, q))) cont = false; if (!cont) flush(); }
       if (!ok) { flush(); continue; }
       const x = axis === 'x' ? b * T : g, z = axis === 'x' ? g : b * T;
-      run.push({ id: `${line}:${g}`, name: 'Tramhalte ' + (axis === 'x' ? zoneName(b * T, g) : zoneName(g, b * T)), x, z, kind: 'tram' });
+      run.push({ id: `${line}:${g}`, name: (mode === 'tram' ? 'Tramhalte ' : 'Halte ') + (axis === 'x' ? zoneName(b * T, g) : zoneName(g, b * T)), x, z, kind: mode });
     }
     flush();
   };
-  TRAM_X.forEach((b, i) => mk('T' + (i + 1), 'x', b));
-  TRAM_Z.forEach((b, i) => mk('T' + (i + 3), 'z', b));
+  for (const [line, axis, b] of defs) mk(line, axis, b);
   return out;
 }
+const tramLines = () => lineRuns('tram', 80, (l) => TRAM_COLOR[l], [...TRAM_X.map((b, i) => ['T' + (i + 1), 'x', b]), ...TRAM_Z.map((b, i) => ['T' + (i + 3), 'z', b])]);
+const busLines = () => lineRuns('bus', 42, () => '#27ae60', [...BUS_NS.map(b => [busLineNS(b), 'x', b]), ...BUS_EW.map(b => [busLineEW(b), 'z', b])]);
+export const BUS_HEADWAY = { spits: 600, dal: 900, avond: 1200, nacht: 1800 };
 const TRAM_COLOR = { T1: '#e67e22', T2: '#16a085', T3: '#8e44ad', T4: '#c0392b' };
 export const LINES = [
   { id: 'M1', line: 'M1', mode: 'metro', color: '#2f6db5', stops: METRO },
   { id: 'IC', line: 'IC', mode: 'trein', color: '#f1c40f', stops: RAIL },
   ...tramLines(),
+  ...busLines(),
 ];
-const speedOf = (L) => L.mode === 'metro' ? METRO_V : L.mode === 'trein' ? TRAIN_V : TRAM_V;
-const headwayOf = (L, per) => L.mode === 'trein' ? TRAIN_HEADWAY[per] : HEADWAY[per][L.mode === 'metro' ? 'metro' : 'tram'];
-const dwellOf = (L, per) => L.mode === 'trein' ? TRAIN_DWELL : DWELL[per][L.mode === 'metro' ? 'metro' : 'tram'];
+const BUS_V = 8;
+const speedOf = (L) => L.mode === 'metro' ? METRO_V : L.mode === 'trein' ? TRAIN_V : L.mode === 'bus' ? BUS_V : TRAM_V;
+const headwayOf = (L, per) => L.mode === 'trein' ? TRAIN_HEADWAY[per] : L.mode === 'bus' ? BUS_HEADWAY[per] : HEADWAY[per][L.mode === 'metro' ? 'metro' : 'tram'];
+const dwellOf = (L, per) => L.mode === 'trein' ? TRAIN_DWELL : DWELL[per][L.mode];
 // tijdsprofiel per richting: vertrek aan halte i = vertrek aan de beginhalte + cum[i]
 function profile(L, dir, per) {
   const st = dir ? [...L.stops].reverse() : L.stops, cum = [0], dw = dwellOf(L, per);
@@ -72,7 +77,7 @@ function profile(L, dir, per) {
   const h = headwayOf(L, per), off = L.mode === 'trein' ? (dir ? 420 : 120) : ((L.id.length * 37 + (dir ? h / 2 : 0)) % h);
   return { st, cum, h, off, dw, run: (i) => Math.hypot(st[i + 1].x - st[i].x, st[i + 1].z - st[i].z) / speedOf(L) + (L.mode === 'trein' ? TRAIN_DWELL : 0) };
 }
-const dirName = (L, dir) => { const st = dir ? L.stops[0] : L.stops[L.stops.length - 1]; return L.mode === 'tram' ? st.name.replace('Tramhalte ', '') + ` (${L.stops[0].x === L.stops[1].x ? (dir ? 'noord' : 'zuid') : (dir ? 'west' : 'oost')})` : st.name.replace('Metro ', '').replace('Station ', ''); };
+const dirName = (L, dir) => { const st = dir ? L.stops[0] : L.stops[L.stops.length - 1]; return L.mode === 'tram' || L.mode === 'bus' ? st.name.replace('Tramhalte ', '').replace('Halte ', '') + ` (${L.stops[0].x === L.stops[1].x ? (dir ? 'noord' : 'zuid') : (dir ? 'west' : 'oost')})` : st.name.replace('Metro ', '').replace('Station ', ''); };
 const perronOf = (L, dir) => L.mode === 'metro' ? (dir ? 2 : 1) : L.mode === 'trein' ? (dir ? 1 : 2) : null;
 
 // ---------- planner ----------
@@ -122,10 +127,10 @@ export function plan(from, to, hour) {
   r.modi = [...new Set(r.legs.map(l => l.mode))];
   return r;
 }
-const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', wandelen: '🚶' };
+const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', bus: '🚌', wandelen: '🚶' };
 export function planHtml(r) {
   const min = (s) => Math.max(1, Math.round(s / 60));
-  return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
+  return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, bus om de ${BUS_HEADWAY[r.per] / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
     <div><b>Aankomst ${fmt(r.arr)}</b> · reistijd ${min(r.arr - r.dep)} min · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · ${r.wandelen} m wandelen</div>
     <ol class="plan-legs">${r.legs.map(l => l.mode === 'wandelen'
       ? `<li>${ICON.wandelen} ${fmt(l.dep)} wandel ${l.m} m naar <b>${l.to.name}</b> (${min(l.arr - l.dep)} min)</li>`
@@ -150,10 +155,11 @@ export function scheduled(hour) {
   return out;
 }
 // eerstvolgende vertrekken aan een halte (alle lijnen die er stoppen, beide richtingen)
-export function departures(stopName, hour, n = 6) {
+// pos: { x, z } van de aangeklikte halte (veel haltes heten hetzelfde, bv. 'Halte Centrum'): alleen haltes binnen 40 m
+export function departures(stopName, hour, n = 6, pos = null) {
   const per = periodOfHour(hour), t = hour * 3600, rows = [];
   for (const L of LINES) for (const d of [0, 1]) {
-    const pr = profile(L, d, per), i = pr.st.findIndex(s => s.name === stopName); if (i < 0 || i === pr.st.length - 1) continue;
+    const pr = profile(L, d, per), i = pr.st.findIndex(s => s.name === stopName && (!pos || Math.hypot(s.x - pos.x, s.z - pos.z) < 40)); if (i < 0 || i === pr.st.length - 1) continue;
     let dep = nextDep(t, pr.h, pr.off + pr.cum[i]);
     for (let k = 0; k < 3; k++, dep += pr.h) rows.push({ t: dep, line: L.line, mode: L.mode, dir: dirName(L, d), perron: perronOf(L, d), color: L.color });
   }
