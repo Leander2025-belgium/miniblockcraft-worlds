@@ -76,7 +76,7 @@ const LIVERY = {
 const CAR_PHYS = { loco: [86, 240, 6400], emuCab: [56, 70, 1600], emuMid: [48, 55, 1200], iceHead: [72, 150, 4000], ice: [52, 30, 800],
   coach1: [46, 0, 0], coach2: [44, 0, 0], dining: [52, 0, 0], sleeper: [54, 0, 0], panorama: [42, 0, 0], rack: [32, 45, 900], rackLoco: [44, 70, 1400],
   tram: [36, 45, 500], bus: [16, 0, 0], box: [58, 0, 0], tank: [72, 0, 0], flat: [40, 0, 0],
-  sbCab: [44, 60, 1300], sbMid: [38, 50, 1100], mCab: [32, 55, 1000], mMid: [30, 50, 900], axCab: [54, 70, 1700], axMid: [46, 55, 1200], regCab: [52, 60, 1400], regMid: [46, 50, 1100], locoD: [90, 260, 2400] };
+  ddCab: [58, 70, 1500], ddMid: [50, 60, 1200], sbCab: [44, 60, 1300], sbMid: [38, 50, 1100], mCab: [32, 55, 1000], mMid: [30, 50, 900], axCab: [54, 70, 1700], axMid: [46, 55, 1200], regCab: [52, 60, 1400], regMid: [46, 50, 1100], locoD: [90, 260, 2400] };
 export function trainPhysics(tr) {
   let M = 0, Md = 0, F = 0, P = 0, len = 0;
   for (const c of tr.cars) { const [m, f, p] = CAR_PHYS[c.d.type] || [45, 0, 0]; M += m; if (f) { Md += m; F += f; P += p; } len += c.d.L + GAP; }
@@ -84,10 +84,11 @@ export function trainPhysics(tr) {
 }
 // kleefkracht wiel–rail: droog 0,30; regen 0,20; onweer 0,17; sneeuw 0,12
 export function adhesion(w) { return w === 'snow' ? 0.12 : w === 'storm' ? 0.17 : w === 'rain' ? 0.2 : 0.3; }
-const CAR_LEN = { sbCab: 22, sbMid: 22, mCab: 18, mMid: 18, axCab: 26, axMid: 26, regCab: 26, regMid: 26, locoD: 20, loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
+const CAR_LEN = { ddCab: 26, ddMid: 26, sbCab: 22, sbMid: 22, mCab: 18, mMid: 18, axCab: 26, axMid: 26, regCab: 26, regMid: 26, locoD: 20, loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
 function design(vtype, liv) {
   // materieel per categorie (js/trainshell.js CAR_BASE): eigen lengte en deuren, de indeling van het basistype
   const type = CAR_BASE[vtype] || vtype;
+  if (vtype === 'ddCab' || vtype === 'ddMid') return designDD(vtype, liv);
   const L = CAR_LEN[vtype], W = 4, H = 6, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
   const set = (x, y, z, b) => { if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) vox[(z * size + x) * H + y] = b; };
   const box = (x0, y0, z0, x1, y1, z1, b) => { for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) set(x, y, z, b); };
@@ -156,6 +157,42 @@ function design(vtype, liv) {
   return { W, H, L, size, vox, seats, doors, cab, type: vtype, walk: true };
 }
 
+// dubbeldekker (TERRANOVA 14.2): twee verdiepingen. Benedendek vloer y1 (stahoogte y2–3), bovendek vloer y4 (stahoogte
+// y5–6), dak y7. Aan beide kanten een instaphal bij de deuren; daar een trap van 3 treden naar boven, met ernaast een
+// vrije doorgang naar het benedendek. Zitplaatsen op beide verdiepingen.
+function designDD(vtype, liv) {
+  const cab = vtype === 'ddCab', L = CAR_LEN[vtype], W = 4, H = 8, size = Math.max(W, L), vox = new Uint8Array(size * size * H);
+  const set = (x, y, z, b) => { if (x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L) vox[(z * size + x) * H + y] = b; };
+  const box = (x0, y0, z0, x1, y1, z1, b) => { for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) set(x, y, z, b); };
+  const [c1, c2] = LIVERY[liv] || LIVERY.AE, seats = [], doors = [];
+  box(0, 0, 1, W - 1, 0, L - 2, B.METAL); for (const z of [2, 3, L - 4, L - 3]) box(0, 0, z, W - 1, 0, z, B.PAINT_BLACK);
+  box(0, 1, 0, W - 1, 1, L - 1, B.TILE);                                                  // vloer benedendek en instaphallen
+  const zA = 7, zB = cab ? L - 9 : L - 8;                                                 // bovendek tussen de trappen
+  box(1, 4, zA, 2, 4, zB, B.TILE);                                                        // vloer bovendek
+  for (let z = 0; z < L; z++) for (const x of [0, W - 1]) {
+    set(x, 2, z, c1); set(x, 3, z, z % 4 === 0 || z < 1 || z > L - 2 ? c1 : B.GLASS);   // benedendek: ramen
+    set(x, 4, z, c2);                                                                     // band tussen de verdiepingen
+    set(x, 5, z, c1); set(x, 6, z, z % 4 === 0 || z < 1 || z > L - 2 ? c1 : B.GLASS);   // bovendek: ramen
+  }
+  for (let z = 0; z < L; z++) for (let x = 0; x < W; x++) set(x, 7, z, x > 0 && x < W - 1 && z % 6 === 3 ? B.LAMP : B.PAINT_WHITE);
+  for (let z = zA; z <= zB; z++) if (z % 6 === 3) set(1, 4, z, B.LAMP);                 // lampen benedendek: in het plafond (de vloer van het bovendek)
+  // kopwanden met doorgang (beide verdiepingen dicht behalve beneden in het midden)
+  for (const z of [0, L - 1]) { for (let x = 0; x < W; x++) for (let y = 2; y <= 6; y++) set(x, y, z, c1); set(1, 2, z, 0); set(2, 2, z, 0); set(1, 3, z, 0); set(2, 3, z, 0); }
+  // deuren in de instaphallen
+  for (const z of [2, L - 3]) { for (const x of [0, W - 1]) { set(x, 2, z, B.PAINT_YELLOW); set(x, 3, z, B.GLASS_GREEN); } doors.push(z); }
+  // trappen: x = 2 omhoog naar het bovendek (3 treden), x = 1 blijft vrij naar het benedendek
+  for (const [z0, dz] of [[zA - 3, 1], [zB + 3, -1]]) for (let i = 0; i < 3; i++) { const z = z0 + dz * i; for (let y = 2; y <= 2 + i; y++) set(2, y, z, B.PLANKS); }
+  if (cab) {
+    const zf = L - 1;
+    for (let x = 0; x < W; x++) { set(x, 2, zf, c1); set(x, 3, zf, B.GLASS); set(x, 4, zf, c2); set(x, 5, zf, c1); set(x, 6, zf, c1); }
+    set(1, 2, zf - 1, B.PANEL_DARK); set(2, 2, zf - 1, B.PANEL_DARK);
+    for (let x = 0; x < W; x++) if (x !== 1) for (let y = 2; y <= 3; y++) set(x, y, zf - 3, c1); // wand achter de cabine
+  }
+  // zitplaatsen: beneden langs x = 2 (gangpad x = 1, vrij vanuit de instaphal), boven langs x = 1 (gangpad x = 2, waar de trap uitkomt)
+  for (let z = zA + 1; z < zB; z += 2) { set(2, 2, z, B.PAINT_BLUE); seats.push([2.5, 3, z + 0.5]); }
+  for (let z = zA + 1; z < zB; z += 2) { set(1, 5, z, B.WOOL_RED); seats.push([1.5, 6, z + 0.5]); }
+  return { W, H, L, size, vox, seats, doors, cab: cab ? [2, 2, L - 3] : null, type: vtype, walk: true, decks: 2 };
+}
 
 // ---------- snelheidsbeperkingen per lijn ----------
 function speedLimits() { for (const L of LINES) {
@@ -327,6 +364,7 @@ function doorsOpenAt(a) {
 export function activeAt(now) { return activeTrains(now); }
 // voor de remises (js/depotsim.js) en controles zonder browser
 export function _depotHelpers() { return { runs, delayOf, posAt, trackOffset }; }
+export function _design(type, liv) { return design(type, liv); } // voor controles zonder browser (interieur)
 function activeTrains(now) {
   const out = [];
   for (const r of RUNS) {
@@ -1323,7 +1361,7 @@ export class AlpRail {
   }
   resetTrains() { for (const tr of this.trains.values()) { if (this.g.aboard && this.g.aboard.train === tr) continue; this.dropTrain(tr); } for (const [id, tr] of [...this.trains]) if (!(this.g.aboard && this.g.aboard.train === tr)) this.trains.delete(id); }
   ovPanel(tab, now, esc) {
-    const CAR_NAMES = { sbCab: 'S-Bahn-stuurrijtuig', sbMid: 'S-Bahn-tussenrijtuig', mCab: 'metro-kopwagen', mMid: 'metro-tussenwagen', axCab: 'Airport Express-kop', axMid: 'Airport Express-rijtuig', regCab: 'regionale motorwagen', regMid: 'regionaal tussenrijtuig', locoD: 'diesellocomotief', iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
+    const CAR_NAMES = { ddCab: 'dubbeldeks-stuurrijtuig', ddMid: 'dubbeldeksrijtuig', sbCab: 'S-Bahn-stuurrijtuig', sbMid: 'S-Bahn-tussenrijtuig', mCab: 'metro-kopwagen', mMid: 'metro-tussenwagen', axCab: 'Airport Express-kop', axMid: 'Airport Express-rijtuig', regCab: 'regionale motorwagen', regMid: 'regionaal tussenrijtuig', locoD: 'diesellocomotief', iceHead: 'ICE-kopwagen', ice: 'ICE-rijtuig', dining: 'restauratierijtuig', emuCab: 'stuurrijtuig', emuMid: 'tussenrijtuig', loco: 'locomotief', coach1: 'rijtuig 1e klas', coach2: 'rijtuig 2e klas', sleeper: 'slaaprijtuig', panorama: 'panoramarijtuig', rack: 'tandradmotorwagen', rackLoco: 'tandradlocomotief', tram: 'tramdeel', bus: 'bus', box: 'gesloten wagen', tank: 'ketelwagen', flat: 'platte wagen' };
     const kindOf = (sv) => sv.bus ? 'bus' : sv.tram ? 'tram' : sv.metro ? 'metro' : 'trein';
     const kinds = [...new Set(NET.SERVICES.map(kindOf))], kind = kinds.includes(this.ovKind) ? this.ovKind : kinds[0];
     const filt = kinds.length > 1 ? `<div class="row" style="gap:4px;margin:0 0 6px">${kinds.map(k => `<button class="btn${k === kind ? ' primary' : ''}" data-kind="${k}">${{ trein: '🚆 Trein', metro: 'Ⓜ Metro', tram: '🚋 Tram', bus: '🚌 Bus' }[k]}</button>`).join('')}</div>` : '';

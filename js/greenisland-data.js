@@ -167,7 +167,7 @@ export const SERVICES = [
   { id: 'IC1', line: 'IC1', name: 'IC1 Oostkustlijn', liv: 'GI', cars: ['loco', 'coach1', 'coach2', 'coach2', 'dining', 'coach2'], vmax: 44, h: 1800, canon: true, platform: { 'Munkbay Central': 4 } },
   { id: 'IC2', line: 'IC2', name: 'IC2 Viridonia Express', liv: 'GV', cars: ['loco', 'coach1', 'coach2', 'dining', 'coach2', 'coach2'], vmax: 44, h: 1800, canon: true, platform: { 'Munkbay Central': 6 } },
   { id: 'IC3', line: 'IC3', name: 'IC3 Noordlijn', liv: 'GI', cars: ['loco', 'coach1', 'coach2', 'coach2'], vmax: 39, h: 3600, canon: false },
-  { id: 'IR4', line: 'IR4', name: 'IR4 Zuidlijn', liv: 'GR', cars: ['regCab', 'regMid', 'regMid', 'regCab'], vmax: 39, h: 3600, canon: false },
+  { id: 'IR4', line: 'IR4', name: 'IR4 Zuidlijn', liv: 'GR', cars: ['ddCab', 'ddMid', 'ddMid', 'ddCab'], vmax: 39, h: 3600, canon: false },
   { id: 'VB', line: 'VB', name: 'Silverpine Bergbahn', liv: 'GB', cars: ['rack', 'rack'], vmax: 12, h: 3600, acc: 0.5, canon: false },
   { id: 'NT', line: 'IC2', name: 'Nachttrein Westport–Munkbay', liv: 'EN', stops: ['Westport', 'Viridonia', 'Munkbay Central'], cars: ['loco', 'sleeper', 'sleeper', 'dining', 'coach2'], vmax: 39, h: 86400, hours: [22, 6], canon: false },
   { id: 'GW', line: 'IC2', name: 'Goederentrein Westport–Munkbay', liv: 'G', stops: [], cars: ['locoD', 'box', 'tank', 'box', 'flat', 'box', 'tank'], vmax: 25, h: 7200, freight: true, acc: 0.35, canon: false },

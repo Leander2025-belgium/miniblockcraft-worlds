@@ -50,11 +50,23 @@ const SHOT = process.env.SHOT || null;
   });
   await p.waitForTimeout(3000);
   if (SHOT) await p.screenshot({ path: SHOT });
+  // zijaanzicht van de dubbeldekker (IR4, buitenste opstelspoor): twee ramenrijen
+  if (process.env.SHOT2) {
+    await p.evaluate(async () => {
+      const g = window.blokGame(), Rl = g.alpRail, G = await import('./js/greenisland.js'), D = G.DEPOTS.find(d => d.name === 'Remise Southbay');
+      // de dubbeldekker op het binnenste opstelspoor (de andere eraf), camera tussen het hoofdspoor en dat spoor
+      for (const id of ['show:S1', 'show:M1', 'show:AX1', 'show:GW']) { const t = Rl.trains.get(id); if (t) { Rl.dropTrain(t); Rl.trains.delete(id); } }
+      const tr = Rl.trains.get('show:IR4'), P = D.sidings[0]; Rl.place(tr, P, P.len - 230, 1); Rl.dressTrain(tr, false, 0.1, 0);
+      const q = P.at(P.len - 275), o = D.side; const pl = g.player; pl.pos.set(q.x - q.tz * o * -8, q.y + 3.0, q.z + q.tx * o * -8); pl.yaw = Math.atan2(-(q.x - pl.pos.x), -(q.z - pl.pos.z)) + 0.5 * o; pl.pitch = -0.02;
+    });
+    await p.waitForTimeout(3000);
+    await p.screenshot({ path: process.env.SHOT2, timeout: 240000 });
+  }
   console.log('materieel:', JSON.stringify(R));
   const parts = ['S1', 'M1', 'AX1', 'IR4', 'GW'].map(k => R[k].onderdelen);
   const ok = R.S1.soort[0] === 'sbCab' && R.S1.lengte[0] === 22 && R.S1.deuren === 3 && R.S1.stroomafnemer
     && R.M1.soort[0] === 'mCab' && R.M1.lengte[0] === 18 && R.M1.deuren === 3 && !R.M1.stroomafnemer
-    && R.AX1.soort[0] === 'axCab' && R.IR4.soort[0] === 'regCab' && R.GW.soort[0] === 'locoD' && !R.GW.stroomafnemer
+    && R.AX1.soort[0] === 'axCab' && R.IR4.soort[0] === 'ddCab' && R.GW.soort[0] === 'locoD' && !R.GW.stroomafnemer
     && new Set(parts).size === parts.length; // elk model een andere geometrie
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');

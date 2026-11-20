@@ -15,9 +15,9 @@ const hexOf = (id) => { const c = BLOCKS[id] ? BLOCKS[id].color : [200, 200, 200
 //   axCab/axMid   Airport Express: lange gestroomlijnde neus, doorlopende ramenband, bagageruimte
 //   regCab/regMid regionale motorwagen: hoekige kop met zwart masker, deuren op een derde van de bak
 //   locoD         diesellocomotief voor goederentreinen: kap met looppaden, cabine aan één kant, uitlaten
-export const CAR_BASE = { sbCab: 'emuCab', sbMid: 'emuMid', mCab: 'emuCab', mMid: 'emuMid', axCab: 'emuCab', axMid: 'emuMid', regCab: 'emuCab', regMid: 'emuMid', locoD: 'loco' };
-const CAB = new Set(['loco', 'emuCab', 'iceHead', 'rack', 'rackLoco', 'tram', 'bus', 'sbCab', 'mCab', 'axCab', 'regCab', 'locoD']);
-const ELECTRIC = new Set(['loco', 'emuCab', 'iceHead', 'tram', 'rackLoco', 'sbCab', 'axCab', 'regCab']);
+export const CAR_BASE = { ddCab: 'emuCab', ddMid: 'emuMid', sbCab: 'emuCab', sbMid: 'emuMid', mCab: 'emuCab', mMid: 'emuMid', axCab: 'emuCab', axMid: 'emuMid', regCab: 'emuCab', regMid: 'emuMid', locoD: 'loco' };
+const CAB = new Set(['loco', 'emuCab', 'iceHead', 'rack', 'rackLoco', 'tram', 'bus', 'ddCab', 'sbCab', 'mCab', 'axCab', 'regCab', 'locoD']);
+const ELECTRIC = new Set(['loco', 'emuCab', 'iceHead', 'tram', 'rackLoco', 'ddCab', 'sbCab', 'axCab', 'regCab']);
 
 // geometrie per rijtuigsoort (gedeeld door alle treinen): { body: {paint,trim,light}, door: geometry }
 const cache = new Map();
@@ -102,7 +102,7 @@ export function shellParts(d, liv, style = '') {
   // ramen: aparte ruiten met stijlen, niet bij de deuren
   const doorsZ = d.doors.map(z => z - hz + 0.5);
   const sleeper = type === 'sleeper', mountain = type === 'rack' || type === 'rackLoco' || type === 'panorama', hist = style === 'hist';
-  const fam = type.startsWith('sb') ? 'sb' : type.startsWith('m') && CAR_BASE[type] ? 'm' : type.startsWith('ax') ? 'ax' : type.startsWith('reg') ? 'reg' : null;
+  const fam = type.startsWith('dd') ? 'dd' : type.startsWith('sb') ? 'sb' : type.startsWith('m') && CAR_BASE[type] ? 'm' : type.startsWith('ax') ? 'ax' : type.startsWith('reg') ? 'reg' : null;
   if (sleeper) for (const sx of [1, -1]) P.box('paint', 0.03, 0.3, bl - 1, sx * 2.045, 4.45, bc, c2);                    // slaaprijtuig: band met 'WL'
   if (hist) for (const sx of [1, -1]) { P.box('trim', 0.03, 0.08, bl, sx * 2.05, 2.75, bc, 0xc9a24a); P.box('trim', 0.03, 0.9, bl, sx * 2.04, 3.6, bc, 0xe9dfc0); } // goudlijn, crème ramenband
   for (const sx of [1, -1]) {
@@ -113,6 +113,7 @@ export function shellParts(d, liv, style = '') {
       if (mountain) { P.box('win', 0.05, 1.6, 1.95, sx * 2.04, 3.65, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 1.7, 0.1, sx * 2.04, 3.65, z + 1.95, PILLAR); continue; }
       if (hist) { P.box('win', 0.05, 0.8, 1.2, sx * 2.05, 3.6, z + 0.9, 0xffe9c4); continue; }
       if (fam === 'ax') continue;                                                         // doorlopende ramenband (hieronder)
+      if (fam === 'dd') { P.box('win', 0.05, 0.85, 1.8, sx * 2.04, 2.35, z + 0.9, 0xffe9c4); P.box('win', 0.05, 0.85, 1.8, sx * 2.04, 4.2, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 2.9, 0.12, sx * 2.04, 3.25, z + 1.9, PILLAR); continue; } // dubbeldekker: twee ramenrijen
       if (fam === 'sb' || fam === 'm') { P.box('win', 0.05, 1.4, 1.85, sx * 2.04, 3.6, z + 0.9, 0xffe9c4); P.box('trim', 0.06, 1.5, 0.12, sx * 2.04, 3.6, z + 1.9, PILLAR); continue; }
       P.box('win', 0.05, 1.05, 1.8, sx * 2.04, 3.55, z + 0.9, 0xffe9c4);
       P.box('trim', 0.06, 1.15, 0.12, sx * 2.04, 3.55, z + 1.9, PILLAR);
@@ -124,6 +125,7 @@ export function shellParts(d, liv, style = '') {
       for (const dz of doorsZ) P.box('trim', 0.06, 1.1, 1.9, sx * 2.05, 3.6, dz, c1);
     }
     if (fam === 'reg') P.box('paint', 0.03, 0.18, bl, sx * 2.045, 1.35, bc, c2);         // regionale trein: tweede sierlijn onderaan
+    if (fam === 'dd') P.box('paint', 0.03, 0.42, bl, sx * 2.045, 3.28, bc, c2);          // dubbeldekker: band tussen de verdiepingen
   }
   if (fam === 'm') for (const bz of bogieZ) for (const sx of [1, -1]) B.box('trim', 0.5, 0.18, 0.9, sx * 1.75, 0.45, 0, 0x2b2b2b); // stroomsloffen voor de derde rail
   if (type === 'panorama') P.box('trim', 3.2, 0.3, bl - 3, 0, 5.4, bc, GLASS, { sx: 0.9 });
