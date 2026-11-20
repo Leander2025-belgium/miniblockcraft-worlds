@@ -35,7 +35,7 @@ const RAIL_END = 70 * T + 120;                        // eindpunt aan de luchtha
 const METRO_END = 70 * T + 112;
 const METRO_ST = [5, 12, 24, 32, 40, 48, 56, 64, 70]; // stations (tegelkolom)
 const METRO_NAMES = { 5: 'Westpoort', 12: 'Parkzicht', 24: 'Universiteit', 32: 'Oude Markt', 40: 'Megatower', 48: 'Oostkade', 56: 'Ziekenhuis', 64: 'Fabriekshallen', 70: 'Luchthaven' };
-const TRAM_X = [30, 52], TRAM_Z = [26, 56];          // laantegelgrenzen met een tram in de middenberm
+export const TRAM_X = [30, 52], TRAM_Z = [26, 56];          // laantegelgrenzen met een tram in de middenberm
 const AIRPORT = LM[2], RUNWAY_X = 76 * T + 64, RUNWAY_Z0 = 31 * T, RUNWAY_Z1 = 50 * T + 100;
 
 const TOWER_LM = { id: 'tower', group: 'towerplaza', single: false };

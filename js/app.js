@@ -239,7 +239,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan') },
+      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1220,12 +1220,16 @@ $('#btn-megaplan')?.addEventListener('click', async () => {
     for (const el of [from, to, hr]) el.addEventListener('change', run);
     $('#mp-close').addEventListener('click', () => game.resume());
     $('#mp-nav').addEventListener('click', () => { const r = game.mega.lastPlan; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
-      if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (perron ${ride.perron}, vertrek ${hm(ride.dep)})` : `Je bent er al`);
+      if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (${ride.perron ? `perron ${ride.perron}, ` : ''}vertrek ${hm(ride.dep)})` : `Je bent er al`);
       else { game.mega.navTo = { name: first.name, x: first.x, z: first.z }; game.toast(`🧭 Navigatie naar ${first.name}${ride ? ` · daar de ${ride.line} richting ${ride.dir} (${hm(ride.dep)})` : ''}`); } } game.resume(); });
     game.mega.planRun = run;
   }
   game.mega.planRun(); game.showOverlay('megaplan');
 });
+// live OV-kaart Megatower City (pauzemenu en grote kaart)
+const openOvMap = async () => { if (!game || !game.mega) return; const m = await import('./ovmap.js'); m.openOvMap(game); };
+$('#btn-ovmap')?.addEventListener('click', openOvMap);
+$('#btn-map-ov')?.addEventListener('click', openOvMap);
 $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
