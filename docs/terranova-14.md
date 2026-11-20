@@ -195,7 +195,7 @@ telefoon):
   - `reis` en `reizigers-auto`: de tests gebruikten haltes waar sinds de vaste lijnen geen bus meer komt (Megatower Plaza, Oude Markt). De tests nemen nu de dichtste halte van een buslijn en Westpoort (bus en metro).
   - `prestatietest`: time-out terwijl er tegelijk andere zware tests draaiden (software-rendering, 1–5 FPS). Apart gedraaid: geslaagd.
   - De bezettingscontrole van `ovkaart` las het infovak soms net voor het verversen (elke seconde); de test probeert nu tot 4 keer.
-- Na de herstelling opnieuw gedraaid en geslaagd, zonder paginafouten: ovkaart, reis, reizigers-auto, prestatietest, en de stadstests met bussen (zie hieronder).
+- Na de herstelling opnieuw gedraaid, allemaal exit 0 zonder paginafouten: ovkaart, reis, reizigers-auto, prestatietest, bushalte, megastad-ronde2, reizigers, stadsvoertuigen, voertuig-interieurs en megatower (die laatste had in de eerste ronde de tijdslimiet niet gehaald). De andere 25 tests slaagden al in de eerste ronde.
 
 ## TERRANOVA 14.1 (versie 2026-11-22a) — de open punten van 14.0
 
