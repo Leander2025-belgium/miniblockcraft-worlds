@@ -96,7 +96,8 @@ function placeShunt(plan, s, RUNS, h) {
 }
 // rangeerrit op tijd tau na zijn vertrek: plaats op het pad (kop, in de richting van de remise)
 export function shuntPos(s, tau) {
-  const P0 = s.kind === 'uit' ? s.path.len - 12 : s.path.u0, P1 = s.kind === 'uit' ? s.path.u0 : s.path.len - 12, D = Math.abs(P1 - P0);
+  const park = s.path.parkU ?? s.path.len - 12;
+  const P0 = s.kind === 'uit' ? park : s.path.u0, P1 = s.kind === 'uit' ? s.path.u0 : park, D = Math.abs(P1 - P0);
   const x = Math.max(0, Math.min(D, (tau - 10) * V)); // 10 s stilstaan aan het begin (rijweg, deuren), dan rijden
   return P0 + Math.sign(P1 - P0) * x;
 }

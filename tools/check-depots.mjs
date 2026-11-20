@@ -17,8 +17,19 @@ let fail = 0; const out = [];
 const free = (x, z, L) => { const u = G._urbanAt(x, z); if (u && u.dens > 0.06) return false; const rq = G._roadNear(x, z, 30); if (rq && rq.d < rq.R.hw + 6) return false; for (const M of N.LINES) { if (M === L) continue; if (M.near(Math.floor(x), Math.floor(z), 14)) return false; } return G.natural(x, z) >= 1; };
 for (let i = 0; i < G.DEPOTS.length; i++) {
   const D = G.DEPOTS[i], def = G.DEPOT_DEF[i], r = { naam: D.name };
+  if (D.kind === 'tail') {
+    // kopsporen in een tunnelhal: overal minstens 10 m grond erboven en geen ander spoor op dezelfde diepte
+    const ALL = [...new Set([...N.LINES, ...G.LINES])]; let bad = 0;
+    for (let u = 0; u <= D.uEnd; u += 6) for (let sd = -11; sd <= 11; sd += 2) {
+      const x = D.px + D.ox * u - D.oz * sd, z = D.pz + D.oz * u + D.ox * sd;
+      if (G.groundAt(x, z) - D.py < 10) { bad++; continue; }
+      for (const M of ALL) { if (M === D.L || M.tram || M.bus) continue; const q = M.near(Math.floor(x), Math.floor(z), 15); if (q && Math.abs(q.y - D.py) < 14) { bad++; break; } }
+    }
+    r.plek = bad ? `FOUT (${bad} punten)` : 'diep genoeg, geen ander spoor'; if (bad) fail++;
+  } else {
   const f = DP.findDepot(D.L, def.end, N.trackOffset, free, G.groundAt);
   r.plek = f && f.uThroat === def.u ? 'vrij en vlak' : `FOUT (gevonden ${f && f.uThroat})`; if (!f || f.uThroat !== def.u) fail++;
+  }
   // wereld: ballast en ruimte op het rechte deel van elk opstelspoor, dak in de hal
   let ballast = 0, vrij = 0, n = 0, dak = 0, nd = 0;
   for (const P of D.sidings) for (let u = P.len - 230; u < P.len - 5; u += 15) {
@@ -27,7 +38,7 @@ for (let i = 0; i < G.DEPOTS.length; i++) {
     let y = Math.round(q.y); if (!col[y] && col[y - 1]) y--; else if (col[y + 1] && !col[y + 2]) y++;
     if (col[y] === 54 || col[y]) ballast++;
     let ok = true; for (let k = y + 1; k <= y + 7; k++) if (col[k]) ok = false; if (ok) vrij++;
-    if (u > P.len - 210) { nd++; if (col[y + 9]) dak++; }
+    if (u > P.len - 210) { nd++; if (col[y + (D.under ? 8 : 9)]) dak++; } // hal: dak (9 m) of tunnelplafond (8 m)
   }
   r.ballast = `${ballast}/${n}`; r.vrijeRuimte = `${vrij}/${n}`; r.dak = `${dak}/${nd}`;
   if (vrij < n || dak < nd * 0.95 || ballast < n) fail++;
@@ -38,8 +49,10 @@ for (let i = 0; i < G.DEPOTS.length; i++) {
   for (const s of plan.shunts) {
     let prev = null; for (let u = 0; u <= s.path.len; u += 2) { const q = s.path.at(u); if (prev) jump = Math.max(jump, Math.hypot(q.x - prev.x, q.z - prev.z)); prev = q; }
     // kop aan het perron = plaats van de trein van de dienstregeling (met de spoorafstand)
-    const q = s.path.at(s.path.u0), L = D.L, sS = s.sStop, p = L.at(sS), o = N.trackOffset(L, sS) * s.r.dir, tx = p.x - p.tz * o, tz = p.z + p.tx * o;
-    const head = s.kind === 'uit' ? q : s.path.at(s.path.u0 - s.len); // inrukken: u0 is de staart van de aangekomen trein; de kop ligt een treinlengte terug
+    // waar staat de trein van de dienstregeling aan het perron? zijkant-remise: zijn kop; kopsporen (placeDir −1): bij
+    // inrukken het uiteinde naar het station toe (de staart van de aangekomen trein)
+    const L = D.L, tailIn = D.kind === 'tail' && s.kind === 'in', sS = tailIn ? s.sStop - D.out * s.len : s.sStop, p = L.at(sS), o = N.trackOffset(L, sS) * s.r.dir, tx = p.x - p.tz * o, tz = p.z + p.tx * o;
+    const head = s.kind === 'uit' || D.kind === 'tail' ? s.path.at(s.path.u0) : s.path.at(s.path.u0 - s.len); // zijkant, inrukken: u0 is de staart van de aangekomen trein
     aansluiting = Math.max(aansluiting, Math.hypot(head.x - tx, head.z - tz));
   }
   r.grootsteSprong = +jump.toFixed(2); r.aansluitingPerron = +aansluiting.toFixed(2);

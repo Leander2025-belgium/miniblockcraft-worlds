@@ -1165,12 +1165,14 @@ export class AlpRail {
       const D = plan.D, c = D.sidings[0].at(D.sidings[0].len - 100);
       if (Math.hypot(c.x - p.x, c.z - p.z) > 3000) continue;
       const st = depotState(plan, now);
+      const dirP = D.placeDir || 1; // kopsporen: kop naar het station (−1 in de padrichting)
       const train = (id, sv, path, u) => {
         let tr = this.trains.get(id);
         if (!tr) { tr = this.makeTrain({ id, run: { sv, pr: { last: { name: D.name } } } }); tr.depot = D.name; this.trains.set(id, tr); }
-        tr.L = path; tr.dir = 1; tr.s = u; tr.v = 0; this.place(tr, path, u, 1); this.dressTrain(tr, false, dt, 0); seen.add(id);
+        tr.L = path; tr.dir = dirP; tr.s = u; tr.v = 0; this.place(tr, path, u, dirP); this.dressTrain(tr, false, dt, 0); seen.add(id);
       };
-      st.sidings.forEach((set, k) => { if (set) train(`dep:${set.id}`, plan.compSv[set.comp] || SERVICES[0], D.sidings[k], D.sidings[k].len - 12); });
+      const lenOf = (sv) => sv.cars.reduce((a, c) => a + CAR_LEN[c] + GAP, 0) - GAP;
+      st.sidings.forEach((set, k) => { if (!set) return; const sv = plan.compSv[set.comp] || SERVICES[0], P = D.sidings[k]; train(`dep:${set.id}`, sv, P, dirP > 0 ? P.len - 12 : P.len - 12 - lenOf(sv)); });
       for (const m of st.moving) train(`sh:${m.s.set.id}:${m.s.kind}:${Math.round(m.s.t0)}`, m.s.sv, m.s.path, m.u);
     }
   }
