@@ -186,6 +186,16 @@ telefoon):
 - **M5 en M10:** de tunnels liggen aan beide einden minder dan 10 m diep; daar is geen tunnelhal gemaakt.
 - **Planner:** rekent met de vaste dienstregeling; de echte bussen rond de speler rijden niet exact volgens die minuten (zelfde aanpak als metro en tram). Een plan met bussen kost ±50 ms.
 - **Reizigers:** metroreizigers rijden meestal buiten beeld verder (de volgende halte ligt ±1 km verder), dus uitstappen zie je vooral bij bus en tram.
+- **Bushokjes zonder lijnbus:** op lanen zonder buslijn blijven de bushokjes staan (je kan er zelf met een bus aan stoppen), maar er komt geen lijnbus. Dat geldt ook voor Halte Megatower Plaza: de dichtste lijnhaltes liggen ±230 m verder (B9, B28). Bij Oude Markt ligt binnen 120 m alleen de metro.
+
+**Regressie 14.2:**
+- `node tests/run-all.mjs`: alle controles geslaagd (ook remises, gevels en dubbeldekker). Reuzenberg exact behouden.
+- Browserregressie: 35 tests. Bij de eerste ronde faalden er 4; drie wezen op iets echts:
+  - `ovkaart`: een lijnbus aan het einde van zijn laanstuk (de laan stopt aan een groot gebouw of park) reed zonder lijn verder, tot 381 m naast zijn laan. **Hersteld:** ver van de speler verdwijnt hij daar (de rit blijft bewaard), dichtbij rijdt hij leeg en *Niet in dienst* verder. Nu: alle bussen met lijn, hoogstens 9,5 m van hun laan.
+  - `reis` en `reizigers-auto`: de tests gebruikten haltes waar sinds de vaste lijnen geen bus meer komt (Megatower Plaza, Oude Markt). De tests nemen nu de dichtste halte van een buslijn en Westpoort (bus en metro).
+  - `prestatietest`: time-out terwijl er tegelijk andere zware tests draaiden (software-rendering, 1–5 FPS). Apart gedraaid: geslaagd.
+  - De bezettingscontrole van `ovkaart` las het infovak soms net voor het verversen (elke seconde); de test probeert nu tot 4 keer.
+- Na de herstelling opnieuw gedraaid en geslaagd, zonder paginafouten: ovkaart, reis, reizigers-auto, prestatietest, en de stadstests met bussen (zie hieronder).
 
 ## TERRANOVA 14.1 (versie 2026-11-22a) — de open punten van 14.0
 
