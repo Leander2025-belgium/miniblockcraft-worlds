@@ -44,21 +44,64 @@ export async function loadRegionData(id) {
   const rle = await reqP(d.transaction('data').objectStore('data').get(id));
   return rle ? rleDecode(rle) : null;
 }
+// ---------- veilig opslaan (TERRANOVA 15) ----------
+// Elke opslag krijgt een controlegetal (meta.crc, FNV-1a over de gecodeerde blokken) en de lengte (meta.vlen). De
+// vorige versie blijft bewaard (sleutel id + '@vorige', met haar eigen meta): alles in één IndexedDB-transactie, dus
+// een onderbroken schrijfactie laat de oude versie intact. Bij het laden (loadRegionSafe) wordt nagekeken of de
+// gegevens kloppen; zo niet, dan komt automatisch de vorige versie terug en blijft de beschadigde kopie apart bewaard
+// (id + '@beschadigd') — er wordt nooit stilzwijgend iets overschreven of weggegooid.
+export function fnv(bytes) { let h = 0x811c9dc5; for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; }
+export const PREV = '@vorige', BROKEN = '@beschadigd';
 export async function saveRegion(meta, vox) {
   const rle = vox ? rleEncode(vox) : null;
   meta.updated = Date.now();
-  if (rle) meta.bytes = rle.length;
+  if (rle) { meta.bytes = rle.length; meta.crc = fnv(rle); meta.vlen = vox.length; }
   const stores = rle ? ['regions', 'data'] : ['regions'];
-  await tx(stores, 'readwrite', t => {
-    t.objectStore('regions').put(meta);
-    if (rle) t.objectStore('data').put(rle, meta.id);
-  });
+  await tx(stores, 'readwrite', t => new Promise((res) => {
+    const R = t.objectStore('regions');
+    if (!rle) { R.put(meta); res(); return; }
+    const D = t.objectStore('data');
+    // de huidige versie eerst als 'vorige' bewaren (alleen als ze in orde is: een beschadigde opslag overschrijft geen goede)
+    const g1 = R.get(meta.id), g2 = D.get(meta.id);
+    g2.onsuccess = () => {
+      const oldMeta = g1.result, oldRle = g2.result;
+      const okOld = oldRle && oldMeta && (oldMeta.crc === undefined || fnv(oldRle) === oldMeta.crc);
+      if (okOld) { D.put(oldRle, meta.id + PREV); D.put({ ...oldMeta, id: meta.id + PREV }, meta.id + PREV + ':meta'); }
+      R.put(meta); D.put(rle, meta.id); res();
+    };
+    g2.onerror = () => { R.put(meta); D.put(rle, meta.id); res(); };
+  }));
 }
+// laden met controle; geeft { vox, meta, hersteld, beschadigd } (vox null als niets bruikbaar is)
+export async function loadRegionSafe(id) {
+  const d = await db();
+  const get = (st, k) => reqP(d.transaction(st).objectStore(st).get(k));
+  const meta = await get('regions', id), rle = await get('data', id);
+  const ok = (m, r) => { if (!r) return null; if (m && m.crc !== undefined && fnv(r) !== m.crc) return null; let v; try { v = rleDecode(r); } catch { return null; } if (m && m.vlen && v.length !== m.vlen) return null; if (m && m.size && m.H && v.length !== m.size * m.size * m.H) return null; return v; };
+  const v = ok(meta, rle);
+  if (v) return { vox: v, meta, hersteld: false, beschadigd: false };
+  if (!rle) return { vox: null, meta, hersteld: false, beschadigd: false };
+  // beschadigd: apart bewaren, de vorige versie proberen
+  const pm = await get('data', id + PREV + ':meta'), pr = await get('data', id + PREV), pv = ok(pm, pr);
+  await tx(['data'], 'readwrite', t => { t.objectStore('data').put(rle, id + BROKEN); });
+  if (pv) { await saveRegion({ ...meta, ...pm, id, name: meta?.name ?? pm?.name, restoredAt: Date.now() }, pv); return { vox: pv, meta: { ...meta, ...pm, id }, hersteld: true, beschadigd: true }; }
+  return { vox: null, meta, hersteld: false, beschadigd: true };
+}
+// vorige versie terugzetten (de huidige wordt dan zelf de 'vorige', dus omkeerbaar)
+export async function restorePrevious(id) {
+  const d = await db(); const get = (st, k) => reqP(d.transaction(st).objectStore(st).get(k));
+  const pm = await get('data', id + PREV + ':meta'), pr = await get('data', id + PREV);
+  if (!pr) return false;
+  const v = rleDecode(pr), meta = await get('regions', id);
+  await saveRegion({ ...meta, ...pm, id, name: meta?.name ?? pm?.name, restoredAt: Date.now() }, v);
+  return true;
+}
+export async function hasPrevious(id) { const d = await db(); return !!(await reqP(d.transaction('data').objectStore('data').getKey(id + PREV))); }
 export async function saveMeta(meta) { return saveRegion(meta, null); }
 export async function deleteRegion(id) {
   await tx(['regions', 'data'], 'readwrite', t => {
     t.objectStore('regions').delete(id);
-    t.objectStore('data').delete(id);
+    t.objectStore('data').delete(id); t.objectStore('data').delete(id + PREV); t.objectStore('data').delete(id + PREV + ':meta');
   });
 }
 

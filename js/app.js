@@ -153,9 +153,13 @@ async function refreshList() {
         <button class="btn primary" data-a="play">▶ Spelen</button>
         ${r.real ? '<button class="btn" data-a="show">Toon</button>' : ''}
         <button class="btn" data-a="export">Bestand</button>
+        <button class="btn" data-a="prev" hidden title="De versie van vóór de laatste opslag terugzetten (omkeerbaar)">↶ Vorige versie</button>
         <button class="btn danger" data-a="del">✕</button>
       </div>`;
     card.querySelector('.r-title').textContent = r.name;
+    // vorige versie (TERRANOVA 15, js/storage.js): bestaat er een, dan kan je ze terugzetten; de huidige wordt dan de vorige
+    { const pb = card.querySelector('[data-a=prev]'); store.hasPrevious(r.id).then((h) => { pb.hidden = !h; }).catch(() => {});
+      pb.onclick = async () => { if (!pb.dataset.sure) { pb.dataset.sure = '1'; pb.textContent = 'Zeker terugzetten?'; setTimeout(() => { delete pb.dataset.sure; pb.textContent = '↶ Vorige versie'; }, 3000); return; } await store.restorePrevious(r.id); notify('De vorige versie is teruggezet. Nog eens drukken zet de andere versie terug.'); refreshList(); }; }
     card.querySelector('[data-a=play]').onclick = () => play(r.id);
     if (r.real) card.querySelector('[data-a=show]').onclick = () => showReal(r);
     card.querySelector('[data-a=export]').onclick = () => exportRegion(r);
@@ -284,9 +288,10 @@ function updateResume() {
 async function play(id) {
   if (resumeSuspended(id)) return;
   setInGame({ kind: 'region', id });
-  const meta = await store.getRegionMeta(id);
-  const vox = await store.loadRegionData(id);
-  if (!meta || !vox) return notify('Dit stuk kon niet geladen worden.');
+  // laden met controle (js/storage.js loadRegionSafe): beschadigd = vorige versie terug, beschadigde kopie apart
+  const L = await store.loadRegionSafe(id), meta = L.meta, vox = L.vox;
+  if (L.hersteld) notify('De laatste opslag van dit stuk was beschadigd (onvolledig geschreven). De vorige versie is teruggezet; de beschadigde kopie is apart bewaard.');
+  if (!meta || !vox) return notify(L.beschadigd ? 'Dit stuk is beschadigd en er is geen goede vorige versie. De beschadigde gegevens zijn apart bewaard; zet een back-up terug via Opslag.' : 'Dit stuk kon niet geladen worden.');
   await ensureGame();
   $('#menu').hidden = true;
   $('#tp-wrap').hidden = true;
@@ -346,13 +351,18 @@ async function playMap(id, at) {
     map.baked = await bakedBase(map);
   }
   const provider = (tx, tz) => new Promise((resolve, reject) => {
-    store.cacheGet(mapKeys.edit(map, tx, tz)).then((ed) => {
+    store.cacheGet(mapKeys.edit(map, tx, tz)).then(async (ed) => {
       let mine = null;
-      if (ed && ed.rle) {
-        // eigen bouwwerken: controleren voor gebruik; beschadigd = apart bewaren (niet weggooien) en het gewone landschap tonen
-        if (store.rleLength(ed.rle) === T * T * ed.H) mine = { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null };
-        else { store.cachePut(mapKeys.edit(map, tx, tz) + '-beschadigd', ed).then(() => store.cacheDelete(mapKeys.edit(map, tx, tz))).catch(() => {}); flash('Een bebouwd stuk was beschadigd en is apart bewaard'); }
+      // eigen bouwwerken: controleren voor gebruik (lengte en, sinds 15.0, controlegetal); beschadigd = apart bewaren
+      // (niet weggooien) en de vorige versie van dit stuk terugzetten, of anders het gewone landschap tonen
+      const good = (e) => e && e.rle && store.rleLength(e.rle) === T * T * e.H && (e.crc === undefined || store.fnv(e.rle) === e.crc);
+      if (ed && ed.rle && !good(ed)) {
+        const prev = await store.cacheGet(mapKeys.edit(map, tx, tz) + store.PREV).catch(() => null);
+        await store.cachePut(mapKeys.edit(map, tx, tz) + '-beschadigd', ed).catch(() => {});
+        if (good(prev)) { await store.cachePut(mapKeys.edit(map, tx, tz), prev).catch(() => {}); ed = prev; flash('Een bebouwd stuk was beschadigd: de vorige versie is teruggezet (de beschadigde is apart bewaard)'); }
+        else { await store.cacheDelete(mapKeys.edit(map, tx, tz)).catch(() => {}); ed = null; flash('Een bebouwd stuk was beschadigd en is apart bewaard'); }
       }
+      if (good(ed)) mine = { vox: store.rleDecode(ed.rle, T * T * ed.H), H: ed.H, y0: ed.y0 || 0, edge: ed.edge || null };
       // ook voor zelf bebouwde stukken de paden voor het verkeer ophalen
       ask({ type: 'cityTile', tx, tz, map }, (m) => {
         if (m.type === 'cityTile' && mine && ed.alpsPartial) { mine = mergePartial(map, tx, tz, mine, m); saveTile(tx, tz, mine.vox, mine.H, mine.y0, mine.edge); }
@@ -373,7 +383,12 @@ async function playMap(id, at) {
     }
     return { vox, H, y0, edge: gen.edge || mine.edge };
   }
-  const saveTile = (tx, tz, vox, H, y0, edge) => store.cachePut(mapKeys.edit(map, tx, tz), { rle: store.rleEncode(vox), H, y0: y0 || 0, edge: edge || null });
+  // bewerkte tegel bewaren: met controlegetal; de vorige versie blijft als '@vorige' (alleen als die zelf in orde was)
+  const saveTile = async (tx, tz, vox, H, y0, edge) => {
+    const k = mapKeys.edit(map, tx, tz), rle = store.rleEncode(vox), old = await store.cacheGet(k).catch(() => null);
+    if (old && old.rle && store.rleLength(old.rle) === T * T * old.H && (old.crc === undefined || store.fnv(old.rle) === old.crc)) await store.cachePut(k + store.PREV, old).catch(() => {});
+    return store.cachePut(k, { rle, H, y0: y0 || 0, edge: edge || null, crc: store.fnv(rle), saved: Date.now() });
+  };
   const isCity = map.id === CITY.id, isMetro = map.kind === 'proc', PR = PROC[map.id] || PROC[METRO.id];
   $('#menu').hidden = true;
   const isBE = map.id === BELGIE.id;
