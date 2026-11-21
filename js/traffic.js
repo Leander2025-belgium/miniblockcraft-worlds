@@ -425,6 +425,7 @@ export class Traffic {
         : kind === 'train' ? 0xffffff : 0, phase: Math.random() * 10 };
     if (kind === 'train') a.color = a.ice ? 0xf4f4f2 : 0xc8102e;
     if (kind === 'bus' && e.line && e.line[0] === 'B') a.line = e.line;
+    if ((kind === 'tram' || kind === 'train') && e.line) a.line = e.line; // lijn van het spoor (bv. T1, IC): reizigers en planner gebruiken dezelfde naam
     if (kind === 'metro') { a.line = e.line || ('M' + (1 + Math.floor(rr * 6))); let h = 0; for (const ch of a.line) h = (h * 31 + ch.charCodeAt(0)) >>> 0; a.color = METRO_COLORS[h % METRO_COLORS.length]; }
     if (kind === 'walk') {
       a.shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)]; a.pants = PANTS[Math.floor(Math.random() * PANTS.length)];
@@ -524,6 +525,8 @@ export class Traffic {
     const straightP = a.kind === 'train' || a.kind === 'tram' ? 0.85 : a.kind === 'bus' ? 0.75 : 0.55;
     // vaste buslijn: op de laan van de lijn blijven (rechtdoor of de verbinding naar hetzelfde lijnstuk)
     if (a.kind === 'bus' && a.line && a.line[0] === 'B') { const on = sorted.find(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line))); if (on) return on; }
+    // tram met een lijn: op het spoor van die lijn blijven (zoals in de dienstregeling van de planner)
+    if (a.kind === 'tram' && a.line) { const on = sorted.find(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line))); if (on) return on; }
     if (a.kind === 'bus') { const maj = sorted.find(o => o.e.major || (o.e.conn && o.e.next[1][0]?.e.major)); if (maj && Math.random() < 0.8) return maj; }
     return Math.random() < straightP ? sorted[0] : sorted[1 + Math.floor(Math.random() * (sorted.length - 1))];
   }

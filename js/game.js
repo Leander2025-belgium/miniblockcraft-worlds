@@ -1390,7 +1390,14 @@ export class Game {
     S.ready = true;
   }
   // reizigers met een doel aanmaken (gebruikt door de reistest en later door de wereld zelf)
-  travelersOn() { if (!this.travelers && this.traffic) { this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground; } return this.travelers; }
+  travelersOn() {
+    if (!this.travelers && this.traffic) {
+      this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground;
+      // Megatower City: hele reizen van deur tot deur met de reisplanner (TERRANOVA 15, js/journeys.js)
+      if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
+    }
+    return this.travelers;
+  }
   // wachtenden aan de bushaltes: instappen bij een bus met open deuren, uitstappen (js/buspax.js)
   updateBusPax(dt, day) {
     if (!this.busPax) this.busPax = new BusPax(this.scene, this.world);

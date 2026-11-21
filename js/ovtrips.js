@@ -59,12 +59,15 @@ export class Trips {
   }
   board(a, n = 1) { const T = a.trip; if (!T) return 0; const k = Math.max(0, Math.min(n, T.cap - T.occ)); T.occ += k; this.stats.ingestapt += k; return k; }
   alight(a, n = 1) { const T = a.trip; if (!T) return 0; const k = Math.max(0, Math.min(n, T.occ)); T.occ -= k; this.stats.uitgestapt += k; return k; }
+  // reiziger die buiten beeld meerijdt (het voertuig is uit beeld): blijft in de bezetting tot hij uitstapt
+  remoteOn(T) { if (T) T.remote = (T.remote || 0) + 1; }
+  remoteOff(T) { if (!T) return; T.remote = Math.max(0, (T.remote || 0) - 1); if (T.occ > 0) { T.occ--; this.stats.uitgestapt++; } }
   full(a) { return !!a.trip && a.trip.occ >= a.trip.cap; }
   // halte buiten het zichtbare gebied: uitstappen (deel van de bezetting) en instappen (volgens de periode)
   stopLight(a, period, terminus) {
     const T = a.trip; if (!T) return;
     // zichtbare reizigers aan boord (js/travelers.js) stappen zelf uit: die blijven buiten deze telling
-    const keep = (a.npc || 0) + (a.riders || 0), free = Math.max(0, T.occ - keep);
+    const keep = (a.npc || 0) + (a.riders || 0) + (T.remote || 0), free = Math.max(0, T.occ - keep); // ook reizigers die buiten beeld meerijden (js/travelers.js)
     const out = terminus ? free : Math.min(free, Math.round(T.occ * (0.12 + 0.18 * this.r())));
     this.alight(a, out);
     if (!terminus) this.board(a, Math.round(T.cap * (LOAD[period] ?? 0.25) * 0.18 * (0.5 + this.r())));

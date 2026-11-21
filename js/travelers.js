@@ -8,12 +8,25 @@
 // Zo loopt een reiziger door stationsingangen, over trappen naar het perron en nooit door een muur.
 // Zichtbaar dichtbij (instanced, zoals de wachtenden aan bushaltes); de reis zelf loopt altijd door.
 import * as THREE from 'three';
+import { doorNear, facadeNear, benchNear, ticketNear, stopFor, stepsFromPlan } from './journeys.js';
 
 const WALK = 1.35, MAXN = 120000, AUTO_N = 20000; // A*-budget voor vanzelf verschenen reizigers (houdt de framekost laag)
 const AUTO_WANT = { spits: 14, dal: 9, avond: 6, nacht: 2 }, AUTO_EVERY = 2.5, AUTO_NEAR = 120, AUTO_FAR = 520, AUTO_WAIT = 1500;
-const AUTO_TYPES = ['pendelaar', 'pendelaar', 'student', 'toerist', 'luchthaven', 'beperkt', 'nacht'];
+const AUTO_TYPES = ['pendelaar', 'pendelaar', 'student', 'toerist', 'luchthaven', 'beperkt', 'nacht', 'zakenreiziger', 'gezin'];
+// hele reizen met de planner (TERRANOVA 15, js/journeys.js): hoeveel tegelijk (zichtbaar + op afstand) en hoe vaak er één bij komt
+const JOURNEY_MAX = 40, JOURNEY_EVERY = 5, MATERIALIZE = 300;
+const LIFT = 77; // B.ELEVATOR: liftblok onderaan en bovenaan een koker (zoals de speler: js/game.js)
 export class NavGrid {
-  constructor(solidAt) { this.solid = solidAt; }
+  // getAt (optioneel): bloksoort, voor liften — een reiziger op een liftblok kan naar het volgende liftblok in dezelfde koker
+  constructor(solidAt, getAt = null) { this.solid = solidAt; this.get = getAt; }
+  liftTargets(x, y, z) {
+    if (!this.get || this.get(x, y - 1, z) !== LIFT) return null;
+    const out = [];
+    for (const dir of [1, -1]) for (let yy = y - 1 + dir * 2; Math.abs(yy - y) < 320; yy += dir) {
+      if (this.get(x, yy, z) === LIFT && !this.solid(x, yy + 1, z) && !this.solid(x, yy + 2, z)) { out.push(yy + 1); break; }
+    }
+    return out;
+  }
   walkable(x, y, z) { return this.solid(x, y - 1, z) && !this.solid(x, y, z) && !this.solid(x, y + 1, z); }
   // dichtstbijzijnde beloopbare plek rond (x, y, z): eerst dezelfde kolom (op en neer), dan in een kring
   snap(x, y, z, r = 3) {
@@ -56,16 +69,26 @@ export class NavGrid {
           break; // per richting één hoogte
         }
       }
+      // lift: naar het andere liftblok in de koker (wachten + rijden)
+      const L = this.liftTargets(c.x, c.y, c.z);
+      if (L) for (const y of L) {
+        const k = key(c.x, y, c.z), cost = gc + 8 + Math.abs(y - c.y) * 0.25;
+        if (cost >= (g.get(k) ?? 1e18)) continue;
+        g.set(k, cost); from.set(k, c); push({ x: c.x, y, z: c.z, k, f: cost + h(c.x, y, c.z) });
+      }
     }
     if (!end) return null;
     const pts = []; for (let c = end; c; c = from.get(c.k)) pts.push({ x: c.x + 0.5, y: c.y, z: c.z + 0.5 });
-    return pts.reverse();
+    pts.reverse();
+    for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i].y - pts[i - 1].y) > 1) pts[i].lift = true; // liftrit
+    return pts;
   }
 }
 
 // deuren open: uit de halteteller van het verkeer (ook buiten het tekenbereik, waar a.doorsOpen niet bijgewerkt wordt;
 // treinen hebben geen deuranimatie, maar staan ook stil aan het perron)
 export function doorsOpen(a) { if (a.player) return !!a.doorsOpen; return (a.v || 0) < 0.1 && !!a.atStop && a.wait > 2.5 && a.wait < (a.dwell || 18) - 1.5; }
+const DRAW_MAX = 128; // zichtbare figuren (instanced; een gezin telt per persoon)
 const SHIRT = [0x2f6db5, 0xc0392b, 0x27ae60, 0xf1c40f, 0x8e44ad, 0xe67e22, 0x16a085];
 // reizigerstypes (TERRANOVA 14.2): elk type kiest, loopt en wacht anders
 //   speed     wandeltempo (m/s)            maxWait  zo lang wacht hij op een voertuig, daarna geeft hij het op en loopt weg
@@ -77,8 +100,11 @@ export const PROFILES = {
   student: { speed: 1.5, maxWait: 600, stairs: 1, pref: { tram: 2, bus: 2, metro: 2, train: 1 }, acc: 'rugzak' },
   toerist: { speed: 1.1, maxWait: 900, stairs: 1.4, pref: { tram: 3, metro: 1, bus: 1, train: 1 }, pause: [22, 4], acc: 'hoed' },
   luchthaven: { speed: 1.2, maxWait: 900, stairs: 3, pref: { train: 3, metro: 3, bus: 1, tram: 0.5 }, acc: 'koffer' },
-  beperkt: { speed: 0.8, maxWait: 1200, noStairs: true, pref: { bus: 3, tram: 3, metro: 0, train: 0 }, acc: 'rollator' },
+  beperkt: { speed: 0.8, maxWait: 1200, noStairs: true, pref: { bus: 3, tram: 3, metro: 1, train: 1 }, acc: 'rollator' }, // metro en trein alleen via de lift (trapvrij pad)
   nacht: { speed: 1.3, maxWait: 600, stairs: 1, pref: { bus: 2, metro: 2, tram: 1, train: 1 }, acc: null },
+  // TERRANOVA 15: zakenreizigers (snel, korte geduldsdraad, donker pak) en gezinnen (samen, trager, met kinderen)
+  zakenreiziger: { speed: 1.55, maxWait: 300, stairs: 0.9, pref: { train: 3, metro: 3, tram: 1, bus: 0.5 }, acc: 'aktetas', shirt: 0x1f2a38, sits: 0.2 },
+  gezin: { speed: 1.0, maxWait: 900, stairs: 1.3, pref: { tram: 2, bus: 2, metro: 2, train: 2 }, acc: 'rugzak', group: 3, sits: 0.8 },
 };
 const TYPES = Object.fromEntries(Object.entries(PROFILES).map(([k, v]) => [k, v.speed]));
 // accessoire: [breedte, hoogte, diepte, x, y, z, kleur] in de assen van de reiziger (z = vooruit)
@@ -86,9 +112,12 @@ const ACC = { aktetas: [0.1, 0.32, 0.4, 0.32, 0.62, 0, 0x3b2a1e], rugzak: [0.36,
   koffer: [0.28, 0.6, 0.42, 0.42, 0.32, -0.15, 0x6d4c9f], rollator: [0.5, 0.75, 0.12, 0, 0.42, 0.42, 0x9aa4ad] };
 export class Travelers {
   constructor(scene, world, traffic) {
-    this.w = world; this.tr = traffic; this.nav = new NavGrid((x, y, z) => world.solidAt(x, y, z));
+    this.w = world; this.tr = traffic; this.nav = new NavGrid((x, y, z) => world.solidAt(x, y, z), (x, y, z) => world.get(x, y, z));
     this.list = []; this.log = []; this.seq = 0; this.rnd = 4242; this.stats = { verschenen: 0, aangekomen: 0, weg: 0, mislukt: 0 };
-    const mk = (geo, color) => { const m = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color }), 64); m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(64 * 3).fill(1), 3); m.count = 0; m.frustumCulled = false; scene.add(m); return m; };
+    this.get = (x, y, z) => world.get(x, y, z); this.solid = (x, y, z) => world.solidAt(x, y, z); this.benches = new Set();
+    this.journey = null; // { plan(from, to, hour), hour(), places } — gezet door de wereld (Megatower City: js/megaplan.js)
+    this.jstats = { gestart: 0, aangekomen: 0, opAfstand: 0, zichtbaarWeer: 0, overstappen: 0, ritten: 0, vanuitDeur: 0, vanuitGevel: 0, naarDeur: 0, tickets: 0, gezeten: 0, opgegeven: 0, geenPlan: 0 };
+    const mk = (geo, color) => { const m = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({ color }), DRAW_MAX); m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(DRAW_MAX * 3).fill(1), 3); m.count = 0; m.frustumCulled = false; scene.add(m); return m; };
     this.body = mk(new THREE.BoxGeometry(0.46, 0.66, 0.26).translate(0, 1.2, 0), 0xffffff); this.legs = mk(new THREE.BoxGeometry(0.4, 0.86, 0.22).translate(0, 0.43, 0), 0x22313f); this.head = mk(new THREE.BoxGeometry(0.26, 0.28, 0.26).translate(0, 1.69, 0), 0xe0ac69);
     this.acc = mk(new THREE.BoxGeometry(1, 1, 1), 0xffffff); this.v2 = new THREE.Vector3(); this.sc = new THREE.Vector3();
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1); this.up = new THREE.Vector3(0, 1, 0); this.c = new THREE.Color();
@@ -107,6 +136,11 @@ export class Travelers {
     this.list = this.list.filter(t => {
       if (!t.auto) return true;
       const far = Math.hypot(t.x - player.x, t.z - player.z) > AUTO_FAR;
+      if (t.journey) { // hele reis: buiten beeld gaat de reis op afstand verder (js/journeys.js)
+        if (t.done || t.state === 'geen pad' || t.state === 'gestrand') { this.stats.weg++; if (t.done) { this.stats.aangekomen++; this.jstats.aangekomen++; } return false; }
+        if (far && t.state !== 'aan boord' && t.state !== 'op afstand') this.goRemote(t);
+        return true;
+      }
       if (t.done || t.state === 'geen pad' || t.state === 'gestrand' || t.state === 'uit beeld') { this.stats.weg++; if (t.done) this.stats.aangekomen++; return false; }
       if (t.state === 'aan boord') return true; // telt in de rit; verdwijnt met het voertuig
       if (far || (t.waitT || 0) > AUTO_WAIT) { this.stats.weg++; return false; }
@@ -114,8 +148,13 @@ export class Travelers {
     });
     if (this.spT < AUTO_EVERY) return;
     this.spT = 0;
-    const want = AUTO_WANT[period] ?? 6, have = this.list.filter(t => t.auto).length;
+    // drukte: spits meer dan nacht, en meer rond grote stations (trein of metro in de buurt)
+    const near = [...(this.tr.served?.values() || [])].filter(q => Math.hypot(q.x - player.x, q.z - player.z) < 160);
+    const busy = near.some(q => q.kind === 'train' || q.kind === 'metro') ? 1.6 : 1;
+    const want = Math.round((AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand').length;
     if (have >= want) return;
+    // hele reizen met de planner (van deur tot deur, met overstappen)
+    if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; if (this.spawnJourney(player)) return; }
     // alleen haltes waar het verkeer de laatste 10 minuten echt gestopt is (soort voertuig en plek bekend)
     const clock = this.tr.clock || 0, served = [...(this.tr.served?.values() || [])].filter(q => clock - q.t < 600 && q.name && Math.hypot(q.x - player.x, q.z - player.z) < AUTO_NEAR);
     if (!served.length) return;
@@ -130,10 +169,81 @@ export class Travelers {
     const st = (this.tr.stops || []).filter(q => q.name === sv.name).sort((a, b) => Math.hypot(a.x - sv.x, a.z - sv.z) - Math.hypot(b.x - sv.x, b.z - sv.z))[0];
     const wait = st && Math.hypot(st.x - sv.x, st.z - sv.z) < 30 ? { x: st.x, y: st.y + 1, z: st.z } : { x: sv.x, y: sv.y + 1, z: sv.z };
     // vertrekplek: op straat, 20–60 m van de halte
-    const from = this.streetNear({ x: wait.x, y: wait.y - 1, z: wait.z }, kind);
+    // vertrekplek: aan de deur van een gebouw in de buurt van de halte, anders op straat 20–60 m verder
+    const street = this.streetNear({ x: wait.x, y: wait.y - 1, z: wait.z }, kind);
+    const door = street && doorNear(this.nav, this.get, street.x, street.z, street.y, 24, () => this.rr());
+    const from = door || street;
     if (!from) { this.stats.mislukt++; return; }
     const t = this.add({ from, type, steps: [{ ride: { kind, board: sv.name, alight: '*', wait } }, { wander: 30 }] });
-    if (t) { t.auto = true; this.stats.verschenen++; this.typeStats(type).verschenen++; }
+    if (t) { t.auto = true; t.fromDoor = !!door; t.group = prof.group || 1; this.stats.verschenen++; this.typeStats(type).verschenen++; }
+  }
+  // ── hele reis (TERRANOVA 15) ── vertrek aan een deur rond de speler, bestemming 1–4,5 km verder of een bekende plek;
+  // de planner (zelfde als de speler gebruikt) kiest de ritten en overstappen
+  spawnJourney(player) {
+    const type = AUTO_TYPES[Math.floor(this.rr() * AUTO_TYPES.length)], prof = PROFILES[type];
+    const a = this.rr() * 6.283, r = 60 + this.rr() * 160;
+    const q = this.nav.snap(player.x + Math.cos(a) * r, (this.ground ?? player.y) + 1, player.z + Math.sin(a) * r, 4);
+    if (!q) return null;
+    let o = doorNear(this.nav, this.get, q.x, q.z, q.y, 30, () => this.rr()), src = 'deur';
+    if (!o) { o = facadeNear(this.nav, this.solid, q.x, q.z, q.y, () => this.rr()); src = 'gevel'; }
+    if (!o) return null;
+    const P = this.journey.places || [];
+    let dest;
+    if (P.length && this.rr() < 0.35) dest = P[Math.floor(this.rr() * P.length)];
+    else { const b = this.rr() * 6.283, d = 1000 + this.rr() * 3500; dest = { x: Math.max(300, Math.min(9900, o.x + Math.cos(b) * d)), z: Math.max(300, Math.min(9900, o.z + Math.sin(b) * d)), name: null }; }
+    const r2 = this.journey.plan({ x: o.x, z: o.z, name: 'Vertrek' }, dest, this.journey.hour());
+    const steps = r2 && stepsFromPlan(r2, dest);
+    if (!steps) { this.jstats.geenPlan++; return null; }
+    // beperkte mobiliteit: geen metro of trein (trappen); soorten met voorkeur 0 nooit
+    if (steps.some(s => s.ride && (prof.pref[s.ride.kind] ?? 1) === 0)) return null;
+    const t = this.add({ from: o, type, steps });
+    if (!t) return null;
+    const rides = steps.filter(s => s.ride).length;
+    t.auto = true; t.group = prof.group || 1; t.fromDoor = src === 'deur';
+    t.journey = { dep: r2.dep, arr: r2.arr, ritten: rides, van: src, naar: dest.name || null, lijnen: steps.filter(s => s.ride).map(s => s.ride.line) };
+    t.journey0 = t.journey; (this.journeyLog || (this.journeyLog = [])).push(t); if (this.journeyLog.length > 200) this.journeyLog.shift(); // voor diagnose en tests
+    this.stats.verschenen++; this.typeStats(type).verschenen++;
+    this.jstats.gestart++; this.jstats.ritten += rides; this.jstats.overstappen += Math.max(0, rides - 1); this.jstats[src === 'deur' ? 'vanuitDeur' : 'vanuitGevel']++;
+    return t;
+  }
+  // ── simulatie op afstand ── buiten beeld (of het voertuig is uit beeld): de reis loopt verder met de tijden van de planner.
+  // Wie aan boord was, blijft in de bezetting van de rit (js/ovtrips.js remoteOn) tot hij op afstand uitstapt.
+  goRemote(t) {
+    const clock = this.tr.clock || 0, st = t.steps[t.i];
+    if (t.sitKey) { this.benches.delete(t.sitKey); t.sitKey = null; t.sit = null; }
+    t.search = null; t.path = null;
+    if (st && st.ride) {
+      const R = st.ride, runT = Math.max(20, (R.arr || 0) - (R.dep || 0));
+      if (t.state === 'aan boord') {
+        t.rtrip = t.vehicle && t.vehicle.trip; for (let k = 0; k < (t.group || 1); k++) this.tr.trips.remoteOn(t.rtrip);
+        t.remoteEnd = clock + Math.max(15, runT - (clock - (t.boardClock ?? clock)));
+      } else t.remoteEnd = clock + 60 + this.rr() * 300 + runT; // wachten op het eerstvolgende vertrek + de rit
+      t.remoteRide = true;
+    } else if (st && st.goal) { t.remoteEnd = clock + Math.hypot(st.goal.x - t.x, st.goal.z - t.z) * 1.25 / t.speed; t.remoteRide = false; }
+    else { t.done = true; t.state = 'aangekomen'; return; }
+    t.vehicle = null; t.state = 'op afstand'; this.jstats.opAfstand++; this.note(t, 'op afstand', { stap: t.i });
+  }
+  // een stap op afstand is klaar: uitstappen (bezetting −1), en de volgende stap hier of weer zichtbaar bij de speler
+  remoteStep(t, player) {
+    const st = t.steps[t.i], clock = this.tr.clock || 0;
+    if (st && st.ride && t.remoteRide) {
+      for (let k = 0; k < (t.group || 1); k++) this.tr.trips.remoteOff(t.rtrip);
+      t.rtrip = null; this.stats.uitgestapt = (this.stats.uitgestapt || 0) + 1; this.typeStats(t.type).uitgestapt++;
+      this.note(t, 'uitgestapt', { halte: st.ride.alight, opAfstand: true });
+      t.at = st.ride.at; t.i++;
+    } else if (st && st.goal) { t.i++; }
+    const nx = t.steps[t.i];
+    if (!nx) { t.done = true; t.state = 'aangekomen'; this.note(t, 'aangekomen', { opAfstand: true }); return; }
+    // waar de reiziger nu is: de uitstaphalte van de vorige rit
+    const here = t.at || { x: t.x, z: t.z };
+    if (Math.hypot(here.x - player.x, here.z - player.z) < MATERIALIZE) {
+      const prev = t.steps[t.i - 1], s = prev && prev.ride ? stopFor(this.tr.stops || [], prev.ride.alight, prev.ride.kind, here, 150) : null;
+      const q = s ? this.nav.snap(s.x, s.y + 1, s.z, 4) : this.nav.snap(here.x, (this.ground ?? player.y) + 1, here.z, 6);
+      if (q) { t.x = q.x + 0.5; t.y = q.y; t.z = q.z + 0.5; t.state = 'volgende'; this.jstats.zichtbaarWeer++; this.note(t, 'weer in beeld', null); return; }
+    }
+    t.x = here.x; t.z = here.z;
+    if (nx.ride) { t.remoteRide = true; t.rtrip = null; t.remoteEnd = clock + 60 + this.rr() * 300 + Math.max(20, (nx.ride.arr || 0) - (nx.ride.dep || 0)); }
+    else { t.remoteRide = false; t.remoteEnd = clock + Math.hypot(nx.goal.x - here.x, nx.goal.z - here.z) * 1.25 / t.speed; }
   }
   streetNear(st, kind) {
     const under = kind === 'metro'; // metroperron: de vertrekplek ligt bovengronds
@@ -165,9 +275,9 @@ export class Travelers {
     if (!pts) { t.state = 'geen pad'; this.note(t, 'geen pad', { naar: [Math.round(goal.x), Math.round(goal.y), Math.round(goal.z)] }); return false; }
     // controle op het moment zelf (de blokken zijn dan zeker geladen): elk punt beloopbaar, stappen ≤ 1,5 m en ≤ 1 blok
     let bad = 0, step = 0, stepH = 0;
-    for (let i = 0; i < pts.length; i++) { const q = pts[i]; if (!this.nav.walkable(Math.floor(q.x), q.y, Math.floor(q.z))) bad++; if (i) { step = Math.max(step, Math.hypot(q.x - pts[i - 1].x, q.z - pts[i - 1].z)); stepH = Math.max(stepH, Math.abs(q.y - pts[i - 1].y)); } }
+    for (let i = 0; i < pts.length; i++) { const q = pts[i]; if (!this.nav.walkable(Math.floor(q.x), q.y, Math.floor(q.z))) bad++; if (i) { step = Math.max(step, Math.hypot(q.x - pts[i - 1].x, q.z - pts[i - 1].z)); if (q.lift) { this.stats.liftritten = (this.stats.liftritten || 0) + 1; if (Math.hypot(q.x - pts[i - 1].x, q.z - pts[i - 1].z) > 0.01) bad++; } else stepH = Math.max(stepH, Math.abs(q.y - pts[i - 1].y)); } }
     t.check = { punten: (t.check?.punten || 0) + pts.length, nietBeloopbaar: (t.check?.nietBeloopbaar || 0) + bad, grootsteStap: Math.max(t.check?.grootsteStap || 0, step), grootsteHoogtestap: Math.max(t.check?.grootsteHoogtestap || 0, stepH) };
-    { const ty = this.typeStats(t.type); ty.paden++; for (let i = 1; i < pts.length; i++) if (pts[i].y !== pts[i - 1].y) ty.treden++; ty.grootsteHoogtestap = Math.max(ty.grootsteHoogtestap, stepH); }
+    { const ty = this.typeStats(t.type); ty.paden++; for (let i = 1; i < pts.length; i++) if (pts[i].y !== pts[i - 1].y && !pts[i].lift) ty.treden++; else if (pts[i].lift) ty.lift = (ty.lift || 0) + 1; ty.grootsteHoogtestap = Math.max(ty.grootsteHoogtestap, stepH); }
     this.stats.paden = (this.stats.paden || 0) + 1; this.stats.punten = (this.stats.punten || 0) + pts.length; this.stats.nietBeloopbaar = (this.stats.nietBeloopbaar || 0) + bad; this.stats.grootsteStap = Math.max(this.stats.grootsteStap || 0, step); this.stats.grootsteHoogtestap = Math.max(this.stats.grootsteHoogtestap || 0, stepH);
     t.path = pts; t.pi = 0; t.state = 'lopen'; t.pathLen = pts.length; (t.paths || (t.paths = [])).push(pts); return true;
   }
@@ -183,13 +293,36 @@ export class Travelers {
         if (!this.usePath(t, t.goal, r.value) && t.wanderStep) { t.done = true; t.state = 'aangekomen'; }
         continue;
       }
+      if (t.state === 'op afstand') { if ((tr.clock || 0) >= t.remoteEnd) this.remoteStep(t, player); continue; }
+      if (t.state === 'bezig') { if ((t.actT -= dt) <= 0) { t.i++; t.state = 'volgende'; } continue; }
       if (t.state === 'start' || t.state === 'volgende') {
         if (!st) { t.done = true; t.state = 'aangekomen'; this.note(t, 'aangekomen', null); continue; }
+        // even iets doen op deze plek (ticket kopen): kijkrichting en tijd
+        if (st.act) { t.state = 'bezig'; t.actT = st.act.secs; if (st.act.yaw !== undefined) t.yaw = st.act.yaw; this.note(t, st.act.label, null); continue; }
+        // bestemming van een hele reis: de deur van een gebouw daar (of de plek zelf); ver weg: op afstand
+        if (st.goal) {
+          if (Math.hypot(st.goal.x - player.x, st.goal.z - player.z) > AUTO_FAR) { this.goRemote(t); continue; }
+          const g0 = this.nav.snap(st.goal.x, (this.ground ?? t.y) + 1, st.goal.z, 6) || { x: Math.floor(st.goal.x), y: t.y, z: Math.floor(st.goal.z) };
+          const d = doorNear(this.nav, this.get, g0.x, g0.z, g0.y, 30, () => this.rr());
+          t.toDoor = !!d; this.walkTo(t, d || g0, t.auto ? AUTO_N : MAXN); continue;
+        }
+        // rit van een hele reis: wachtplek = de halte in de wereld met die naam, het dichtst bij de plek van de planner;
+        // vóór de eerste metro- of treinrit eerst een ticket aan de automaat in het station
+        if (st.ride && st.ride.from && !st.ride.wait) {
+          const R = st.ride, s0 = stopFor(this.tr.stops || [], R.board, R.kind, R.from, 160);
+          if (!s0) { if (Math.hypot(R.from.x - player.x, R.from.z - player.z) > MATERIALIZE) { this.goRemote(t); continue; } t.state = 'geen pad'; this.note(t, 'halte niet gevonden', { halte: R.board }); continue; }
+          R.wait = { x: s0.x, y: s0.y + 1, z: s0.z };
+          if ((R.kind === 'metro' || R.kind === 'train') && !t.ticket) {
+            t.ticket = true; const tk = ticketNear(this.nav, this.get, R.wait);
+            if (tk && Math.hypot(tk.x - t.x, tk.z - t.z) < 160) { t.steps.splice(t.i, 0, { walk: { x: tk.x, y: tk.y, z: tk.z } }, { act: { secs: 4 + this.rr() * 4, label: 'ticket kopen', yaw: tk.yaw } }); this.jstats.tickets++; continue; }
+          }
+        }
         if (st.wander) { const a = (this.rr() * 6.283), r = st.wander * (0.5 + this.rr() * 0.5), q = this.nav.snap(t.x + Math.cos(a) * r, t.y, t.z + Math.sin(a) * r, 4); t.wanderStep = true; if (!q || !this.walkTo(t, q, t.auto ? AUTO_N : MAXN)) { t.done = true; t.state = 'aangekomen'; } continue; }
         if (st.walk) this.walkTo(t, st.walk, t.auto ? AUTO_N : MAXN);
         else if (st.ride) { const sp = st.ride.wait; if (sp) this.walkTo(t, sp, t.auto ? AUTO_N : MAXN); else t.state = 'wachten'; t.afterWalk = 'wachten'; }
         continue;
       }
+      if (t.state === 'lift') { if ((t.liftT -= dt) <= 0) { t.y = t.liftTo; t.state = 'lopen'; } continue; } // in de liftkoker
       if (t.state === 'pauze') { if ((t.pauseT -= dt) <= 0) t.state = 'lopen'; continue; }
       if (t.state === 'lopen') {
         let rem = t.speed * dt;
@@ -197,11 +330,13 @@ export class Travelers {
         if (t.prof.pause && (t.walked += rem) > t.prof.pause[0]) { t.walked = 0; t.state = 'pauze'; t.pauseT = t.prof.pause[1]; t.yaw += 1.2; this.typeStats(t.type).pauzes++; continue; }
         while (rem > 0 && t.pi < t.path.length) {
           const q = t.path[t.pi], dx = q.x - t.x, dz = q.z - t.z, d = Math.hypot(dx, dz);
+          if (q.lift) { t.pi++; t.state = 'lift'; t.liftT = 6 + Math.abs(q.y - t.y) * 0.25; t.liftTo = q.y; this.note(t, 'lift', { van: t.y, naar: q.y }); rem = 0; break; }
           if (d <= rem) { t.x = q.x; t.z = q.z; t.y = q.y; rem -= d; t.pi++; } else { t.x += dx / d * rem; t.z += dz / d * rem; t.y = q.y; t.yaw = Math.atan2(dx, dz); rem = 0; }
         }
         if (t.pi >= t.path.length) {
-          if (t.afterWalk === 'wachten') { t.afterWalk = null; t.state = 'wachten'; t.waitT = 0; this.note(t, 'wacht', { op: st.ride.board }); }
-          else { t.i++; t.state = 'volgende'; }
+          if (t.afterWalk === 'wachten') { t.afterWalk = null; t.state = 'wachten'; t.waitT = 0; this.note(t, 'wacht', { op: st.ride.board }); this.trySit(t); }
+          else if (t.afterWalk === 'zitten') { t.afterWalk = null; t.state = 'wachten'; t.sit = t.sitGoal; t.yaw = t.sit.yaw; this.jstats.gezeten++; this.note(t, 'zit op een bank', null); }
+          else { if (st && st.goal) { if (t.toDoor) this.jstats.naarDeur++; this.note(t, t.toDoor ? 'gebouw binnen' : 'bestemming', { naar: st.goal.name }); } t.i++; t.state = 'volgende'; }
         }
         continue;
       }
@@ -209,11 +344,12 @@ export class Travelers {
         // het juiste voertuig: soort en lijn, deuren open, aan de halte van de reis en vlakbij
         const R = st.ride; t.waitT = (t.waitT || 0) + dt;
         // te lang gewacht: opgeven en weglopen (pendelaars sneller dan toeristen)
-        if (t.auto && t.waitT > t.prof.maxWait) { this.typeStats(t.type).opgegeven++; this.note(t, 'opgegeven', { gewacht: Math.round(t.waitT) }); t.steps = [{ wander: 25 }]; t.i = 0; t.waitT = 0; t.state = 'volgende'; continue; }
+        if (t.auto && t.waitT > t.prof.maxWait) { if (t.sitKey) { this.benches.delete(t.sitKey); t.sitKey = null; t.sit = null; } if (t.journey) { this.jstats.opgegeven++; t.journey = null; } this.typeStats(t.type).opgegeven++; this.note(t, 'opgegeven', { gewacht: Math.round(t.waitT) }); t.steps = [{ wander: 25 }]; t.i = 0; t.waitT = 0; t.state = 'volgende'; continue; }
         // richting: met `toward` alleen een voertuig dat die kant op rijdt (kop vóór de staart, gezien naar het doel)
         const ok = (a) => { if (!R.toward) return true; const h = tr.behind(a, 0, {}), e = tr.behind(a, a.L, {}); return (h.x - e.x) * (R.toward.x - h.x) + (h.z - e.z) * (R.toward.z - h.z) > 0; };
-        const v = tr.agents.find(a => !a.dead && a.kind === R.kind && (!R.line || a.line === R.line) && doorsOpen(a) && a.atStop === R.board && (!R.dest || (a.trip && a.trip.dest === R.dest)) && Math.hypot(tr.behind(a, a.L / 2, {}).x - t.x, tr.behind(a, a.L / 2, {}).z - t.z) < a.L / 2 + 14 && ok(a));
-        if (v && !tr.trips.full(v)) {
+        const v = tr.agents.find(a => !a.dead && !a.oos && a.kind === R.kind && (!R.line || a.line === R.line) && doorsOpen(a) && a.atStop === R.board && (!R.dest || (a.trip && a.trip.dest === R.dest)) && Math.hypot(tr.behind(a, a.L / 2, {}).x - t.x, tr.behind(a, a.L / 2, {}).z - t.z) < a.L / 2 + 14 && ok(a));
+        if (v && (!v.trip || v.trip.cap - v.trip.occ >= (t.group || 1))) {
+          if (t.sitKey) { this.benches.delete(t.sitKey); t.sitKey = null; t.sit = null; } // opstaan
           // naar de dichtste deur: het dichtste punt op het voertuig, dan instappen
           const near = this.nearestOn(v, t); t.vehicle = v; t.state = 'instappen'; t.board = near; this.note(t, 'naar de deur', { voertuig: v.kind, lijn: v.line || null, rit: v.trip && v.trip.id });
         }
@@ -223,7 +359,7 @@ export class Travelers {
         const v = t.vehicle, q = t.board, dx = q.x - t.x, dz = q.z - t.z, d = Math.hypot(dx, dz);
         if (!doorsOpen(v) || v.dead) { t.state = 'wachten'; t.vehicle = null; continue; } // deuren dicht: volgende
         if (d > 0.9) { const s = Math.min(d, t.speed * dt); t.x += dx / d * s; t.z += dz / d * s; t.yaw = Math.atan2(dx, dz); continue; }
-        const voor = v.trip ? v.trip.occ : null; tr.trips.board(v, 1); if (!t.auto) v.riders = (v.riders || 0) + 1; else v.npc = (v.npc || 0) + 1; /* een geplande reis houdt het voertuig vast; met reizigers aan boord wordt het niet aan de halte uit dienst genomen */ t.state = 'aan boord'; t.boardStop = v.atStop; t.boardKey = v.lastStop; t.boardSeq = v.stopSeq || 0;
+        const g = t.group || 1, voor = v.trip ? v.trip.occ : null; tr.trips.board(v, g); if (!t.auto) v.riders = (v.riders || 0) + g; else v.npc = (v.npc || 0) + g; t.boardClock = tr.clock || 0; /* een geplande reis houdt het voertuig vast; met reizigers aan boord wordt het niet aan de halte uit dienst genomen */ t.state = 'aan boord'; t.boardStop = v.atStop; t.boardKey = v.lastStop; t.boardSeq = v.stopSeq || 0;
         { const ty = this.typeStats(t.type); ty.ingestapt++; ty.soorten[v.kind] = (ty.soorten[v.kind] || 0) + 1; }
         this.stats.ingestapt = (this.stats.ingestapt || 0) + 1; (this.stats.soorten || (this.stats.soorten = {}))[v.kind] = (this.stats.soorten[v.kind] || 0) + 1;
         this.note(t, 'ingestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, bezetting: v.trip && v.trip.occ, halte: v.atStop, lijn: v.line || null, afstandTotDeur: +d.toFixed(1) });
@@ -232,11 +368,12 @@ export class Travelers {
       if (t.state === 'aan boord') {
         const v = t.vehicle, R = st.ride;
         const h = tr.behind(v, Math.min(v.L - 1, Math.max(1, t.boardOff ?? v.L / 2)), {}); t.x = h.x; t.z = h.z; t.y = h.y + 1.1; // rijdt mee
+        if ((v.dead || v.oos) && t.journey) { t.vehicle = v; this.goRemote(t); continue; } // hele reis: rijdt op afstand verder
         if ((v.dead || v.oos) && t.auto) { t.state = 'uit beeld'; this.stats.uitBeeld = (this.stats.uitBeeld || 0) + 1; const w = (this.stats.uitBeeldWaarom || (this.stats.uitBeeldWaarom = {})); w[v.why || '?'] = (w[v.why || '?'] || 0) + 1; continue; } // rijdt buiten beeld verder mee (telt in de rit)
         if (v.dead) { t.state = 'gestrand'; this.note(t, 'voertuig weg', null); continue; }
         // uitstappen aan de halte van de reis ('*' = de eerstvolgende halte na het instappen)
-        if (doorsOpen(v) && (R.alight === '*' ? (v.stopSeq || 0) > t.boardSeq : v.atStop === R.alight)) {
-          const voor = v.trip ? v.trip.occ : null; tr.trips.alight(v, 1); if (!t.auto) v.riders = Math.max(0, (v.riders || 1) - 1); else v.npc = Math.max(0, (v.npc || 1) - 1);
+        if (doorsOpen(v) && (R.alight === '*' ? (v.stopSeq || 0) > t.boardSeq : v.atStop === R.alight && (!R.at || Math.hypot(h.x - R.at.x, h.z - R.at.z) < 90))) {
+          const g = t.group || 1, voor = v.trip ? v.trip.occ : null; tr.trips.alight(v, g); if (!t.auto) v.riders = Math.max(0, (v.riders || g) - g); else v.npc = Math.max(0, (v.npc || g) - g);
           // aan de perronkant naast de deur uitstappen, op een beloopbare plek
           const pn = v.platN || [0, 0], out = this.nav.snap(h.x + pn[0] * 2.4, h.y + 1, h.z + pn[1] * 2.4, 4) || this.nav.snap(h.x, h.y + 1, h.z, 5);
           if (out) { t.x = out.x + 0.5; t.y = out.y; t.z = out.z + 0.5; }
@@ -249,15 +386,33 @@ export class Travelers {
     // tekenen: alleen wie loopt of wacht en dichtbij is
     let n = 0, na = 0;
     for (const t of this.list) {
-      if (t.done || t.state === 'aan boord' || n >= 64 || Math.hypot(t.x - player.x, t.z - player.z) > 220) continue;
-      this.q.setFromAxisAngle(this.up, t.yaw); this.v.set(t.x, t.y, t.z); this.m4.compose(this.v, this.q, this.one);
-      for (const [m, col] of [[this.body, t.shirt], [this.legs, 0x22313f], [this.head, 0xe0ac69]]) { m.setMatrixAt(n, this.m4); m.setColorAt(n, this.c.setHex(col)); }
+      if (t.done || t.state === 'aan boord' || t.state === 'op afstand' || n >= DRAW_MAX - 3 || Math.hypot(t.x - player.x, t.z - player.z) > 220) continue;
+      // zittend op een bank: op de zitting, iets lager
+      if (t.sit) { this.q.setFromAxisAngle(this.up, t.sit.yaw); this.v.set(t.sit.x, t.sit.y - 0.5, t.sit.z); }
+      else { this.q.setFromAxisAngle(this.up, t.yaw); this.v.set(t.x, t.y, t.z); }
+      // een gezin: ouder vooraan, twee kinderen (kleiner) er vlak achter
+      const G = t.group || 1;
+      for (let k = 0; k < G; k++) {
+        const kid = k > 0, sc = kid ? 0.68 : 1;
+        if (k) { this.v2.set(k === 1 ? -0.55 : 0.55, 0, -0.75).applyQuaternion(this.q).add(this.v); } else this.v2.copy(this.v);
+        if (t.sit && k) this.v2.y += 0; // kinderen naast de ouder op de bank
+        this.sc.set(sc, sc, sc); this.m4.compose(this.v2, this.q, this.sc);
+        const shirt = kid ? SHIRT[(+t.id.slice(1) + k * 3) % SHIRT.length] : (t.prof.shirt ?? t.shirt);
+        for (const [m, col] of [[this.body, shirt], [this.legs, 0x22313f], [this.head, 0xe0ac69]]) { m.setMatrixAt(n, this.m4); m.setColorAt(n, this.c.setHex(col)); }
+        n++;
+      }
       const a = ACC[t.prof.acc];
-      if (a && na < 64) { this.v2.set(a[3], a[4], a[5]).applyQuaternion(this.q).add(this.v); this.sc.set(a[0], a[1], a[2]); this.m4.compose(this.v2, this.q, this.sc); this.acc.setMatrixAt(na, this.m4); this.acc.setColorAt(na, this.c.setHex(a[6])); na++; }
-      n++;
+      if (a && na < DRAW_MAX) { this.v2.set(a[3], a[4] - (t.sit ? 0.1 : 0), a[5]).applyQuaternion(this.q).add(this.v); this.sc.set(a[0], a[1], a[2]); this.m4.compose(this.v2, this.q, this.sc); this.acc.setMatrixAt(na, this.m4); this.acc.setColorAt(na, this.c.setHex(a[6])); na++; }
     }
     for (const m of [this.body, this.legs, this.head]) { m.count = n; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; }
     this.acc.count = na; this.acc.instanceMatrix.needsUpdate = true; this.acc.instanceColor.needsUpdate = true;
+  }
+  // wachten op een bank (stations, perrons, haltes): een vrije bank binnen 6 m, anders blijven staan
+  trySit(t) {
+    if (this.rr() > (t.prof.sits ?? 0.5)) return;
+    const b = benchNear(this.nav, this.get, this.solid, t, 6, this.benches); if (!b) return;
+    this.benches.add(b.key); t.sitKey = b.key; t.sitGoal = b;
+    t.afterWalk = 'zitten'; this.walkTo(t, { x: b.x, y: b.y, z: b.z }, 4000);
   }
   // dichtste punt op de as van het voertuig (deur), en waar op het voertuig (afstand vanaf de kop)
   nearestOn(v, t) {
