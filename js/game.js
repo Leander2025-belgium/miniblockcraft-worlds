@@ -12,6 +12,7 @@ import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
 import { Career } from './career.js';
+import { BuildLibrary } from './buildlib.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
 import { diag } from './diag.js';
@@ -243,6 +244,7 @@ void main() {
   gl_FragColor = vec4(tnToneSrgb(mix(max(col, vec3(0.0)), fc, fog)), a);
 }`;
 
+const GROW_MAX = 400; // tot hoeveel blokken boven de onderkant van een tegel/regio er gebouwd kan worden
 class World {
   constructor(meta, vox) {
     this.meta = meta;
@@ -279,11 +281,20 @@ class World {
     if (y - this.y0 < 0 && this.under && this.inside(x, z)) return this.under.set(x + this.ox, y, z + this.oz, b);
     if (y - this.y0 === 0 && this.under && this.inside(x, z)) this.under.markDirty(x + this.ox, y - 1, z + this.oz);
     y -= this.y0;
+    if (b && y >= this.H && y < GROW_MAX && this.inside(x, z)) this.grow(y + 24); // hoger bouwen dan de tegel: de tegel groeit mee (TERRANOVA 15)
     if (y < 0 || y >= this.H || !this.inside(x, z)) return false;
     this.vox[(z * this.size + x) * this.H + y] = b;
     const cx = Math.floor(x / CS), cz = Math.floor(z / CS);
     if (b && y > this.tops[cz * this.nc + cx]) this.tops[cz * this.nc + cx] = y;
     return true;
+  }
+  // kolomhoogte vergroten (alle kolommen): de inhoud blijft, erboven komt lucht. Wordt bewaard zoals elke bewerkte
+  // tegel of regio (vox + H, js/storage.js); oudere saves blijven gewoon laden.
+  grow(newH) {
+    newH = Math.min(GROW_MAX, Math.ceil(newH / 8) * 8); if (newH <= this.H) return;
+    const H0 = this.H, old = this.vox, n = this.size * this.size, v = new Uint8Array(n * newH);
+    for (let i = 0; i < n; i++) v.set(old.subarray(i * H0, i * H0 + H0), i * newH);
+    this.vox = v; this.H = newH; if (this.meta) this.meta.H = newH;
   }
   columnTop(x, z) {
     for (let y = this.y0 + this.H - 1; y >= this.y0; y--) if (this.get(x, y, z)) return y;
@@ -1855,7 +1866,7 @@ export class Game {
       this.remeshAround(x, z, y);
       // opdrachten bijhouden
       const G = this.meta.ground ?? GROUND, sc = (this.meta.real && this.meta.real.scale) || 1;
-      this.missions.add('placed');
+      this.missions.add('placed'); this.lib?.used(b); // recent gebruikt (bouwbibliotheek)
       this.missions.max('maxPlaceH', (y - G) / sc);
       if (b === B.GRASS || b === B.LEAVES || b === B.HEDGE || b === B.FLOWERS) this.missions.add('green');
       if (b === B.GLASS || b === B.DARKGLASS || b === B.GLASS_BLUE || b === B.GLASS_GREEN || b === B.MIRROR) this.missions.add('glass');
@@ -1925,15 +1936,30 @@ export class Game {
     [...this.ui.hotbar.children].forEach((c, j) => c.classList.toggle('sel', j === this.slot));
     this.ui.blockName.textContent = BLOCKS[this.hotbar[this.slot]].name;
   }
+  // bouwbibliotheek (TERRANOVA 15, js/buildlib.js): tabbladen per categorie, zoeken, favorieten (★) en recent gebruikt;
+  // de voorvertoning is het icoon van het blok; kiezen zet het blok in het gekozen vakje van de balk
   buildInventory() {
-    const grid = this.ui.invGrid;
+    const grid = this.ui.invGrid, lib = this.lib || (this.lib = new BuildLibrary(PLACEABLE));
+    let bar = document.getElementById('inv-tools');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'inv-tools'; bar.className = 'inv-tools';
+      bar.innerHTML = '<input id="inv-search" type="search" placeholder="🔎 Zoek een blok (bv. glas, deur, lamp)…"><div id="inv-tabs" class="inv-tabs"></div>';
+      grid.parentNode.insertBefore(bar, grid);
+      bar.querySelector('#inv-search').addEventListener('input', (e) => { lib.q = e.target.value; this.buildInventory(); });
+      bar.querySelector('#inv-search').addEventListener('keydown', (e) => e.stopPropagation());
+    }
+    const tabs = bar.querySelector('#inv-tabs');
+    tabs.innerHTML = lib.tabs().map(t => `<button class="btn small${t === lib.tab ? ' primary' : ''}" data-tab="${t}">${t}</button>`).join('');
+    tabs.onclick = (e) => { const b = e.target.closest('[data-tab]'); if (!b) return; lib.tab = b.dataset.tab; this.buildInventory(); };
     grid.innerHTML = '';
-    for (const b of PLACEABLE) {
+    const ids = lib.list();
+    if (!ids.length) grid.innerHTML = `<p class="help">${lib.tab === '★ Favorieten' ? 'Nog geen favorieten: tik op ☆ bij een blok.' : lib.tab === '🕘 Recent' ? 'Nog niets gebruikt.' : 'Niets gevonden.'}</p>`;
+    for (const b of ids) {
       const s = document.createElement('button');
       s.className = 'slot';
       s.title = BLOCKS[b].name;
-      s.innerHTML = `<span class="ic" style="${iconStyle(this.atlasUrl, b, 40)}"></span><span class="lbl">${BLOCKS[b].name}</span>`;
-      s.addEventListener('click', () => { this.hotbar[this.slot] = b; this.buildHotbar(); });
+      s.innerHTML = `<span class="ic" style="${iconStyle(this.atlasUrl, b, 40)}"></span><span class="lbl">${BLOCKS[b].name}</span><span class="fav" title="Favoriet">${lib.fav.has(b) ? '★' : '☆'}</span>`;
+      s.addEventListener('click', (e) => { if (e.target.classList.contains('fav')) { lib.toggleFav(b); this.buildInventory(); return; } this.hotbar[this.slot] = b; lib.used(b); this.buildHotbar(); });
       grid.appendChild(s);
     }
   }

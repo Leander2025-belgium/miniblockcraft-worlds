@@ -282,6 +282,8 @@
   #t-photo-exit { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
   .photo .hud:not(#toast), .photo #minimap, .photo .touch { display: none !important; }
   .is-touch.photo #t-shot, .is-touch.photo #t-photo-exit { display: grid; }
+  .inv-tools input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.3); color: #fff; margin-bottom: 6px; }
+  .inv-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; } #inv-grid .slot { position: relative; } #inv-grid .slot .fav { position: absolute; top: 2px; right: 4px; color: #fbbf24; font-size: 15px; }
   #inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
   #inv-grid .slot { width: 100%; height: 76px; grid-template-rows: 44px auto; gap: 2px; }
   #inv-grid .slot .ic { width: 40px; height: 40px; }
@@ -613,13 +615,18 @@
     <button class="btn" id="bb-fill" title="Vullen met het gekozen blok (Enter)">🪣 vullen</button>
     <button class="btn" id="bb-walls" title="Alleen de muren (K)">🧱 muren</button>
     <button class="btn" id="bb-clear" title="Leegmaken (Delete)">🧹 leeg</button>
+    <button class="btn" id="bb-floor" title="Vloer: alleen de onderste laag (F)">▭ vloer</button>
+    <button class="btn" id="bb-room" title="Kamer: muren, vloer en plafond (U)">🏠 kamer</button>
+    <button class="btn" id="bb-line" title="Rechte lijn van hoek 1 naar hoek 2 (I)">📏 lijn</button>
     <button class="btn" id="bb-copy" title="Kopiëren (C)">📋</button>
     <button class="btn" id="bb-paste" title="Plakken waar je kijkt (V)">📌</button>
     <button class="btn" id="bb-rot" title="Draaien (R)">↻</button>
+    <button class="btn" id="bb-mirror" title="Spiegelen (M; Shift+M voor-achter)">⇋</button>
     <button class="btn" id="bb-save" title="Bewaren als blauwdruk (O)">💾</button>
     <button class="btn" id="bb-list" title="Blauwdrukken (L)">📐</button>
     <button class="btn" id="bb-undo" title="Ongedaan maken (Z)">↶</button>
     <button class="btn" id="bb-redo" title="Opnieuw (Y)">↷</button>
+    <span id="bb-size" class="small" style="align-self:center;padding:0 6px"></span>
     <button class="btn" id="bb-exit" title="Bouwmodus uit (B)">✕</button>
   </div>
   <div id="bp-list" class="bp-list" hidden>
