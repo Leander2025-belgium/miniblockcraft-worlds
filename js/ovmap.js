@@ -65,6 +65,8 @@ export function openOvMap(game) {
     if (!s) { info.innerHTML = '<span class="muted">Klik op een voertuig of een halte.</span>'; return; }
     if (s.veh) {
       const v = s.veh;
+      // het gekozen voertuig is intussen uit dienst genomen of buiten beeld gereden: geen oude rit en bezetting meer tonen
+      if (v.gone) { info.innerHTML = `<b>${KIND_ICON[v.kind || v.mode] || ''} ${esc(v.line)}</b><br><span class="small">Niet meer in beeld: uit dienst genomen of buiten beeld gereden${v.trip ? ` (rit ${esc(v.trip.id)})` : ''}.</span>`; return; }
       info.innerHTML = `<b>${KIND_ICON[v.kind || v.mode] || ''} ${esc(v.line)}</b>${v.dir ? ' richting ' + esc(v.dir) : v.trip?.dest ? ' → ' + esc(v.trip.dest) : ''}<br>` +
         (v.real ? `<span class="small">In beeld (echt voertuig) · ${v.kmh ?? 0} km/u${v.trip ? ` · rit ${esc(v.trip.id)} · bezetting ${v.trip.occ}/${v.trip.cap}${v.trip.delay ? ` · +${Math.round(v.trip.delay / 60)} min` : ' · vertraging niet gemeten'}` : ''}${v.at ? ` · staat aan ${esc(v.at)}` : v.next ? ` · volgende halte ${esc(v.next)}` : ''}</span>`
           : `<span class="small">Volgens dienstregeling · rit ${esc(v.id)} · volgende halte ${esc(v.next)} om ${fmtTime(v.nextT)}</span>`);
@@ -97,6 +99,6 @@ export function openOvMap(game) {
   draw(); showInfo();
   clearInterval(game.ovMapTimer);
   // live: het verkeer en de klok lopen door terwijl de kaart open is (paused houdt alleen de besturing tegen): elke seconde opnieuw tekenen
-  game.ovMapTimer = setInterval(() => { if (ov.hidden) { clearInterval(game.ovMapTimer); return; } draw(); if (S.sel?.veh) { const v = S.items.find(i => i.type === 'veh' && (i.trip?.id ? i.trip.id === S.sel.veh.trip?.id : i.id === S.sel.veh.id)); if (v) S.sel.veh = v; } showInfo(); }, 1000);
+  game.ovMapTimer = setInterval(() => { if (ov.hidden) { clearInterval(game.ovMapTimer); return; } draw(); if (S.sel?.veh) { const v = S.items.find(i => i.type === 'veh' && (i.trip?.id ? i.trip.id === S.sel.veh.trip?.id : i.id === S.sel.veh.id)); if (v) S.sel.veh = v; else if (S.sel.veh.real) S.sel.veh = { ...S.sel.veh, gone: true }; } showInfo(); }, 1000);
   return true;
 }

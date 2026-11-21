@@ -416,7 +416,7 @@ export class Travelers {
         const g = t.group || 1, voor = v.trip ? v.trip.occ : null; tr.trips.board(v, g); if (!t.auto) v.riders = (v.riders || 0) + g; else v.npc = (v.npc || 0) + g; t.boardClock = tr.clock || 0; t.trip0 = v.trip || null; /* een geplande reis houdt het voertuig vast; met reizigers aan boord wordt het niet aan de halte uit dienst genomen */ t.state = 'aan boord'; t.boardStop = v.atStop; t.boardKey = v.lastStop; t.boardSeq = v.stopSeq || 0;
         { const ty = this.typeStats(t.type); ty.ingestapt++; ty.soorten[v.kind] = (ty.soorten[v.kind] || 0) + 1; }
         this.stats.ingestapt = (this.stats.ingestapt || 0) + 1; (this.stats.soorten || (this.stats.soorten = {}))[v.kind] = (this.stats.soorten[v.kind] || 0) + 1;
-        this.note(t, 'ingestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, bezetting: v.trip && v.trip.occ, halte: v.atStop, lijn: v.line || null, afstandTotDeur: +d.toFixed(1) });
+        this.note(t, 'ingestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, groep: g, bezetting: v.trip && v.trip.occ, halte: v.atStop, lijn: v.line || null, afstandTotDeur: +d.toFixed(1) });
         continue;
       }
       if (t.state === 'aan boord') {
@@ -432,7 +432,7 @@ export class Travelers {
           const pn = v.platN || [0, 0], out = this.nav.snap(h.x + pn[0] * 2.4, h.y + 1, h.z + pn[1] * 2.4, 4) || this.nav.snap(h.x, h.y + 1, h.z, 5);
           if (out) { t.x = out.x + 0.5; t.y = out.y; t.z = out.z + 0.5; }
           this.stats.uitgestapt = (this.stats.uitgestapt || 0) + 1; this.typeStats(t.type).uitgestapt++;
-          this.note(t, 'uitgestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, bezetting: v.trip && v.trip.occ, halte: v.atStop, afstandTotDeur: +Math.hypot(t.x - h.x, t.z - h.z).toFixed(1) });
+          this.note(t, 'uitgestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, groep: g, bezetting: v.trip && v.trip.occ, halte: v.atStop, afstandTotDeur: +Math.hypot(t.x - h.x, t.z - h.z).toFixed(1) });
           t.vehicle = null; t.i++; t.state = 'volgende';
         }
       }
