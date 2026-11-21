@@ -296,6 +296,7 @@ export class Traffic {
     const E = this.net.edges;
     // voertuigen op randen die niet meer bestaan: weg
     for (const a of this.agents) {
+      if (a.parked) continue; // busremise: eigen randen buiten het net
       if (!E.has(a.route[0].e.id)) { a.dead = true; a.why = 'net'; continue; }
       const keep = [];
       for (const r of a.route) { if (!E.has(r.e.id)) break; keep.push({ e: E.get(r.e.id), dir: r.dir }); }
@@ -425,6 +426,7 @@ export class Traffic {
         : kind === 'train' ? 0xffffff : 0, phase: Math.random() * 10 };
     if (kind === 'train') a.color = a.ice ? 0xf4f4f2 : 0xc8102e;
     if (kind === 'bus' && e.line && e.line[0] === 'B') a.line = e.line;
+    if ((kind === 'tram' || kind === 'train') && e.line) a.line = e.line; // lijn van het spoor (bv. T1, IC): reizigers en planner gebruiken dezelfde naam
     if (kind === 'metro') { a.line = e.line || ('M' + (1 + Math.floor(rr * 6))); let h = 0; for (const ch of a.line) h = (h * 31 + ch.charCodeAt(0)) >>> 0; a.color = METRO_COLORS[h % METRO_COLORS.length]; }
     if (kind === 'walk') {
       a.shirt = SHIRTS[Math.floor(Math.random() * SHIRTS.length)]; a.pants = PANTS[Math.floor(Math.random() * PANTS.length)];
@@ -524,6 +526,8 @@ export class Traffic {
     const straightP = a.kind === 'train' || a.kind === 'tram' ? 0.85 : a.kind === 'bus' ? 0.75 : 0.55;
     // vaste buslijn: op de laan van de lijn blijven (rechtdoor of de verbinding naar hetzelfde lijnstuk)
     if (a.kind === 'bus' && a.line && a.line[0] === 'B') { const on = sorted.find(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line))); if (on) return on; }
+    // tram met een lijn: op het spoor van die lijn blijven (zoals in de dienstregeling van de planner)
+    if (a.kind === 'tram' && a.line) { const on = sorted.find(o => o.e.line === a.line || (o.e.conn && o.e.next[1].some(n => n.e.line === a.line))); if (on) return on; }
     if (a.kind === 'bus') { const maj = sorted.find(o => o.e.major || (o.e.conn && o.e.next[1][0]?.e.major)); if (maj && Math.random() < 0.8) return maj; }
     return Math.random() < straightP ? sorted[0] : sorted[1 + Math.floor(Math.random() * (sorted.length - 1))];
   }
@@ -584,6 +588,60 @@ export class Traffic {
   makeWarn() {
     const m = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.07, 0.22), new THREE.MeshBasicMaterial({ color: 0xffa020, toneMapped: false }), 600);
     m.count = 0; m.frustumCulled = false; this.group.add(m); this.warnMesh = m; return m;
+  }
+  // ── busremise (TERRANOVA 15, js/megacity.js BUS_DEPOT) ──
+  // Rond de remise staan bussen op hun stallingsplaats (aan de laadpaal). Hoeveel er staan volgt de dienstregeling
+  // van de periode: in de spits rijden bijna alle bussen (4 reserve), 's nachts staan er 17. Moet er een bus bij
+  // (spits begint), dan rijdt er een van zijn plaats door de poort naar de dichtste rijstrook met een buslijn (B11 of B31) en gaat daar in dienst
+  // (een echte lijnbus met rit, js/ovtrips.js). Moet er een bus af, dan rijdt een lijnbus die bij de poort is de remise
+  // in (of, als de speler ver weg is, staat hij er al). Ver van de remise is er niets: geen kost.
+  depotTick(dt, player, period) {
+    const D = this.busDepot; if (!D) return;
+    const st = this.depotStats || (this.depotStats = { uitgerukt: 0, ingerukt: 0, geparkeerd: 0, gewenst: 0, uitrijdend: 0 });
+    const parked = this.agents.filter(a => a.parked && !a.dead);
+    if (Math.hypot(D.cx - player.x, D.cz - player.z) > 480) { for (const a of parked) { a.dead = true; a.why = 'remise'; } this.depotInit = false; st.geparkeerd = 0; return; }
+    const need = { spits: 1, dal: 2 / 3, avond: 0.5, nacht: 1 / 3 }[period] ?? 2 / 3;
+    // stalling aan de laan (met poort): 2 reserve in de spits tot 10 's nachts; de andere stalling: vaste reserve- en
+    // onderhoudsbussen (6, rijden niet uit)
+    const want = 2 + Math.round(10 * (1 - need)), reserveWant = 6;
+    const used = new Set(parked.map(a => a.bay)), G = (this.G ?? 0) - 1;
+    const park = (i) => {
+      const b = D.bays[i], P = b.exit || [[b.x, b.z1], [b.x, b.z0]];
+      const pts = new Float32Array(P.flatMap(([x, z]) => [x, G, z])), e = makeEdge('remise:' + i, 'road', pts, false);
+      let c = null; for (let k = 0; k < 6 && (!c || c.L > 12.5); k++) c = consist('bus', Math.random());
+      if (c.L > 12.5) return null;
+      const a = { kind: 'bus', ...c, route: [{ e, dir: 1 }], d: 13, v: 0, wait: 0, r: Math.random(), color: BUS_COLORS[i % BUS_COLORS.length], phase: 0, parked: true, bay: i };
+      this.agents.push(a); used.add(i); return a;
+    };
+    const freeBay = (exitOnly) => D.bays.findIndex((b, i) => !used.has(i) && (!exitOnly || b.exit));
+    // eerste keer in de buurt: de stand van de dienstregeling (eerst de reserveplaatsen, dan de stalling aan de laan)
+    if (!this.depotInit) {
+      this.depotInit = true;
+      let n = parked.filter(a => D.bays[a.bay].exit).length, r = parked.length - n;
+      D.bays.forEach((b, i) => { if (used.has(i)) return; if (b.exit && n < want && park(i)) n++; else if (!b.exit && r < reserveWant && park(i)) r++; });
+    }
+    // uitrijdende bussen: over het middenpad en door de poort; aan de rijstrook gaat een lijnbus in dienst
+    for (const a of parked) if (a.leaving) {
+      const e = a.route[0].e; a.v = 4.5; a.d = Math.min(e.len, a.d + 4.5 * dt);
+      if (a.d >= e.len - 0.1) {
+        const end = { x: e.pts[e.pts.length - 3], z: e.pts[e.pts.length - 1] };
+        this.spawnNearPos = true; const nb = this.spawn('bus', end, false); this.spawnNearPos = false;
+        if (nb) { nb.fromDepot = true; nb.color = a.color; a.dead = true; a.why = 'remise uit'; st.uitgerukt++; (st.uit || (st.uit = [])).push({ lijn: nb.line || null, rit: nb.trip ? nb.trip.id : null }); if (st.uit.length > 20) st.uit.shift(); }
+      }
+    }
+    st.geparkeerd = parked.filter(a => !a.leaving && D.bays[a.bay].exit).length; st.reserve = parked.filter(a => !D.bays[a.bay].exit).length; st.uitrijdend = parked.filter(a => a.leaving).length; st.gewenst = want;
+    this.depotT = (this.depotT || 0) + dt; if (this.depotT < 12) return; this.depotT = 0;
+    const atBay = parked.filter(a => !a.leaving && D.bays[a.bay].exit);
+    if (atBay.length > want) {
+      const a = atBay.find(x => D.bays[x.bay].exit); if (a) { a.leaving = true; }
+    } else if (atBay.length < want) {
+      const i = freeBay(true); if (i < 0) return;
+      const gate = (D.bays.find(b => b.exit) || {}).exit?.[4];
+      const tmp = this.tmpDep || (this.tmpDep = {});
+      const b = gate && this.agents.find(x => x.kind === 'bus' && !x.parked && !x.dead && !x.player && !x.passenger && !x.riders && !x.npc && (() => { const h = this.behind(x, 0, tmp); return Math.hypot(h.x - gate[0], h.z - gate[1]) < 150; })());
+      if (b) { b.dead = true; b.why = 'remise in'; if (park(i)) st.ingerukt++; }
+      else if (Math.hypot(D.cx - player.x, D.cz - player.z) > 250) { if (park(i)) st.ingerukt++; } // binnengekomen terwijl niemand keek
+    }
   }
   // bestemmingsdisplay aan de voorkant (metro, tram, bus) met echte tekst: lijn en eindhalte van de rit.
   // Alleen voor voertuigen binnen 140 m (hooguit 16 tegelijk); één textuur per tekst, hergebruikt.
@@ -663,6 +721,7 @@ export class Traffic {
     for (const k of ['car', 'bus', 'tram', 'metro', 'train']) want[k] = scaled(want[k], k, period);
     const have = { car: 0, bus: 0, tram: 0, train: 0, walk: 0, ship: 0, metro: 0 };
     for (const a of this.agents) {
+      if (a.parked) continue; // in de busremise (depotTick)
       const h = this.behind(a, 0, this.tmpA), d = Math.hypot(h.x - player.x, h.z - player.z);
       if (d > RANGE + 120 && !a.player && !a.passenger && !a.riders) { a.dead = true; a.why = 'ver'; }
       // te veel voor deze periode: buiten zicht uit dienst nemen, of aan de volgende halte (eindrit)
@@ -678,6 +737,7 @@ export class Traffic {
       if (gated && last !== undefined && now - last < hw) continue;
       while (have[k] < want[k] && tries++ < (this.agents.length ? 6 : 400)) if (this.spawn(k, player, this.agents.length > 20 && k !== 'train' && k !== 'tram')) { have[k]++; if (hw) this.lastSpawn[k] = now; if (gated) break; }
     }
+    this.depotTick(dt, player, period);
     // afstand houden: wie staat er voor me op dezelfde rand?
     const onEdge = new Map();
     for (const a of this.agents) {
@@ -686,6 +746,7 @@ export class Traffic {
     }
     for (const a of this.agents) {
       if (a.dead) continue;
+      if (a.parked) { this.place(a); continue; } // geparkeerd of uitrijdend in de remise: depotTick beweegt hem
       const r = a.route[0], e = r.e;
       if (a.wait > 0) {
         a.wait -= dt;
@@ -861,6 +922,13 @@ export class Traffic {
     if (this.warnMesh) this.warnMesh.count = 0;
     this.signUsed = 0;
     this.lodStat = { vol: 0, licht: 0 };
+    // koplampbundels op het wegdek ('s nachts, TERRANOVA 15): één doorzichtig vlak per voertuig, additief, één tekenopdracht
+    if (!this.beams) {
+      const g = new THREE.PlaneGeometry(3.4, 10); g.rotateX(-Math.PI / 2); g.translate(0, 0, 5.2);
+      const m = new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false });
+      this.beams = new THREE.InstancedMesh(g, m, 96); this.beams.frustumCulled = false; this.beams.renderOrder = 2; this.group.add(this.beams);
+    }
+    this.beams.count = 0; this.beamOn = day < 0.35; this.beams.material.opacity = 0.32 * Math.min(1, (0.35 - day) / 0.15);
     let pn = 0;
     const P = this.people, A = this.tmpA, Bp = this.tmpB;
     // NPC's die op een vaste plek staan: personeel, wachtende reizigers, piloten, grondpersoneel
@@ -942,6 +1010,11 @@ export class Traffic {
         this.putTrim(M, a.lodFar, cov);
         if (s.beacon) { const side = Math.floor(this.clock * 5) % 2 ? 'L' : 'R', Bm = this.meshes['beacon' + s.beacon + side]; if (Bm && Bm.n < Bm.max) { const j = Bm.n++; for (const m of Object.values(Bm.set)) m.setMatrixAt(j, this.m4); } }
         if (s === a.secs[0] && !s.flip) this.headSign(a, s, yaw, this.v.x, this.v.y, this.v.z, player);
+        if (s === a.secs[0] && this.beamOn && (a.kind === 'car' || a.kind === 'bus' || a.kind === 'tram') && this.beams.count < 96 && Math.hypot(fx - player.x, fz - player.z) < 150) {
+          const hd2 = this.behind(a, 0, this.tmpBeam || (this.tmpBeam = {})), j = this.beams.count++;
+          this.e.set(0, yaw + (s.flip ? Math.PI : 0), 0); this.q.setFromEuler(this.e); this.v.set(hd2.x, hd2.y + 0.07, hd2.z); this.s.set(1, 1, 1);
+          this.beams.setMatrixAt(j, this.m4.compose(this.v, this.q, this.s)); this.beams.instanceMatrix.needsUpdate = true;
+        }
         const leaves = METRO_LEAVES[s.m];
         // deurwaarschuwing: de laatste 3 s voor het sluiten knipperen oranje lampjes boven de deuren aan de perronkant
         if (leaves && a.doorsOpen && a.wait < 5.5) {

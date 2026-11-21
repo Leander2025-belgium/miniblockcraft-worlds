@@ -11,6 +11,7 @@ import { routeServices } from './railroute.js';
 import { Passengers } from './passengers.js';
 import { B, IS_SOLID } from './blocks.js';
 import { meshChunk } from './mesher.js';
+import { Smoke } from './smoke.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
 // useNet(net) kiest het net van de wereld die gespeeld wordt.
 let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffset = () => 2.5, LIFTS = [], CROSSINGS = [], groundAt = () => 0, MW = 1, ML = 1, SERVICES = [];
@@ -363,7 +364,13 @@ function doorsOpenAt(a) {
 // voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
 export function activeAt(now) { return activeTrains(now); }
 // voor de remises (js/depotsim.js) en controles zonder browser
-export function _depotHelpers() { return { runs, delayOf, posAt, trackOffset }; }
+// geplande aankomst (klok van de dienstregeling) van de bestuurde trein aan een station van zijn rit (js/career.js)
+export function schedArrival(pt, st) {
+  const a = pt.sched; if (!a || !a.run || pt.base == null || a.run.pr.L !== pt.L) return null;
+  const pr = a.run.pr, x = (st.s - pr.s0) * a.run.dir; if (x < 0 || x > pr.D) return null;
+  return pt.base + timeAt(pr, x);
+}
+export function _depotHelpers() { return { runs, delayOf, effDelay, posAt, trackOffset }; }
 export function _design(type, liv) { return design(type, liv); } // voor controles zonder browser (interieur)
 function activeTrains(now) {
   const out = [];
@@ -567,7 +574,7 @@ export class AlpRail {
   }
   dispose() {
     for (const tr of this.trains.values()) this.dropTrain(tr);
-    this.shells?.dispose(); this.infra?.dispose(); this.pax?.dispose();
+    this.shells?.dispose(); this.infra?.dispose(); this.pax?.dispose(); this.smoke?.dispose();
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.group.removeFromParent();
     if (this.tunnel) this.tunnel.geometry.dispose();
@@ -618,6 +625,19 @@ export class AlpRail {
     const mine = this.player && this.player.tr === tr, v = mine ? this.player.v : (tr.v || 0), busy = v > 0.05 || doorWant || (mine && this.player.throttle > 0);
     tr.idle = busy ? 0 : (tr.idle || 0) + dt;
     const pantoWant = tr.idle > 20 ? 0 : 1, pp = this.g.player.pos;
+    // stoomlocomotief: rookwolkjes uit de schoorsteen in het ritme van de drijfwielen (js/smoke.js), alleen van buiten en in de buurt
+    if (tr.sv && tr.sv.style === 'hist' && tr.cars[0] && tr.cars[0].shell && !aboard) {
+      const sh = tr.cars[0].shell.g, near = Math.hypot(sh.position.x - pp.x, sh.position.z - pp.z) < 600;
+      if (near) {
+        const sm = this.smoke || (this.smoke = new Smoke(this.g.scene));
+        tr.chuff = (tr.chuff || 0) + dt * (v > 0.2 ? v / 1.33 : 0.6); // 4 stoten per omwenteling (omtrek 5,3 m); stilstand: dun pluimpje
+        if (tr.chuff >= 1) {
+          tr.chuff = 0; const d = tr.cars[0].d, hz = (d && d.L ? d.L : 12) / 2;
+          const w = sh.localToWorld(new THREE.Vector3(0, 5.2, hz - 1.4)), f = sh.localToWorld(new THREE.Vector3(0, 5.2, hz)).sub(w).normalize();
+          sm.puff(w.x, w.y, w.z, f.x * v, f.z * v, v > 0.2 ? 1 : 0.6);
+        }
+      }
+    }
     for (const c of tr.cars) if (c.shell) {
       this.shells.setPanto(c.shell, pantoWant, dt);
       this.shells.setFar(c.shell, !aboard && Math.hypot(c.shell.g.position.x - pp.x, c.shell.g.position.z - pp.z) > LOD_DIST);
@@ -736,7 +756,7 @@ export class AlpRail {
     } else if (this.snd) { this.snd.stop(); this.snd = null; this.sndV = undefined; }
     this.updateDepots(now, p, dt, seen);
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
-    this.shells.update(day);
+    this.shells.update(day); this.smoke?.update(dt, day);
     this.updateSignals(act);
     this.infra?.update(p); this.infra?.setDay(day);
     this.updateNav();
@@ -1037,7 +1057,7 @@ export class AlpRail {
   // ---------- zelf rijden ----------
   startDriving(tr, c) {
     const g = this.g, a = tr.a;
-    this.player = { tr, L: tr.L, dir: tr.dir, s: tr.s, v: tr.v || 0, throttle: 0, brake: 0, emergency: false, doors: false, id: tr.id, car: c, nextStop: null, delay: 0, sched: a };
+    this.player = { tr, L: tr.L, dir: tr.dir, s: tr.s, v: tr.v || 0, throttle: 0, brake: 0, emergency: false, doors: false, id: tr.id, car: c, nextStop: null, delay: 0, sched: a, base: a ? railClock() - (a.t || 0) : null }; // base: vertrek volgens de dienstregeling (voor de carrièremodus)
     tr.id = 'speler'; this.trains.delete(a.id); this.trains.set('speler', tr);
     g.leaveVessel(); // physics: camera in de cabine
     g.drive = new TrainCab(this);
@@ -1156,7 +1176,7 @@ export class AlpRail {
   // plannen per dag (en opnieuw bij een andere dienstregeling of ander weer: vertragingen veranderen de omloop)
   depotPlans() {
     const key = dayNr() + '|' + delayFactor + '|' + RUNS.length;
-    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, posAt, trackOffset })); }
+    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, effDelay, posAt, trackOffset })); }
     return this._dp;
   }
   updateDepots(now, p, dt, seen) {

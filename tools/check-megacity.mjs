@@ -19,7 +19,7 @@ for (let j = 0; j <= TILES; j++) for (let tx = 0; tx < TILES; tx++) {
 }
 console.log(`laaneinden ${ends} (allemaal op een kruispunt als er geen fout staat)`);
 // 2. tegels: gaten, bruggen, sporen, determinisme
-const sample = [[40, 40], [17, 40], [17, 47], [38, 47], [37, 46], [70, 40], [31, 51], [45, 34], [5, 40], [24, 40], [60, 5], [12, 70], [75, 75], [0, 0], [79, 79], [50, 46], [23, 30], [17, 61]];
+const sample = [[40, 40], [17, 40], [17, 47], [38, 47], [37, 46], [70, 40], [31, 51], [45, 34], [5, 40], [24, 40], [60, 5], [12, 70], [75, 75], [0, 0], [79, 79], [50, 46], [23, 30], [17, 61], [32, 40], [35, 44], [10, 10], [16, 30], [18, 40]]; // + wijken van 15.0: historisch, winkels, villa's, haven
 let holes = 0, cols = 0;
 for (const [tx, tz] of sample) {
   const r = generateTile(tx, tz), H = r.H, y0 = r.y0, L = landmark(tx, tz);
@@ -39,5 +39,20 @@ for (const [tx, tz] of sample) {
 console.log(`kolommen bekeken ${cols} · gaten ${holes}`);
 // brug over de rivier: het dek op G-1 loopt door van kade tot kade op elke laan
 { const r = generateTile(17, 40), H = r.H, y0 = r.y0; let gaps = 0; for (let x = 14; x < 114; x++) for (const z of [-11 + T, 2, 8]) { if (z >= T) continue; const b = r.vox[(z * T + x) * H + G - 1 - y0]; if (!IS_SOLID[b]) gaps++; } if (gaps) fail(`brug over de rivier heeft ${gaps} gaten`); else console.log('brug over de rivier: dek doorlopend'); }
+// wijken (15.0): geen zwevende blokken — elk vast blok boven de straat rust op iets eronder of zit vast aan een buur
+{
+  let floating = 0, checked = 0;
+  for (const [tx, tz] of [[32, 40], [31, 39], [35, 44], [36, 45], [10, 10], [16, 30], [18, 40]]) {
+    const r = generateTile(tx, tz), H = r.H, y0 = r.y0;
+    const at = (x, y, z) => { if (x < 0 || z < 0 || x >= T || z >= T) return 1; const ly = y - y0; return ly < 0 || ly >= H ? 0 : r.vox[(z * T + x) * H + ly]; };
+    for (let z = 0; z < T; z++) for (let x = 0; x < T; x++) for (let y = G; y < G + 40; y++) {
+      const b = at(x, y, z); if (!b) continue; checked++;
+      if (at(x, y - 1, z) || at(x, y + 1, z)) continue; // rust op iets of hangt aan het plafond (lamp)
+      if (at(x + 1, y, z) || at(x - 1, y, z) || at(x, y, z + 1) || at(x, y, z - 1)) continue;
+      floating++; if (floating < 4) fail(`zwevend blok ${b} in tegel ${tx},${tz} op ${x},${y - G},${z}`);
+    }
+  }
+  console.log(`wijken: ${checked} blokken boven de straat bekeken · zwevend ${floating}`);
+}
 console.log(fails ? `${fails} fout(en)` : 'Megatower City in orde');
 process.exitCode = fails ? 1 : 0;

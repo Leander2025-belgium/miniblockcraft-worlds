@@ -31,6 +31,7 @@ export class Parts {
         }
       }
     }
+    if (taper && taper.rx) g.rotateX(taper.rx); // schuin paneel (dashboard, stuurkolom)
     g.translate(x, y, z);
     this.add(kind, g, color);
     return this;
@@ -215,8 +216,7 @@ function busBody(o) {
     P.box('light', 0.34, 0.18, 0.05, W / 2 - 0.3, 0.75, hz + 0.03, HEAD).box('light', 0.34, 0.18, 0.05, -W / 2 + 0.3, 0.75, hz + 0.03, HEAD);
     P.box('trim', W + 0.02, 0.3, 0.16, 0, 0.42, hz + 0.04, DARK);
     for (const sx of [1, -1]) { P.box('trim', 0.06, 0.06, 0.5, sx * (W / 2 + 0.25), H - 0.45, hz - 0.1, DARK); P.box('trim', 0.12, 0.45, 0.08, sx * (W / 2 + 0.48), H - 0.75, hz + 0.12, 0x101215); } // spiegels op armen
-    P.box('trim', 0.5, 0.9, 0.5, -0.7, floorY + 0.6, hz - 1.1, 0x30343b);                      // chauffeursstoel en dashboard
-    P.box('trim', W - 0.3, 0.35, 0.4, 0, floorY + 0.95, hz - 0.45, 0x22252a);
+    P.inner(() => busCab(P, W, hz, floorY, !!o.coach));                                                 // chauffeursplaats (TERRANOVA 15)
   }
   if (o.rear) {
     P.box('light', 0.22, 0.55, 0.05, W / 2 - 0.15, 1.15, -hz - 0.03, TAIL).box('light', 0.22, 0.55, 0.05, -W / 2 + 0.15, 1.15, -hz - 0.03, TAIL);
@@ -257,6 +257,33 @@ function busBody(o) {
   for (const sz of axles) for (const sx of [W / 2 - 0.2, -W / 2 + 0.2]) P.wheel(0.5, 0.32, sx, 0.5, sz, TYRE);
   if (o.coach) P.box('trim', 0.04, 0.7, L * 0.5, W / 2 + 0.02, 0.85, -0.5, 0x5a5e66).box('trim', 0.04, 0.7, L * 0.5, -W / 2 - 0.02, 0.85, -0.5, 0x5a5e66); // bagageluiken
   return P.done();
+}
+// chauffeursplaats van een bus (TERRANOVA 15): stoel met hoofdsteun, dashboard met instrumenten en schermen,
+// stuur op een kolom, ticketprinter, deurknoppen, zonneklep en een cabinedeurtje naar de passagiers.
+// Assen zoals de bus: chauffeur links (x < 0), voorkant = +z. Alleen binnen te zien (interieur, niet in de verre LOD).
+function busCab(P, W, hz, floorY, coach) {
+  const x = -W / 2 + 0.75, SEAT = 0x2b2f36, DASH = 0x1d2026, PANEL = 0x2a2d33;
+  // stoel: zitting, rugleuning, hoofdsteun, voet met vering
+  P.box('trim', 0.5, 0.12, 0.5, x, floorY + 0.52, hz - 1.35, SEAT).box('trim', 0.5, 0.7, 0.1, x, floorY + 0.95, hz - 1.62, SEAT);
+  P.box('trim', 0.3, 0.2, 0.08, x, floorY + 1.4, hz - 1.64, SEAT).box('trim', 0.14, 0.42, 0.14, x, floorY + 0.25, hz - 1.35, 0x55595f);
+  // dashboard: schuin paneel over de hele breedte, instrumentenpaneel achter het stuur, middenconsole met schermen
+  P.box('trim', W - 0.25, 0.5, 0.5, 0, floorY + 0.85, hz - 0.42, DASH);
+  P.box('trim', W - 0.25, 0.06, 0.62, 0, floorY + 1.12, hz - 0.5, PANEL, { rx: -0.35 });
+  P.box('trim', 0.62, 0.3, 0.06, x, floorY + 1.18, hz - 0.72, 0x111316);
+  P.box('light', 0.16, 0.16, 0.02, x - 0.16, floorY + 1.18, hz - 0.755, 0x7fd6ff).box('light', 0.16, 0.16, 0.02, x + 0.16, floorY + 1.18, hz - 0.755, 0x7fd6ff); // snelheid en toerental
+  P.box('light', 0.08, 0.05, 0.02, x, floorY + 1.27, hz - 0.755, 0x5fe08a).box('light', 0.08, 0.05, 0.02, x, floorY + 1.1, hz - 0.755, 0xffb22a);                // controlelampjes
+  P.box('trim', 0.42, 0.28, 0.05, x + 0.62, floorY + 1.22, hz - 0.62, 0x111316); P.box('light', 0.36, 0.22, 0.02, x + 0.62, floorY + 1.22, hz - 0.65, 0x2b6cd8); // boordcomputer (lijn, halte, tijd)
+  for (let i = 0; i < 4; i++) P.box('light', 0.06, 0.04, 0.03, x + 0.95 + i * 0.1, floorY + 1.1, hz - 0.62, i === 0 ? 0x5fe08a : 0xe4e7ea);                     // deurknoppen
+  // stuur: bijna plat, op een schuine kolom
+  const wheel = new THREE.TorusGeometry(0.22, 0.025, 6, 20); wheel.rotateX(-1.15); wheel.translate(x, floorY + 1.12, hz - 0.98); P.add('trim', wheel, 0x15171a);
+  P.box('trim', 0.04, 0.04, 0.4, x, floorY + 1.0, hz - 0.82, 0x2a2d33, { rx: -0.6 }).box('trim', 0.18, 0.02, 0.04, x, floorY + 1.12, hz - 0.98, 0x15171a);
+  // pedalen, ticketprinter met wisselgeld (niet in een touringcar: daar een microfoon), zonneklep
+  P.box('trim', 0.08, 0.02, 0.18, x - 0.1, floorY + 0.12, hz - 0.62, 0x3a3d42).box('trim', 0.12, 0.02, 0.2, x + 0.1, floorY + 0.12, hz - 0.62, 0x3a3d42);
+  if (!coach) { P.box('trim', 0.3, 0.22, 0.26, x + 0.62, floorY + 1.0, hz - 0.98, 0x33373e); P.box('light', 0.18, 0.08, 0.02, x + 0.62, floorY + 1.08, hz - 1.11, 0x5fe08a); }
+  else P.box('trim', 0.03, 0.03, 0.35, x + 0.3, floorY + 1.3, hz - 0.9, 0x15171a, { rx: 0.7 });
+  P.box('trim', 0.7, 0.03, 0.3, x, floorY + 1.95, hz - 0.35, 0x2b2e33);
+  // cabinedeurtje (halfhoog) tussen chauffeur en gangpad
+  P.box('trim', 0.05, 0.95, 0.7, x + 0.45, floorY + 0.5, hz - 1.6, 0x8b939c);
 }
 function busDoors(o) {
   const P = new Parts(), W = 2.55, h = o.coach ? 2.4 : 2.1, y = o.coach ? 1.65 : 1.4;

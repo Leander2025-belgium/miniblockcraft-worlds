@@ -20,7 +20,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   await p.evaluate(() => { const g = window.blokGame(); g.settings.view = 420; g.player.fly = true; g.player.pos.set(720, g.meta.ground + 30, 5120); g.updateTiles(true); });
   for (let i = 0; i < 240; i++) { await p.waitForTimeout(500); if (await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && g.tiled.inFlight === 0 && g.queue.length < 30; })) break; }
   await p.evaluate(() => { const g = window.blokGame(); g.traffic.rebuild(g.world.tiles, g.player.pos); g.running = false; cancelAnimationFrame(g.raf); });
-  const R = { max: 0, spitsMax: 14, msPerTick: [] };
+  const R = { max: 0, spitsMax: 23, msPerTick: [] }; // 14 in de spits, × 1,6 bij een trein- of metrostation (15.0: drukte)
   for (let k = 0; k < (+process.env.N || 90); k++) {
     const r = await p.evaluate(() => {
       const g = window.blokGame(), tr = g.traffic, T = g.travelersOn(); let worst = 0;
@@ -28,7 +28,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
         tr.update(0.1, g.player.pos, 1, 8); g.updateBusPax(0.1, 1);
         const t0 = performance.now(); T.spawnTick(0.1, g.player.pos, tr.period || 'dal'); T.update(0.1, g.player.pos); worst = Math.max(worst, performance.now() - t0);
       }
-      return { n: T.list.filter(t => t.auto).length, worst, stats: T.stats, states: T.list.filter(t => t.auto).map(t => t.state) };
+      return { n: T.list.filter(t => t.auto && !t.journey && !t.journey0 && t.towerF === undefined).length /* 15: hele reizen hebben hun eigen grens (JOURNEY_MAX) */, worst, stats: T.stats, states: T.list.filter(t => t.auto).map(t => t.state) };
     });
     R.max = Math.max(R.max, r.n); R.msPerTick.push(+r.worst.toFixed(1)); R.stats = r.stats; R.states = r.states;
     if (process.env.DBG) console.log(k, r.n, JSON.stringify(r.stats), r.states.join(","), JSON.stringify(await p.evaluate(() => { const T = window.blokGame().travelers; return T.list.filter(t => t.auto).map(t => { const R = t.steps[t.i]?.ride; const v = t.vehicle; return t.state === "aan boord" ? { ab: v.kind, at: v.atStop, w: +(v.wait || 0).toFixed(1), v: +v.v.toFixed(1), dead: !!v.dead, lk: v.lastStop, bk: t.boardKey } : R ? { wacht: R.kind + ":" + R.board, wt: Math.round(t.waitT || 0) } : t.state; }); })));
@@ -37,13 +37,13 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   if (process.env.DBG4) console.log(JSON.stringify(await p.evaluate(() => { const g = window.blokGame(), T = g.travelers, P = g.player.pos; return T.list.filter(t => t.auto).map(t => ({ s: t.state, i: t.i, n: t.steps.length, d: Math.round(Math.hypot(t.x - P.x, t.z - P.z)), pi: t.pi, pl: t.path && t.path.length, last: t.hist.slice(-2).map(h => h.wat + '@' + h.t) })); })));
   if (process.env.DBG2) console.log(JSON.stringify(await p.evaluate(() => { const g = window.blokGame(), tr = g.traffic, T = g.travelers; return T.list.filter(t => t.state === 'aan boord').map(t => { const v = t.vehicle; return { line: v.line, seq: v.stopSeq, bseq: t.boardSeq, route: v.route.map(r => ({ id: r.e.id, net: r.e.net, len: Math.round(r.e.len), stops: r.e.stops, dir: r.dir })).slice(0, 6), d: Math.round(v.d), pos: [Math.round(t.x), Math.round(t.z)] }; }); }), null, 0));
   // bezetting: elke instap/uitstap van een rit telt ±1 in de ritlaag
-  R.occ = await p.evaluate(() => { const T = window.blokGame().travelers; const h = T.log.filter(e => e.wat === 'ingestapt' || e.wat === 'uitgestapt'); return { n: h.length, ok: h.every(e => e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor)), deur: Math.max(0, ...h.map(e => e.afstandTotDeur || 0)), fout: h.filter(e => !(e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor))).slice(0, 4) }; });
+  R.occ = await p.evaluate(() => { const T = window.blokGame().travelers; const h = T.log.filter(e => e.wat === 'ingestapt' || e.wat === 'uitgestapt'); return { n: h.length, ok: h.every(e => e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) * (e.groep || 1) /* 15.0: een gezin telt als 3 */ || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor)), deur: Math.max(0, ...h.map(e => e.afstandTotDeur || 0)), fout: h.filter(e => !(e.bezettingVoor == null || e.bezetting === e.bezettingVoor + (e.wat === 'ingestapt' ? 1 : -1) * (e.groep || 1) /* 15.0: een gezin telt als 3 */ || (e.wat === 'ingestapt' && e.bezetting === e.bezettingVoor))).slice(0, 4) }; });
   const s = R.stats, sorted = [...R.msPerTick].sort((a, b) => a - b);
   R.p95ms = sorted[Math.floor(sorted.length * 0.95)];
-  // types (TERRANOVA 14.2): beperkte mobiliteit nooit een trap en nooit metro/trein; toeristen pauzeren; elk type komt voor
+  // types (TERRANOVA 14.2/15): beperkte mobiliteit nooit een trap (metro/trein alleen via de lift); toeristen pauzeren; elk type komt voor
   const TY = s.types || {};
   R.types = Object.fromEntries(Object.entries(TY).map(([k, v]) => [k, { v: v.verschenen, in: v.ingestapt, uit: v.uitgestapt, op: v.opgegeven, treden: v.treden, hs: v.grootsteHoogtestap, pauzes: v.pauzes, soorten: v.soorten }]));
-  const typesOk = Object.keys(TY).length >= 5 && (!TY.beperkt || (TY.beperkt.treden === 0 && !TY.beperkt.soorten.metro && !TY.beperkt.soorten.train)) && (!TY.toerist || !TY.toerist.paden || TY.toerist.pauzes > 0);
+  const typesOk = Object.keys(TY).length >= 5 && (!TY.beperkt || TY.beperkt.treden === 0) /* 15.0: metro en trein mogen, maar alleen via de lift (geen enkele trede) */ && (!TY.toerist || !TY.toerist.paden || TY.toerist.pauzes > 0);
   console.log('reizigers-auto:', JSON.stringify({ ...R, msPerTick: undefined }));
   const ok = typesOk && s.verschenen >= 10 && (s.ingestapt || 0) >= 3 && (s.uitgestapt || 0) >= 1 && s.aangekomen >= 1 /* metro-reizigers rijden meestal buiten beeld verder (volgende halte ±1 km); uitstappen aan een halte bewijst ook reis.cjs */ && s.nietBeloopbaar === 0 && s.grootsteStap <= 1.5 && s.grootsteHoogtestap <= 1 && R.max <= R.spitsMax && R.occ.ok && R.occ.deur <= 4;
   console.log('alles goed:', ok);

@@ -13,7 +13,7 @@ export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 5, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 6, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -125,6 +125,16 @@ function avenueColumn(x, z, ox, oz, col) {
   const bnd = ox !== null ? Math.round(x / T) : Math.round(z / T);
   const tram = ox !== null ? TRAM_X.includes(bnd) : TRAM_Z.includes(bnd);
   col[G - 1] = avenueSurface(o, along, tram);
+  // straatmeubilair (TERRANOVA 15) op de rij langs de gevels: banken, bloembakken, verlichte reclamezuilen en
+  // verkeersborden vlak voor het kruispunt; buiten het centrum een rood fietspad op de rij langs de rijbaan
+  const la = ((along % T) + T) % T;
+  if (o === -12 || o === 11) { const dz = district(x, z); if (dz !== 'core' && dz !== 'cbd' && la > 14 && la < T - 14) col[G - 1] = B.BIKE_PATH; }
+  if ((o === -14 || o === 13) && la > 16 && la < T - 16) {
+    if (la === 24 || la === 88) { col[G] = B.PLANKS; return G; }                                   // bank
+    if (la === 20 || la === 28 || la === 84 || la === 92) { col[G] = B.PLANTER; return G; }       // bloembakken naast de bank
+    if (la === 56 && (Math.floor(along / T) & 1)) { for (let y = G; y < G + 3; y++) col[y] = B.PANEL_WHITE; col[G + 3] = B.LAMP; return G + 3; } // reclamezuil (verlicht)
+  }
+  if ((o === -14 || o === 13) && (la === 17 || la === T - 17)) { col[G] = B.POST; col[G + 1] = B.POST; col[G + 2] = (la === 17) === (o < 0) ? B.PAINT_BLUE : B.PAINT_RED; return G + 2; } // verkeersbord
   // straatlantaarns, bomen in de berm, bushokjes, tramhaltes
   if ((o === -13 || o === 12) && (along % 32) === 16) { for (let y = G; y < G + 6; y++) col[y] = B.POST; col[G + 6] = B.LAMP; return G + 6; }
   if (!tram && (o === -1 || o === 0) && (along % 16) === 8 && o === -1) kind = 3;
@@ -217,6 +227,241 @@ function blockColumn(x, z, tx, tz, lx, lz, L, col) {
   return lotColumn(x, z, tx * 2 + qx, tz * 2 + qz, px, pz, col, L && L.id === 'industry');
 }
 
+// ---------- wijken met een eigen karakter (TERRANOVA 15) ----------
+// Bovenop de ringen (centrum → buitenwijk) liggen vier wijken met een eigen bouwstijl, zodat de stad niet uit
+// herhaalde blokken bestaat. De lanen, de metro, het spoor en de bijzondere gebieden blijven zoals ze waren.
+//   historic   historisch centrum rond metro Oude Markt: smalle huizen van 6 m met trap-, klok- en rechte gevels
+//   shops      winkelkwartier tussen Megatower Plaza en station Centraal: autovrij plein met winkels, terrassen, fontein
+//   villa      villawijk in het noordwesten: grote moderne villa's met tuin, terras en zwembad
+//   warehouse  havenpakhuizen langs de rivier: bakstenen pakhuizen met laaddeuren, kratten en bolders
+// busremise (TERRANOVA 15): tegel 45,50 aan buslijn B11 (laan x = 5888) en B31 (laan z = 6400). Vier percelen:
+// werkplaats met wasstraat, twee stallingen met laadpalen, chauffeursgebouw met poortgebouw. Stallingsplaatsen
+// (BUS_DEPOT.bays) gebruikt het verkeer om bussen te parkeren, uit en in te laten rukken (js/traffic.js).
+export const BUS_DEPOT = (() => {
+  const tx = 45, tz = 50, X0 = tx * T, Z0 = tz * T, bays = [];
+  // stallingen: perceel rechtsboven (qx 1, qz 0) en linksonder (qx 0, qz 1): 2 rijen van 6 plaatsen (4 m breed, 13 m lang)
+  for (const [lx0, lz0] of [[70, 14], [14, 70]]) for (const row of [0, 1]) for (let k = 0; k < 6; k++) {
+    const x = X0 + lx0 + 6 + k * 5 + 2, z0 = Z0 + lz0 + 4 + row * 22;
+    // uitrijroute (alleen de stalling aan de laan van B11): neus naar het middenpad, dan door de poort naar de rijstrook
+    const front = row ? z0 : z0 + 13, back = row ? z0 + 13 : z0, aisle = Z0 + lz0 + 21;
+    const exit = lx0 === 70 ? [[x, back], [x, front], [x, aisle], [X0 + 113, aisle], [X0 + 118.5, aisle + 6]] : null;
+    bays.push({ x, z0, z1: z0 + 13, charger: { x, z: row ? z0 + 14 : z0 - 1 }, exit, reserve: lx0 !== 70 });
+  }
+  return { tx, tz, name: 'Busremise Oostkade', gate: { x: X0 + T - 14, z: Z0 + 92 }, gate2: { x: X0 + 92, z: Z0 + T - 14 }, bays, cx: X0 + 64, cz: Z0 + 64 };
+})();
+const HIST_WALLS = [B.BRICK, B.BRICK_DARK, B.RED_SANDSTONE, B.PLASTER_BEIGE, B.LIMESTONE, B.YELLOWBRICK, B.BRICK, B.PLASTER];
+const QUARTER = (tx, tz) => {
+  if (tx >= 30 && tx <= 34 && tz >= 38 && tz <= 42) return 'historic';
+  if (tx >= 33 && tx <= 37 && tz >= 43 && tz <= 46) return 'shops';
+  if (tx >= 6 && tx <= 15 && tz >= 6 && tz <= 15) return 'villa';
+  if ((tx === RIVER_TX - 1 || tx === RIVER_TX + 1) && tz >= 18 && tz <= 62) return 'warehouse';
+  if (tx === BUS_DEPOT.tx && tz === BUS_DEPOT.tz) return 'busdepot';
+  return null;
+};
+export const quarterAt = (x, z) => QUARTER(Math.floor(x / T), Math.floor(z / T));
+// zijde van het perceel die het dichtst bij (px, pz) ligt: afstand d tot de straat en plek `along` langs de gevel
+function lotSide(px, pz) {
+  const W = 43, dl = [px, pz, W - px, W - pz]; let side = 0;
+  for (let i = 1; i < 4; i++) if (dl[i] < dl[side]) side = i;
+  return { side, d: dl[side], along: side % 2 === 0 ? pz : px };
+}
+// historisch centrum: een gesloten bouwblok van smalle huizen (6 m breed, 10 m diep) rond een binnentuin
+function historicColumn(x, z, qx, qz, px, pz, L, col) {
+  const { side, d, along } = lotSide(px, pz);
+  col[G - 1] = B.COBBLE;
+  const hid = Math.floor(along / 6), hx = along % 6, hs = hash(qx * 8 + side, qz * 64 + hid, 850), hs2 = hash(qx * 8 + side, qz * 64 + hid, 851);
+  const floors = 3 + Math.floor(hs * 3), wallTop = G - 1 + floors * 3, wall = HIST_WALLS[Math.floor(hs2 * HIST_WALLS.length)];
+  const shop = hash(qx * 8 + side, qz * 64 + hid, 853) < 0.55, awn = [B.WOOL_RED, B.PAINT_GREEN, B.PAINT_BLUE, B.PAINT_BLACK][Math.floor(hs * 4)];
+  if (d < 1) {
+    // stoep: luifel van de winkel erboven, paaltjes en bloembakken tussen de huizen
+    if (shop && hx >= 1 && hx <= 4 && along >= 1 && along <= 42) { col[G + 2] = awn; return G + 2; } // luifel, vast aan de gevel erachter
+    if (hx === 0 && hid % 2 === 0) { col[G] = B.PLANTER; return G; }
+    if (hx === 3 && !shop) { col[G] = B.POST; return G; }
+    return G - 1;
+  }
+  if (d > 11) { col[G - 1] = B.GRASS; if (hash(x, z, 855) < 0.03) kind = 2; return G - 1; }
+  if (Math.min(px, 43 - px) < 11 && Math.min(pz, 43 - pz) < 11 && d > 1 && d < 11 && (hx === 0 || hx === 5)) { /* hoek: binnenmuren dicht */ }
+  const front = d === 1, back = d === 11, party = hx === 0;
+  col[G - 1] = B.PLANKS;
+  for (let k = 1; k <= floors * 3; k++) {
+    const y = G - 1 + k, lev = k % 3;
+    if (front) {
+      if (k <= 3) {
+        if (hx === 1 && k <= 2) col[y] = k === 1 ? B.DOOR : B.DOOR_TOP;                        // voordeur
+        else if (shop && k <= 2 && hx >= 2) col[y] = B.GLASS;                                  // etalage
+        else col[y] = k === 3 && shop ? B.PAINT_BLACK : (hx >= 2 && hx <= 4 && lev !== 0 ? B.GLASS : wall);
+      } else if ((hx === 2 || hx === 4) && lev !== 0) col[y] = B.GLASS;                        // hoge ramen
+      else if ((hx === 2 || hx === 4) && lev === 0) col[y] = B.PAINT_WHITE;                    // witte latei boven het raam
+      else col[y] = wall;
+    } else if (back) col[y] = (hx === 2 || hx === 4) && lev !== 0 ? B.GLASS : wall;
+    else if (party) col[y] = wall;
+    else col[y] = lev === 0 ? B.PLANKS : 0;                                                     // verdiepingsvloeren
+  }
+  // gevel en dak: zadeldak met de nok loodrecht op de straat; de voorgevel loopt door als trap-, klok- of rechte gevel
+  const gable = Math.floor(hash(qx * 8 + side, qz * 64 + hid, 852) * 3), rise = Math.min(hx, 5 - hx);
+  if (front || back) {
+    let top = wallTop;
+    if (gable === 2) { col[wallTop + 1] = B.LIMESTONE; return wallTop + 1; }                     // rechte lijstgevel
+    for (let g = 1; g <= 3; g++) if (rise >= g - 1) { col[wallTop + g] = g === 3 && gable === 1 ? B.LIMESTONE : wall; top = wallTop + g; }
+    if (front && rise >= 2 && gable === 0) { col[wallTop + 2] = (hx === 2 || hx === 3) && lev2(wallTop) ? B.GLASS : wall; }
+    if (rise === 2 && gable !== 2) { col[wallTop + 4] = gable === 1 ? B.LIMESTONE : wall; top = wallTop + 4; }   // top van de gevel
+    return top;
+  }
+  if (gable === 2) { col[wallTop + 1] = party ? B.LIMESTONE : B.ROOF_DARK; return wallTop + 1; }
+  const roofY = wallTop + 1 + Math.min(rise, 2);
+  for (let y = wallTop + 1; y < roofY; y++) col[y] = party ? wall : 0;
+  col[roofY] = B.ROOF_DARK;
+  if (hx === 2 && d === 6 && hs > 0.5) { col[roofY + 1] = B.BRICK_DARK; col[roofY + 2] = B.BRICK_DARK; return roofY + 2; } // schoorsteen
+  return roofY;
+}
+const lev2 = (y) => ((y - G + 1) % 3) !== 0;
+// winkelkwartier: winkels van twee verdiepingen rond een autovrij plein met terrassen, banken, bloembakken en een fontein
+function shopsColumn(x, z, px, pz, L, col) {
+  const { side, d, along } = lotSide(px, pz);
+  col[G - 1] = B.TILE;
+  const gate = along >= 19 && along <= 24;                                                      // doorgang naar het plein
+  if (d < 2) { if (d === 1 && along % 8 === 4 && !gate) { col[G] = B.PLANTER; return G; } return G - 1; }
+  if (d <= 9 && !gate) {
+    const unit = Math.floor(along / 8), ux = along % 8, h = 8, sc = SHOP_COLORS[(unit + side * 3 + Math.floor(L.r * 6)) % SHOP_COLORS.length];
+    const outer = d === 2, inner = d === 9, wallEdge = ux === 0;
+    for (let k = 1; k <= h; k++) {
+      const y = G - 1 + k;
+      if (outer || inner) col[y] = k <= 3 ? (wallEdge ? B.PANEL_WHITE : (k <= 2 && ux === 4 ? B.DOOR_GLASS : B.GLASS)) : k === 4 ? sc : k === 8 ? B.PANEL_WHITE : (ux % 3 === 0 ? B.PANEL_WHITE : B.GLASS);
+      else if (wallEdge) col[y] = B.PANEL_WHITE;
+      else col[y] = k === 4 ? B.TILE : k === h ? B.CONCRETE : (k === 3 && (x + z) % 5 === 0 ? B.LAMP : 0); // winkel (betreedbaar), bovenverdieping en dak
+    }
+    // dakterras met glazen balustrade aan de pleinkant
+    if (inner) { col[G + h] = B.GLASS; return G + h; }
+    if ((x * 7 + z) % 23 === 0) { col[G + h] = B.VENT; return G + h; }
+    return G + h - 1;
+  }
+  // het plein: fontein in het midden, terrassen (tafel, stoelen, parasol), banken en bomen
+  const c = Math.hypot(px - 21.5, pz - 21.5);
+  col[G - 1] = (px + pz) % 2 ? B.TILE : B.COBBLE;
+  if (c < 3.5) { col[G - 1] = B.WATER; col[G - 2] = B.WATER; if (c < 1) { for (let y = G; y < G + 3; y++) col[y] = B.WATER; return G + 2; } return G - 1; }
+  if (c < 4.5) { col[G] = B.MARBLE; return G; }
+  const tx = (px - 12) % 7, tz = (pz - 12) % 7;
+  if (px >= 12 && px <= 32 && pz >= 12 && pz <= 32 && c > 6) {
+    if (tx === 3 && tz === 3) { col[G] = B.TABLE; col[G + 1] = B.POST; col[G + 2] = SHOP_COLORS[((px >> 3) + (pz >> 2)) % SHOP_COLORS.length]; return G + 2; } // tafel met parasol
+    if ((tx === 2 || tx === 4) && tz === 3 || (tz === 2 || tz === 4) && tx === 3) { col[G] = B.CHAIR; return G; }
+  }
+  if (c > 13 && c < 14 && (px + pz) % 6 === 0) { col[G] = B.PLANKS; return G; }               // banken
+  if (c > 15 && (px % 8 === 4) && (pz % 8 === 4)) kind = 2;
+  return G - 1;
+}
+// villawijk: één villa per perceel, met haag, oprit, tuin, terras en zwembad
+function villaColumn(x, z, px, pz, L, col) {
+  const { side, d, along } = lotSide(px, pz);
+  col[G - 1] = B.GRASS;
+  const drive = side === 0 && along >= 18 && along <= 22;
+  if (d === 0) { if (drive) { col[G - 1] = B.GRAVEL; return G - 1; } col[G] = B.HEDGE; col[G + 1] = B.HEDGE; return G + 1; }
+  if (px >= 1 && px <= 9 && pz >= 18 && pz <= 22) { col[G - 1] = B.GRAVEL; return G - 1; } // oprit naar de garage
+  // villa: twee verdiepingen, wit met grote ramen, verspringende bovenverdieping met overstek, plat dak
+  const inV = px >= 10 && px <= 27 && pz >= 8 && pz <= 30, up = px >= 13 && px <= 29 && pz >= 10 && pz <= 24;
+  if (inV || up) {
+    const edgeV = inV && (px === 10 || px === 27 || pz === 8 || pz === 30), edgeU = up && (px === 13 || px === 29 || pz === 10 || pz === 24);
+    col[G - 1] = B.MARBLE;
+    let top = G - 1;
+    if (inV) for (let k = 1; k <= 4; k++) { const y = G - 1 + k; col[y] = edgeV ? (k === 4 ? B.PANEL_WHITE : (k <= 2 && px === 10 && pz >= 19 && pz <= 20 ? (k === 1 ? B.DOOR_GLASS : B.GLASS) : ((px + pz) % 5 === 0 ? B.PANEL_WHITE : B.GLASS))) : (k === 4 ? B.PARQUET : 0); top = y; }
+    else if (up) { col[G + 3] = B.PANEL_WHITE; top = G + 3; } // overstek
+    if (up) for (let k = 5; k <= 8; k++) { const y = G - 1 + k; col[y] = edgeU ? (k === 8 ? B.PANEL_WHITE : ((px * 3 + pz) % 4 === 0 ? B.WALL_WOOD : B.GLASS)) : (k === 8 ? B.PANEL_WHITE : 0); top = y; }
+    else if (inV) { col[G + 4] = B.GLASS; top = G + 4; } // dakterras met glazen balustrade
+    return top;
+  }
+  // zwembad met tegelrand en houten terras
+  if (px >= 31 && px <= 39 && pz >= 10 && pz <= 24) {
+    const rim = px === 31 || px === 39 || pz === 10 || pz === 24;
+    if (rim) { col[G - 1] = B.TILE; return G - 1; }
+    col[G - 1] = B.WATER; col[G - 2] = B.WATER; col[G - 3] = B.TILE; return G - 1;
+  }
+  if (px >= 28 && px <= 40 && pz >= 25 && pz <= 30) { col[G - 1] = B.PLANKS; if (px % 4 === 1 && pz === 27) { col[G] = B.CHAIR; return G; } return G - 1; } // terras
+  if (hash(x, z, 860) < 0.025) kind = 2;
+  return G - 1;
+}
+// havenpakhuizen langs de rivier: baksteen, vijf verdiepingen, laaddeuren met hijsbalk, kratten en bolders op de kade
+function warehouseColumn(x, z, px, pz, L, col) {
+  const { side, d, along } = lotSide(px, pz);
+  col[G - 1] = B.COBBLE;
+  if (d < 3) {
+    if (d === 1 && along % 9 === 4) { col[G] = B.CRATE; if (along % 18 === 4) { col[G + 1] = B.CRATE; return G + 1; } return G; }
+    if (d === 0 && along % 12 === 6) { col[G] = B.PAINT_BLACK; return G; }                       // bolder
+    return G - 1;
+  }
+  const wall = L.r < 0.5 ? B.BRICK_DARK : B.RED_SANDSTONE, h = 15, edge = d === 3;
+  for (let k = 1; k <= h; k++) {
+    const y = G - 1 + k, lev = k % 3;
+    if (edge) {
+      const bay = along % 8;
+      if (bay === 4 && k <= 2) col[y] = B.DOOR_SHUT;                                            // laaddeur
+      else if (bay === 4 && lev !== 0 && k > 3) col[y] = B.PLANKS;                              // laadluiken boven elkaar
+      else if ((bay === 2 || bay === 6) && lev !== 0 && k > 3) col[y] = B.GLASS;
+      else col[y] = k % 9 === 0 ? B.LIMESTONE : wall;
+    } else col[y] = lev === 0 ? B.PLANKS : (k <= 3 && (x + z) % 9 === 0 ? 0 : 0);
+  }
+  if (edge && along % 8 === 4) { col[G + h] = B.POST; col[G + h + 1] = B.POST; return G + h + 1; } // hijsbalk
+  col[G + h] = edge ? wall : B.ROOF_DARK;
+  return G + h;
+}
+
+// busremise: per perceel een andere functie; de randen zijn hekken met een in- en uitrit naar de lanen
+function busDepotColumn(x, z, qx, qz, px, pz, col) {
+  const role = (qx & 1) + 2 * (qz & 1); // 0 werkplaats+wasstraat, 1 stalling, 2 stalling, 3 chauffeursgebouw
+  const { d, along } = lotSide(px, pz);
+  col[G - 1] = B.ASPHALT;
+  // hek rondom (met poorten aan de straatkant van elk perceel)
+  if (d === 0) { if (along >= 16 && along <= 27) { col[G - 1] = B.ASPHALT; return G - 1; } col[G] = B.METAL; col[G + 1] = B.POST; return G + 1; }
+  if (role === 1 || role === 2) {
+    // stalling: twee rijen van 6 plaatsen met witte lijnen en laadpalen aan de kop
+    for (const row of [0, 1]) {
+      const z0 = 4 + row * 22;
+      if (pz >= z0 && pz < z0 + 13 && px >= 6 && px < 36) { if ((px - 6) % 5 === 0) col[G - 1] = B.LINE_WHITE; return G - 1; }
+      const cz = row ? z0 + 14 : z0 - 1;
+      if (pz === cz && px >= 6 && px < 36 && (px - 6) % 5 === 2) { col[G] = B.CHARGER; col[G + 1] = B.POST; col[G + 2] = B.LAMP; return G + 2; } // laadpaal met lamp
+    }
+    if ((px === 3 || px === 40) && pz % 12 === 6) { for (let y = G; y < G + 6; y++) col[y] = B.POST; col[G + 6] = B.LAMP; return G + 6; }       // terreinverlichting
+    return G - 1;
+  }
+  if (role === 0) {
+    // werkplaats: hal met 3 brugplaatsen (putten), rolpoorten, lichtstraat; wasstraat ernaast met borstelportaal
+    const inHall = px >= 4 && px <= 26 && pz >= 6 && pz <= 38, edge = px === 4 || px === 26 || pz === 6 || pz === 38;
+    if (inHall) {
+      col[G - 1] = B.CONCRETE;
+      const lane = Math.floor((px - 5) / 7), lx = (px - 5) % 7;
+      if (!edge && lx === 3 && pz >= 12 && pz <= 30) { col[G - 1] = 0; col[G - 2] = B.CONCRETE; }                 // put onder de bus
+      for (let k = 1; k <= 8; k++) {
+        const y = G - 1 + k;
+        if (edge) col[y] = (pz === 6 && lx >= 1 && lx <= 5 && k <= 5 && !(px === 4 || px === 26)) ? (k === 5 ? B.PAINT_ORANGE : 0) : (k === 4 || k === 5) && (pz + px) % 3 === 0 ? B.GLASS : B.PANEL_WHITE; // rolpoorten open
+        else col[y] = k === 8 ? (px === 15 ? B.GLASS : B.ROOF_DARK) : (k === 7 && lx === 3 && pz % 6 === 0 ? B.LAMP : 0);
+      }
+      if (!edge && px >= 5 && px <= 7 && pz >= 32 && pz <= 36) { col[G] = B.COUNTER; col[G + 1] = pz % 2 ? B.SHELF : 0; return G + 7; } // werkbank en rekken
+      return G + 7;
+    }
+    if (px >= 30 && px <= 39 && pz >= 6 && pz <= 38) {
+      // wasstraat: doorrijhal met borstelportaal in het midden
+      const e2 = px === 30 || px === 39;
+      for (let k = 1; k <= 6; k++) { const y = G - 1 + k; col[y] = e2 ? (k <= 4 && (pz === 6 || pz === 38) ? 0 : B.GLASS_BLUE) : k === 6 ? B.PANEL_WHITE : 0; }
+      if (!e2 && pz >= 20 && pz <= 22 && (px === 31 || px === 38)) for (let k = 1; k <= 4; k++) col[G - 1 + k] = B.PAINT_BLUE; // borstels
+      if (!e2 && pz === 21) col[G + 4] = B.PAINT_BLUE;
+      return G + 5;
+    }
+    return G - 1;
+  }
+  // chauffeursgebouw (2 verdiepingen, kantine en dienstruimte), poortgebouw en parkeerplaats voor de chauffeurs
+  if (px >= 6 && px <= 24 && pz >= 6 && pz <= 18) {
+    const edge = px === 6 || px === 24 || pz === 6 || pz === 18;
+    col[G - 1] = B.TILE;
+    for (let k = 1; k <= 7; k++) {
+      const y = G - 1 + k;
+      if (edge) col[y] = k === 7 ? B.PANEL_DARK : (k <= 2 && pz === 18 && px === 15 ? (k === 1 ? B.DOOR_GLASS : B.GLASS) : (k % 3 !== 0 && px % 3 !== 0 ? B.GLASS : B.PANEL_DARK));
+      else col[y] = k === 4 ? B.TILE : k === 7 ? B.CONCRETE : (k === 1 && px % 4 === 0 && pz === 10 ? B.TABLE : k === 1 && px % 4 === 1 && pz === 10 ? B.CHAIR : 0);
+    }
+    return G + 6;
+  }
+  if (px >= 30 && px <= 34 && pz >= 30 && pz <= 34) { const e = px === 30 || px === 34 || pz === 30 || pz === 34; for (let k = 1; k <= 3; k++) col[G - 1 + k] = e ? (k === 2 ? B.GLASS : B.PANEL_WHITE) : 0; col[G + 3] = B.PANEL_DARK; return G + 3; } // poortgebouw
+  if (pz >= 24 && pz <= 28 && px >= 6 && px <= 24 && (px - 6) % 3 === 0) col[G - 1] = B.LINE_WHITE;                // parkeerplaatsen chauffeurs
+  return G - 1;
+}
+
 // ---------- percelen ----------
 const FACADES = ['curtain', 'ribbon', 'bands', 'fins', 'stone', 'curtain', 'bands', 'fins'];
 // gevelblok op hoogte k (verdiepingen van 4 m) en plaats `along` langs de gevel. Elke stijl houdt grote, rechthoekige
@@ -250,7 +495,9 @@ function lotDesc(qx, qz) {
   const lm = landmark(tx, tz);
   L = { dist, r, r2, r3 };
   const d = Math.hypot(x - CX, z - CZ);
+  const quarter = !lm && QUARTER(tx, tz);
   if (lm && lm.id === 'industry') { L.type = r < 0.2 ? 'tanks' : 'hall'; L.h = 10 + Math.floor(r2 * 3) * 4; }
+  else if (quarter) { L.type = quarter; L.dist = quarter; L.wall = HIST_WALLS[Math.floor(r3 * HIST_WALLS.length)]; L.shop = SHOP_COLORS[Math.floor(hash(qx, qz, 806) * SHOP_COLORS.length)]; }
   else if (dist === 'core' || dist === 'cbd') {
     if (r3 < 0.08) L.type = 'plaza';
     else {
@@ -297,6 +544,11 @@ function lotColumn(x, z, qx, qz, px, pz, col, industry) {
     case 'hall': return hallColumn(x, z, px, pz, L, col);
     case 'tanks': return tankColumn(x, z, px, pz, L, col);
     case 'green': col[G - 1] = B.GRASS; kind = 1; return G - 1;
+    case 'historic': return historicColumn(x, z, qx, qz, px, pz, L, col);
+    case 'shops': return shopsColumn(x, z, px, pz, L, col);
+    case 'villa': return villaColumn(x, z, px, pz, L, col);
+    case 'warehouse': return warehouseColumn(x, z, px, pz, L, col);
+    case 'busdepot': return busDepotColumn(x, z, qx, qz, px, pz, col);
   }
   return G - 1;
 }

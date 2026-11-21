@@ -29,9 +29,16 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   R.echt = v0.filter(v => v.real).length; R.dienstregeling = v0.filter(v => !v.real).length;
   // klik op een echt OV-voertuig met een rit
   const clickAt = async (x, z) => { const bb = await p.locator('#ovmap').boundingBox(); await p.mouse.click(bb.x + x / 10240 * bb.width, bb.y + z / 10240 * bb.height); };
-  const target = v0.find(v => v.real && v.trip);
+  // een voertuig dat net uit dienst gaat (bus aan een halte, te veel voor de periode) toont 'niet meer in beeld': dan een ander proberen
+  const cands = v0.filter(v => v.real && v.trip);
+  let target = null;
+  for (const c of cands.slice(0, 4)) {
+    await clickAt(c.x, c.z); target = c;
+    R.weg = await p.evaluate((id) => !window.blokGame().traffic.trips.trips.has(id), c.trip);
+    if (!R.weg) break;
+    R.wegTekst = (await p.textContent('#ovmap-info')).trim();
+  }
   if (target) {
-    await clickAt(target.x, target.z);
     R.voertuigInfo = (await p.textContent('#ovmap-info')).trim();
     // het infovak ververst elke seconde, de bezetting verandert live: een paar keer proberen, net na het verversen
     for (let k = 0; k < 4 && !R.ritKlopt; k++) { if (k) await p.waitForTimeout(1000); R.ritKlopt = await p.evaluate((id) => { const g = window.blokGame(), T = g.traffic.trips.trips.get(id); const txt = document.getElementById('ovmap-info').textContent; return !!T && txt.includes(id) && txt.includes(`${T.occ}/${T.cap}`); }, target.trip); }

@@ -111,7 +111,10 @@ function conflict(D, s, t0, RUNS, h) {
       const n = Math.round(P / r.h);
       for (let k = 0; k < n; k++) {
         if (r === s.r && k === s.k) continue;
-        let t = now - (r.off + k * r.h); t = ((t % P) + P) % P; if (t > P / 2) t -= P;
+        // met de vertraging van die rit (dezelfde als in de dienstregeling, js/rail.js delayOf/effDelay): een vertraagde
+        // trein staat later op de lijn (zonder deze correctie botste een uitrukrit soms met een vertraagde trein)
+        const dl = h.effDelay ? h.effDelay(r, k, now - (r.off + k * r.h)) : h.delayOf(r, k);
+        let t = now - (r.off + k * r.h + dl); t = ((t % P) + P) % P; if (t > P / 2) t -= P;
         if (t < -PRE || t > r.pr.T + POST) continue;
         if (!h.runs(r, k)) continue;
         const [x] = h.posAt(r.pr, t), sr = r.pr.s0 + r.dir * x;
