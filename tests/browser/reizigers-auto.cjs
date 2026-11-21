@@ -20,7 +20,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   await p.evaluate(() => { const g = window.blokGame(); g.settings.view = 420; g.player.fly = true; g.player.pos.set(720, g.meta.ground + 30, 5120); g.updateTiles(true); });
   for (let i = 0; i < 240; i++) { await p.waitForTimeout(500); if (await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && g.tiled.inFlight === 0 && g.queue.length < 30; })) break; }
   await p.evaluate(() => { const g = window.blokGame(); g.traffic.rebuild(g.world.tiles, g.player.pos); g.running = false; cancelAnimationFrame(g.raf); });
-  const R = { max: 0, spitsMax: 14, msPerTick: [] };
+  const R = { max: 0, spitsMax: 23, msPerTick: [] }; // 14 in de spits, × 1,6 bij een trein- of metrostation (15.0: drukte)
   for (let k = 0; k < (+process.env.N || 90); k++) {
     const r = await p.evaluate(() => {
       const g = window.blokGame(), tr = g.traffic, T = g.travelersOn(); let worst = 0;
@@ -28,7 +28,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
         tr.update(0.1, g.player.pos, 1, 8); g.updateBusPax(0.1, 1);
         const t0 = performance.now(); T.spawnTick(0.1, g.player.pos, tr.period || 'dal'); T.update(0.1, g.player.pos); worst = Math.max(worst, performance.now() - t0);
       }
-      return { n: T.list.filter(t => t.auto).length, worst, stats: T.stats, states: T.list.filter(t => t.auto).map(t => t.state) };
+      return { n: T.list.filter(t => t.auto && !t.journey && !t.journey0 && t.towerF === undefined).length /* 15: hele reizen hebben hun eigen grens (JOURNEY_MAX) */, worst, stats: T.stats, states: T.list.filter(t => t.auto).map(t => t.state) };
     });
     R.max = Math.max(R.max, r.n); R.msPerTick.push(+r.worst.toFixed(1)); R.stats = r.stats; R.states = r.states;
     if (process.env.DBG) console.log(k, r.n, JSON.stringify(r.stats), r.states.join(","), JSON.stringify(await p.evaluate(() => { const T = window.blokGame().travelers; return T.list.filter(t => t.auto).map(t => { const R = t.steps[t.i]?.ride; const v = t.vehicle; return t.state === "aan boord" ? { ab: v.kind, at: v.atStop, w: +(v.wait || 0).toFixed(1), v: +v.v.toFixed(1), dead: !!v.dead, lk: v.lastStop, bk: t.boardKey } : R ? { wacht: R.kind + ":" + R.board, wt: Math.round(t.waitT || 0) } : t.state; }); })));
