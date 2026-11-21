@@ -96,6 +96,12 @@ export class MegaView {
   // navigatie van de reisplanner (js/megaplan.js): pijl en afstand bovenaan
   updateNav() {
     const el = document.getElementById('nav-hud'); if (!el) return;
+    // routebegeleiding (TERRANOVA 15, js/routeguide.js): stap voor stap, past zich aan wat de speler doet
+    if (this.guide) {
+      const txt = this.guide.update();
+      if (!txt) { this.guide = null; el.hidden = true; this.navShown = false; return; }
+      if (el.textContent !== txt) el.textContent = txt; el.hidden = false; this.navShown = true; return;
+    }
     if (!this.navTo) { if (this.navShown) { el.hidden = true; this.navShown = false; } return; }
     const p = this.g.player.pos, dx = this.navTo.x - p.x, dz = this.navTo.z - p.z, d = Math.hypot(dx, dz);
     if (d < 25) { this.g.toast(`🚉 Je bent bij ${this.navTo.name}`); this.navTo = null; el.hidden = true; return; }

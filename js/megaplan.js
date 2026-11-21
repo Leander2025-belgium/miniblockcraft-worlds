@@ -148,6 +148,9 @@ export function plan(from, to, hour) {
   r.overstappen = Math.max(0, r.ritten - 1);
   r.wandelen = r.legs.filter(l => l.mode === 'wandelen').reduce((a, l) => a + l.m, 0);
   r.modi = [...new Set(r.legs.map(l => l.mode))];
+  // wachttijd per rit: van aankomst aan de halte (einde van de vorige stap) tot het vertrek
+  let tPrev = r.dep; r.wachten = 0;
+  for (const l of r.legs) { if (l.mode !== 'wandelen') { l.wait = Math.max(0, l.dep - tPrev); r.wachten += l.wait; } tPrev = l.arr; }
   return r;
 }
 const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', bus: '🚌', wandelen: '🚶' };
@@ -155,9 +158,10 @@ export function planHtml(r) {
   const min = (s) => Math.max(1, Math.round(s / 60));
   return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, bus om de ${BUS_HEADWAY[r.per] / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
     <div><b>Aankomst ${fmt(r.arr)}</b> · reistijd ${min(r.arr - r.dep)} min · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · ${r.wandelen} m wandelen</div>
+    <div class="small muted">Vertrek ${fmt(r.dep)} · ${r.ritten} rit${r.ritten === 1 ? '' : 'ten'} · totale wachttijd ${min(r.wachten || 0)} min · vertraging: niet gemeten in Megatower City (de voertuigen rond je volgen deze dienstregeling niet op de minuut)</div>
     <ol class="plan-legs">${r.legs.map(l => l.mode === 'wandelen'
       ? `<li>${ICON.wandelen} ${fmt(l.dep)} wandel ${l.m} m naar <b>${l.to.name}</b> (${min(l.arr - l.dep)} min)</li>`
-      : `<li>${ICON[l.mode]} ${fmt(l.dep)} <b>${l.line}</b> richting ${l.dir}${l.perron ? `, perron ${l.perron}` : ''}, van ${l.from.name} naar <b>${l.to.name}</b> · aankomst ${fmt(l.arr)} (${l.stops} halte${l.stops === 1 ? '' : 's'})</li>`).join('')}</ol>`;
+      : `<li>${ICON[l.mode]} ${fmt(l.dep)} <b>${l.line}</b> richting ${l.dir}${l.perron ? `, perron ${l.perron}` : ''}, van ${l.from.name} naar <b>${l.to.name}</b> · aankomst ${fmt(l.arr)} (${l.stops} halte${l.stops === 1 ? '' : 's'}${l.wait > 30 ? ` · ${min(l.wait)} min wachten` : ''})</li>`).join('')}</ol>`;
 }
 
 // ---------- live: voertuigen volgens de dienstregeling, en vertrekken aan een halte ----------

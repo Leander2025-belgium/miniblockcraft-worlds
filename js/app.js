@@ -1219,7 +1219,10 @@ $('#btn-megaplan')?.addEventListener('click', async () => {
     };
     for (const el of [from, to, hr]) el.addEventListener('change', run);
     $('#mp-close').addEventListener('click', () => game.resume());
-    $('#mp-nav').addEventListener('click', () => { const r = game.mega.lastPlan; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
+    // routebegeleiding stap voor stap (js/routeguide.js): lopen, wachten, instappen, overstappen, aankomen
+    $('#mp-nav').addEventListener('click', async () => { const r = game.mega.lastPlan; if (r && r.legs.length) { const G = await import('./routeguide.js'), P = Object.fromEntries(m.PLACES.map(p => [p.id, p])), b = P[to.value];
+      game.mega.navTo = null; game.mega.guide = new G.RouteGuide(game, r, b, (f) => m.plan(f, b, game.settings.hour ?? 12)); game.toast(`🧭 Begeleiding naar ${b.name} · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · aankomst volgens dienstregeling`); game.resume(); return; }
+      const r0 = r; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
       if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (${ride.perron ? `perron ${ride.perron}, ` : ''}vertrek ${hm(ride.dep)})` : `Je bent er al`);
       else { game.mega.navTo = { name: first.name, x: first.x, z: first.z }; game.toast(`🧭 Navigatie naar ${first.name}${ride ? ` · daar de ${ride.line} richting ${ride.dir} (${hm(ride.dep)})` : ''}`); } } game.resume(); });
     game.mega.planRun = run;

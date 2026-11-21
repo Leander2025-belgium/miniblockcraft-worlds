@@ -242,7 +242,10 @@ export const BUS_DEPOT = (() => {
   // stallingen: perceel rechtsboven (qx 1, qz 0) en linksonder (qx 0, qz 1): 2 rijen van 6 plaatsen (4 m breed, 13 m lang)
   for (const [lx0, lz0] of [[70, 14], [14, 70]]) for (const row of [0, 1]) for (let k = 0; k < 6; k++) {
     const x = X0 + lx0 + 6 + k * 5 + 2, z0 = Z0 + lz0 + 4 + row * 22;
-    bays.push({ x, z0, z1: z0 + 13, charger: { x, z: row ? z0 + 14 : z0 - 1 } });
+    // uitrijroute (alleen de stalling aan de laan van B11): neus naar het middenpad, dan door de poort naar de rijstrook
+    const front = row ? z0 : z0 + 13, back = row ? z0 + 13 : z0, aisle = Z0 + lz0 + 21;
+    const exit = lx0 === 70 ? [[x, back], [x, front], [x, aisle], [X0 + 113, aisle], [X0 + 118.5, aisle + 6]] : null;
+    bays.push({ x, z0, z1: z0 + 13, charger: { x, z: row ? z0 + 14 : z0 - 1 }, exit, reserve: lx0 !== 70 });
   }
   return { tx, tz, name: 'Busremise Oostkade', gate: { x: X0 + T - 14, z: Z0 + 92 }, gate2: { x: X0 + 92, z: Z0 + T - 14 }, bays, cx: X0 + 64, cz: Z0 + 64 };
 })();

@@ -473,7 +473,7 @@ export class Game {
     if (this.lod) this.lod.dispose();
     this.lod = new FarView(this.scene, spec);
     if (this.traffic) this.traffic.dispose();
-    this.traffic = new Traffic(this.scene, spec.ground); { const w = this.world; this.traffic.solidAt = (x, y, z) => w.solidAt(x, y, z); } if (spec.megatower) this.traffic.busLinesOnly = true; // Megatower City: bussen rijden op vaste lijnen (js/megacity.js BUS_NS/BUS_EW) // perronkant voor de deuren
+    this.traffic = new Traffic(this.scene, spec.ground); { const w = this.world; this.traffic.solidAt = (x, y, z) => w.solidAt(x, y, z); } if (spec.megatower) { this.traffic.busLinesOnly = true; const tr = this.traffic; import('./megacity.js').then((m) => { tr.busDepot = m.BUS_DEPOT; }).catch((e) => console.error(e)); } // Megatower City: bussen rijden op vaste lijnen (js/megacity.js BUS_NS/BUS_EW) // perronkant voor de deuren
     this.ships?.dispose(); this.ships = new Ships(this); this.aboard = null;
     this.airports?.dispose(); this.airports = new Airports(this);
     this.dropMountain(); this.leaveVehicle();

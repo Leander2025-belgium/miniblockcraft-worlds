@@ -40,7 +40,7 @@ export function openOvMap(game) {
     const p = game.player.pos;
     ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.arc(p.x * k, p.z * k, NEAR * k, 0, 7); ctx.stroke(); ctx.setLineDash([]);
     // voertuigen: echt (rond de speler) en volgens de dienstregeling (daarbuiten)
-    const real = (game.traffic?.agents || []).filter(a => !a.dead && ['metro', 'tram', 'train', 'bus'].includes(a.kind));
+    const real = (game.traffic?.agents || []).filter(a => !a.dead && !a.parked && ['metro', 'tram', 'train', 'bus'].includes(a.kind));
     for (const a of real) {
       const h = game.traffic.behind(a, 0, {});
       const T = a.trip, nx = game.traffic.nextStop?.(a);
