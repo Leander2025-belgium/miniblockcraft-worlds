@@ -11,6 +11,7 @@ import { routeServices } from './railroute.js';
 import { Passengers } from './passengers.js';
 import { B, IS_SOLID } from './blocks.js';
 import { meshChunk } from './mesher.js';
+import { Smoke } from './smoke.js';
 // Het net (lijnen, stations, diensten, kaart) komt uit een adapter per wereld: js/rail-alpen.js, js/rail-green.js.
 // useNet(net) kiest het net van de wereld die gespeeld wordt.
 let NET = null, LINES = [], LINE = {}, STATIONS_ALL = [], TRACK = 2.5, trackOffset = () => 2.5, LIFTS = [], CROSSINGS = [], groundAt = () => 0, MW = 1, ML = 1, SERVICES = [];
@@ -567,7 +568,7 @@ export class AlpRail {
   }
   dispose() {
     for (const tr of this.trains.values()) this.dropTrain(tr);
-    this.shells?.dispose(); this.infra?.dispose(); this.pax?.dispose();
+    this.shells?.dispose(); this.infra?.dispose(); this.pax?.dispose(); this.smoke?.dispose();
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.group.removeFromParent();
     if (this.tunnel) this.tunnel.geometry.dispose();
@@ -618,6 +619,19 @@ export class AlpRail {
     const mine = this.player && this.player.tr === tr, v = mine ? this.player.v : (tr.v || 0), busy = v > 0.05 || doorWant || (mine && this.player.throttle > 0);
     tr.idle = busy ? 0 : (tr.idle || 0) + dt;
     const pantoWant = tr.idle > 20 ? 0 : 1, pp = this.g.player.pos;
+    // stoomlocomotief: rookwolkjes uit de schoorsteen in het ritme van de drijfwielen (js/smoke.js), alleen van buiten en in de buurt
+    if (tr.sv && tr.sv.style === 'hist' && tr.cars[0] && tr.cars[0].shell && !aboard) {
+      const sh = tr.cars[0].shell.g, near = Math.hypot(sh.position.x - pp.x, sh.position.z - pp.z) < 600;
+      if (near) {
+        const sm = this.smoke || (this.smoke = new Smoke(this.g.scene));
+        tr.chuff = (tr.chuff || 0) + dt * (v > 0.2 ? v / 1.33 : 0.6); // 4 stoten per omwenteling (omtrek 5,3 m); stilstand: dun pluimpje
+        if (tr.chuff >= 1) {
+          tr.chuff = 0; const d = tr.cars[0].d, hz = (d && d.L ? d.L : 12) / 2;
+          const w = sh.localToWorld(new THREE.Vector3(0, 5.2, hz - 1.4)), f = sh.localToWorld(new THREE.Vector3(0, 5.2, hz)).sub(w).normalize();
+          sm.puff(w.x, w.y, w.z, f.x * v, f.z * v, v > 0.2 ? 1 : 0.6);
+        }
+      }
+    }
     for (const c of tr.cars) if (c.shell) {
       this.shells.setPanto(c.shell, pantoWant, dt);
       this.shells.setFar(c.shell, !aboard && Math.hypot(c.shell.g.position.x - pp.x, c.shell.g.position.z - pp.z) > LOD_DIST);
@@ -736,7 +750,7 @@ export class AlpRail {
     } else if (this.snd) { this.snd.stop(); this.snd = null; this.sndV = undefined; }
     this.updateDepots(now, p, dt, seen);
     for (const [id, tr] of this.trains) if (!seen.has(id)) { if (g.aboard && g.aboard.train === tr) { this.g.toast('🚉 Deze trein rijdt de remise in. Je stapt uit.'); this.alight(true); } this.dropTrain(tr); this.trains.delete(id); }
-    this.shells.update(day);
+    this.shells.update(day); this.smoke?.update(dt, day);
     this.updateSignals(act);
     this.infra?.update(p); this.infra?.setDay(day);
     this.updateNav();

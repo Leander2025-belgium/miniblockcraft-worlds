@@ -14,7 +14,7 @@ const WALK = 1.35, MAXN = 120000, AUTO_N = 20000; // A*-budget voor vanzelf vers
 const AUTO_WANT = { spits: 14, dal: 9, avond: 6, nacht: 2 }, AUTO_EVERY = 2.5, AUTO_NEAR = 120, AUTO_FAR = 520, AUTO_WAIT = 1500;
 const AUTO_TYPES = ['pendelaar', 'pendelaar', 'student', 'toerist', 'luchthaven', 'beperkt', 'nacht', 'zakenreiziger', 'gezin'];
 // hele reizen met de planner (TERRANOVA 15, js/journeys.js): hoeveel tegelijk (zichtbaar + op afstand) en hoe vaak er één bij komt
-const JOURNEY_MAX = 40, JOURNEY_EVERY = 5, MATERIALIZE = 300;
+const JOURNEY_MAX = 60, JOURNEY_EVERY = 5, MATERIALIZE = 300;
 const LIFT = 77; // B.ELEVATOR: liftblok onderaan en bovenaan een koker (zoals de speler: js/game.js)
 export class NavGrid {
   // getAt (optioneel): bloksoort, voor liften — een reiziger op een liftblok kan naar het volgende liftblok in dezelfde koker
@@ -50,9 +50,9 @@ export class NavGrid {
     const push = (n) => { open.push(n); let i = open.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (open[p].f <= n.f) break; open[i] = open[p]; i = p; } open[i] = n; };
     const pop = () => { const top = open[0], last = open.pop(); if (open.length) { let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < open.length && open[l].f < (m === i ? last.f : open[m].f)) m = l; if (r < open.length && open[r].f < (m === i ? last.f : open[m].f)) m = r; if (m === i) break; open[i] = open[m]; i = m; } open[i] = last; } return top; };
     const k0 = key(A.x, A.y, A.z); g.set(k0, 0); push({ x: A.x, y: A.y, z: A.z, k: k0, f: h(A.x, A.y, A.z) });
-    let n = 0, end = null;
+    let n = 0, end = null, ts = performance.now(); const budget = opt.budget || 0; // budget: ms per beurt (0 = alleen per `slice` knopen)
     while (open.length && n++ < maxN) {
-      if (n % slice === 0) yield null;
+      if (n % slice === 0 || (budget && (n & 63) === 0 && performance.now() - ts > budget)) { yield null; ts = performance.now(); }
       const c = pop(), gc = g.get(c.k);
       if (c.x === Bt.x && c.z === Bt.z && Math.abs(c.y - Bt.y) <= 1) { end = c; break; }
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
@@ -154,12 +154,12 @@ export class Travelers {
     const want = Math.round((AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand').length;
     if (have >= want) return;
     // hele reizen met de planner (van deur tot deur, met overstappen)
-    if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; if (this.spawnJourney(player)) return; }
+    if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; const t0 = performance.now(), ok = this.spawnJourney(player); this.msMax('spawn', performance.now() - t0); if (ok) return; }
     // alleen haltes waar het verkeer de laatste 10 minuten echt gestopt is (soort voertuig en plek bekend)
     const clock = this.tr.clock || 0, served = [...(this.tr.served?.values() || [])].filter(q => clock - q.t < 600 && q.name && Math.hypot(q.x - player.x, q.z - player.z) < AUTO_NEAR);
     if (!served.length) return;
     // eerst het type, dan een halte volgens zijn voorkeur (gewogen loting; soorten met gewicht 0 nooit)
-    const type = AUTO_TYPES[Math.floor(this.rr() * AUTO_TYPES.length)], prof = PROFILES[type];
+    const type = this.pickType(near), prof = PROFILES[type];
     const wts = served.map(q => prof.pref[q.kind] ?? 1), tot = wts.reduce((a, b) => a + b, 0);
     if (!tot) return;
     let pick = this.rr() * tot, si = 0; while (si < served.length - 1 && (pick -= wts[si]) > 0) si++;
@@ -179,19 +179,41 @@ export class Travelers {
   }
   // ── hele reis (TERRANOVA 15) ── vertrek aan een deur rond de speler, bestemming 1–4,5 km verder of een bekende plek;
   // de planner (zelfde als de speler gebruikt) kiest de ritten en overstappen
+  // type: willekeurig, maar bij de luchthaven vooral luchthavenreizigers met koffers en 's nachts nachtreizigers
+  pickType(near) {
+    const h = this.journey ? this.journey.hour() : (this.tr.hour ?? 12);
+    if ((near || []).some(q => /Luchthaven|Airport/i.test(q.name)) && this.rr() < 0.5) return 'luchthaven';
+    if ((h >= 23 || h < 5) && this.rr() < 0.5) return 'nacht';
+    return AUTO_TYPES[Math.floor(this.rr() * AUTO_TYPES.length)];
+  }
   spawnJourney(player) {
-    const type = AUTO_TYPES[Math.floor(this.rr() * AUTO_TYPES.length)], prof = PROFILES[type];
+    const near = [...(this.tr.served?.values() || [])].filter(q => Math.hypot(q.x - player.x, q.z - player.z) < 300);
+    const type = this.pickType(near), prof = PROFILES[type];
     const a = this.rr() * 6.283, r = 60 + this.rr() * 160;
     const q = this.nav.snap(player.x + Math.cos(a) * r, (this.ground ?? player.y) + 1, player.z + Math.sin(a) * r, 4);
     if (!q) return null;
-    let o = doorNear(this.nav, this.get, q.x, q.z, q.y, 30, () => this.rr()), src = 'deur';
+    const td = performance.now(); let o = doorNear(this.nav, this.get, q.x, q.z, q.y, 30, () => this.rr()), src = 'deur'; this.msMax('deur', performance.now() - td);
     if (!o) { o = facadeNear(this.nav, this.solid, q.x, q.z, q.y, () => this.rr()); src = 'gevel'; }
     if (!o) return null;
-    const P = this.journey.places || [];
-    let dest;
-    if (P.length && this.rr() < 0.35) dest = P[Math.floor(this.rr() * P.length)];
-    else { const b = this.rr() * 6.283, d = 1000 + this.rr() * 3500; dest = { x: Math.max(300, Math.min(9900, o.x + Math.cos(b) * d)), z: Math.max(300, Math.min(9900, o.z + Math.sin(b) * d)), name: null }; }
-    const r2 = this.journey.plan({ x: o.x, z: o.z, name: 'Vertrek' }, dest, this.journey.hour());
+    // 40 %: iemand die van ver komt en hier aankomt (vertrekt buiten beeld, wordt zichtbaar bij de uitstaphalte en
+    // loopt naar de deur hier); 60 %: iemand die hier vertrekt naar een plek 1–4,5 km verder (of een bekende plek)
+    const inbound = this.rr() < 0.4, P = this.journey.places || [];
+    const far = () => { const b = this.rr() * 6.283, d = 1200 + this.rr() * 3300; return { x: Math.max(300, Math.min(9900, o.x + Math.cos(b) * d)), z: Math.max(300, Math.min(9900, o.z + Math.sin(b) * d)), name: null }; };
+    let from = { x: o.x, z: o.z, name: 'Vertrek' }, dest;
+    if (inbound) { from = far(); dest = { x: o.x, z: o.z, name: 'Bestemming' }; }
+    else if (P.length && this.rr() < 0.35) dest = P[Math.floor(this.rr() * P.length)];
+    else dest = far();
+    // plannen: in de worker (js/planworker.js) als die er is — de reiziger verschijnt dan zodra het plan klaar is
+    if (this.journey.planAsync) {
+      if (this.planBusy) return null;
+      this.planBusy = true;
+      this.journey.planAsync(from, dest, this.journey.hour()).then((r2) => { this.planBusy = false; if (this.gone) return; if (r2 && !r2.error) this.finishJourney(r2, { type, prof, o, src, inbound, from, dest }); else this.jstats.geenPlan++; }).catch(() => { this.planBusy = false; });
+      return 'bezig';
+    }
+    const tp = performance.now(), r2 = this.journey.plan(from, dest, this.journey.hour()); this.msMax('plan', performance.now() - tp);
+    return this.finishJourney(r2, { type, prof, o, src, inbound, from, dest });
+  }
+  finishJourney(r2, { type, prof, o, src, inbound, from, dest }) {
     const steps = r2 && stepsFromPlan(r2, dest);
     if (!steps) { this.jstats.geenPlan++; return null; }
     // beperkte mobiliteit: geen metro of trein (trappen); soorten met voorkeur 0 nooit
@@ -199,13 +221,19 @@ export class Travelers {
     const t = this.add({ from: o, type, steps });
     if (!t) return null;
     const rides = steps.filter(s => s.ride).length;
-    t.auto = true; t.group = prof.group || 1; t.fromDoor = src === 'deur';
-    t.journey = { dep: r2.dep, arr: r2.arr, ritten: rides, van: src, naar: dest.name || null, lijnen: steps.filter(s => s.ride).map(s => s.ride.line) };
+    t.auto = true; t.group = prof.group || 1; t.fromDoor = !inbound && src === 'deur';
+    if (inbound) { // onderweg van ver: begint op afstand, al op weg naar de eerste halte
+      t.x = from.x; t.z = from.z; t.state = 'op afstand'; t.remoteRide = true; t.rtrip = null; t.inbound = true;
+      t.remoteEnd = (this.tr.clock || 0) + this.rr() * 240 + Math.max(20, (steps[0].ride.arr || 0) - (steps[0].ride.dep || 0));
+      this.jstats.inkomend = (this.jstats.inkomend || 0) + 1;
+    }
+    t.journey = { dep: r2.dep, arr: r2.arr, ritten: rides, van: inbound ? 'van ver' : src, naar: dest.name || null, lijnen: steps.filter(s => s.ride).map(s => s.ride.line) };
     t.journey0 = t.journey; (this.journeyLog || (this.journeyLog = [])).push(t); if (this.journeyLog.length > 200) this.journeyLog.shift(); // voor diagnose en tests
     this.stats.verschenen++; this.typeStats(type).verschenen++;
-    this.jstats.gestart++; this.jstats.ritten += rides; this.jstats.overstappen += Math.max(0, rides - 1); this.jstats[src === 'deur' ? 'vanuitDeur' : 'vanuitGevel']++;
+    this.jstats.gestart++; this.jstats.ritten += rides; this.jstats.overstappen += Math.max(0, rides - 1); if (!inbound) this.jstats[src === 'deur' ? 'vanuitDeur' : 'vanuitGevel']++;
     return t;
   }
+  msMax(k, ms) { const M = this.ms || (this.ms = {}); M[k] = Math.max(M[k] || 0, +ms.toFixed(1)); }
   // ── simulatie op afstand ── buiten beeld (of het voertuig is uit beeld): de reis loopt verder met de tijden van de planner.
   // Wie aan boord was, blijft in de bezetting van de rit (js/ovtrips.js remoteOn) tot hij op afstand uitstapt.
   goRemote(t) {
@@ -215,7 +243,7 @@ export class Travelers {
     if (st && st.ride) {
       const R = st.ride, runT = Math.max(20, (R.arr || 0) - (R.dep || 0));
       if (t.state === 'aan boord') {
-        t.rtrip = t.vehicle && t.vehicle.trip; for (let k = 0; k < (t.group || 1); k++) this.tr.trips.remoteOn(t.rtrip);
+        t.rtrip = t.trip0 || (t.vehicle && t.vehicle.trip) || null; for (let k = 0; k < (t.group || 1); k++) this.tr.trips.remoteOn(t.rtrip);
         t.remoteEnd = clock + Math.max(15, runT - (clock - (t.boardClock ?? clock)));
       } else t.remoteEnd = clock + 60 + this.rr() * 300 + runT; // wachten op het eerstvolgende vertrek + de rit
       t.remoteRide = true;
@@ -255,7 +283,7 @@ export class Travelers {
     }
     return null;
   }
-  dispose() { for (const m of [this.body, this.legs, this.head, this.acc]) { m.geometry.dispose(); m.removeFromParent(); } }
+  dispose() { this.gone = true; for (const m of [this.body, this.legs, this.head, this.acc]) { m.geometry.dispose(); m.removeFromParent(); } }
   // reis: { from: {x,y,z}, steps: [{ walk: {x,y,z} } | { ride: { kind, line?, board: stopName, alight: stopName } }], type }
   add(trip) {
     const p = this.nav.snap(trip.from.x, trip.from.y, trip.from.z); if (!p) return null;
@@ -267,7 +295,7 @@ export class Travelers {
   stopPos(name, kind) { const st = (this.tr.stops || []).filter(s => s.name === name && (!kind || s.kind === kind || s.kind === kind + 'stop')); return st[0] || null; }
   walkTo(t, goal, maxN = MAXN) {
     // vanzelf verschenen reizigers: het pad wordt over frames gezocht (toestand 'zoekt pad'), anders meteen
-    const opt = { stairs: t.prof.stairs, noStairs: t.prof.noStairs };
+    const opt = { stairs: t.prof.stairs, noStairs: t.prof.noStairs, budget: 2.5 }; // vanzelf verschenen reizigers: hooguit ±2,5 ms zoeken per frame
     if (t.auto) { t.search = this.nav.pathIter({ x: t.x, y: t.y, z: t.z }, goal, maxN, 1500, opt); t.goal = goal; t.state = 'zoekt pad'; return true; }
     return this.usePath(t, goal, this.nav.path({ x: t.x, y: t.y, z: t.z }, goal, maxN, opt));
   }
@@ -281,10 +309,13 @@ export class Travelers {
     this.stats.paden = (this.stats.paden || 0) + 1; this.stats.punten = (this.stats.punten || 0) + pts.length; this.stats.nietBeloopbaar = (this.stats.nietBeloopbaar || 0) + bad; this.stats.grootsteStap = Math.max(this.stats.grootsteStap || 0, step); this.stats.grootsteHoogtestap = Math.max(this.stats.grootsteHoogtestap || 0, stepH);
     t.path = pts; t.pi = 0; t.state = 'lopen'; t.pathLen = pts.length; (t.paths || (t.paths = [])).push(pts); return true;
   }
-  update(dt, player) {
+  update(dt, player) { const t0 = performance.now(); this.update0(dt, player); this.msMax('update', performance.now() - t0); }
+  update0(dt, player) {
     const tr = this.tr; let paths = 0;
     for (const t of this.list) {
       if (t.done) continue;
+      const ts0 = performance.now(), s0 = t.state;
+      try {
       const st = t.steps[t.i];
       if (t.state === 'zoekt pad') {
         if (paths++ >= 1) continue; // één zoekstukje per frame voor alle vanzelf verschenen reizigers samen
@@ -313,7 +344,7 @@ export class Travelers {
           if (!s0) { if (Math.hypot(R.from.x - player.x, R.from.z - player.z) > MATERIALIZE) { this.goRemote(t); continue; } t.state = 'geen pad'; this.note(t, 'halte niet gevonden', { halte: R.board }); continue; }
           R.wait = { x: s0.x, y: s0.y + 1, z: s0.z };
           if ((R.kind === 'metro' || R.kind === 'train') && !t.ticket) {
-            t.ticket = true; const tk = ticketNear(this.nav, this.get, R.wait);
+            t.ticket = true; const tt = performance.now(), tk = ticketNear(this.nav, this.get, R.wait); this.msMax('ticket', performance.now() - tt);
             if (tk && Math.hypot(tk.x - t.x, tk.z - t.z) < 160) { t.steps.splice(t.i, 0, { walk: { x: tk.x, y: tk.y, z: tk.z } }, { act: { secs: 4 + this.rr() * 4, label: 'ticket kopen', yaw: tk.yaw } }); this.jstats.tickets++; continue; }
           }
         }
@@ -359,7 +390,7 @@ export class Travelers {
         const v = t.vehicle, q = t.board, dx = q.x - t.x, dz = q.z - t.z, d = Math.hypot(dx, dz);
         if (!doorsOpen(v) || v.dead) { t.state = 'wachten'; t.vehicle = null; continue; } // deuren dicht: volgende
         if (d > 0.9) { const s = Math.min(d, t.speed * dt); t.x += dx / d * s; t.z += dz / d * s; t.yaw = Math.atan2(dx, dz); continue; }
-        const g = t.group || 1, voor = v.trip ? v.trip.occ : null; tr.trips.board(v, g); if (!t.auto) v.riders = (v.riders || 0) + g; else v.npc = (v.npc || 0) + g; t.boardClock = tr.clock || 0; /* een geplande reis houdt het voertuig vast; met reizigers aan boord wordt het niet aan de halte uit dienst genomen */ t.state = 'aan boord'; t.boardStop = v.atStop; t.boardKey = v.lastStop; t.boardSeq = v.stopSeq || 0;
+        const g = t.group || 1, voor = v.trip ? v.trip.occ : null; tr.trips.board(v, g); if (!t.auto) v.riders = (v.riders || 0) + g; else v.npc = (v.npc || 0) + g; t.boardClock = tr.clock || 0; t.trip0 = v.trip || null; /* een geplande reis houdt het voertuig vast; met reizigers aan boord wordt het niet aan de halte uit dienst genomen */ t.state = 'aan boord'; t.boardStop = v.atStop; t.boardKey = v.lastStop; t.boardSeq = v.stopSeq || 0;
         { const ty = this.typeStats(t.type); ty.ingestapt++; ty.soorten[v.kind] = (ty.soorten[v.kind] || 0) + 1; }
         this.stats.ingestapt = (this.stats.ingestapt || 0) + 1; (this.stats.soorten || (this.stats.soorten = {}))[v.kind] = (this.stats.soorten[v.kind] || 0) + 1;
         this.note(t, 'ingestapt', { rit: v.trip && v.trip.id, bezettingVoor: voor, bezetting: v.trip && v.trip.occ, halte: v.atStop, lijn: v.line || null, afstandTotDeur: +d.toFixed(1) });
@@ -382,6 +413,7 @@ export class Travelers {
           t.vehicle = null; t.i++; t.state = 'volgende';
         }
       }
+      } finally { const d = performance.now() - ts0; if (d > 2) this.msMax('st:' + s0 + (t.steps[t.i] && t.steps[t.i].goal ? '/doel' : ''), d); }
     }
     // tekenen: alleen wie loopt of wacht en dichtbij is
     let n = 0, na = 0;
@@ -410,7 +442,7 @@ export class Travelers {
   // wachten op een bank (stations, perrons, haltes): een vrije bank binnen 6 m, anders blijven staan
   trySit(t) {
     if (this.rr() > (t.prof.sits ?? 0.5)) return;
-    const b = benchNear(this.nav, this.get, this.solid, t, 6, this.benches); if (!b) return;
+    const b = benchNear(this.nav, this.get, this.solid, t, 10, this.benches); if (!b) { this.jstats.geenBank = (this.jstats.geenBank || 0) + 1; return; }
     this.benches.add(b.key); t.sitKey = b.key; t.sitGoal = b;
     t.afterWalk = 'zitten'; this.walkTo(t, { x: b.x, y: b.y, z: b.z }, 4000);
   }

@@ -18,20 +18,22 @@ const BENCH = new Set([B.PLANKS, B.DARK_PLANKS]);
 // een deur in de buurt van (x, z) op straatniveau, en de beloopbare plek ervoor (buiten)
 // nav: NavGrid (js/travelers.js), get(x, y, z): bloksoort, y0: straatniveau (vloer = y0, de deur staat op y0)
 export function doorNear(nav, get, x, z, y0, r = 40, rnd = Math.random) {
-  const found = [];
-  const x0 = Math.floor(x), z0 = Math.floor(z);
-  for (let dz = -r; dz <= r; dz += 1) for (let dx = -r; dx <= r; dx += 1) {
-    const bx = x0 + dx, bz = z0 + dz;
-    for (const y of [y0, y0 + 1]) {
-      if (!DOORS.has(get(bx, y, bz))) continue;
-      // de beloopbare kant van de deur: buiten (straat), op dezelfde hoogte
-      for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const q = { x: bx + ox, y, z: bz + oz };
-        if (nav.walkable(q.x, q.y, q.z) && nav.walkable(bx + 2 * ox, y, bz + 2 * oz)) { found.push({ x: q.x, y: q.y, z: q.z, door: { x: bx, y, z: bz } }); break; }
+  // ringen van binnen naar buiten; stoppen zodra er een paar deuren gevonden zijn (goedkoop: meestal < 1 ms)
+  const found = [], x0 = Math.floor(x), z0 = Math.floor(z);
+  for (let d = 0; d <= r && found.length < 4; d++) {
+    for (let dz = -d; dz <= d; dz++) for (let dx = -d; dx <= d; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue;
+      const bx = x0 + dx, bz = z0 + dz;
+      for (const y of [y0, y0 + 1]) {
+        if (!DOORS.has(get(bx, y, bz))) continue;
+        // de beloopbare kant van de deur: buiten (straat), op dezelfde hoogte
+        for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const q = { x: bx + ox, y, z: bz + oz };
+          if (nav.walkable(q.x, q.y, q.z) && nav.walkable(bx + 2 * ox, y, bz + 2 * oz)) { found.push({ x: q.x, y: q.y, z: q.z, door: { x: bx, y, z: bz } }); break; }
+        }
+        break;
       }
-      break;
     }
-    if (found.length > 24) break;
   }
   if (!found.length) return null;
   return found[Math.floor(rnd() * found.length)];
@@ -56,6 +58,7 @@ export function benchNear(nav, get, solid, p, r = 6, taken = new Set()) {
   const x0 = Math.floor(p.x), z0 = Math.floor(p.z), y = Math.floor(p.y);
   for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
     const bx = x0 + dx, bz = z0 + dz, k = bx + ',' + y + ',' + bz;
+    if (dx * dx + dz * dz > r * r) continue;
     if (taken.has(k) || !BENCH.has(get(bx, y, bz)) || solid(bx, y + 1, bz) || !solid(bx, y - 1, bz)) continue;
     for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       if (!nav.walkable(bx + ox, y, bz + oz)) continue;
@@ -69,12 +72,12 @@ export function benchNear(nav, get, solid, p, r = 6, taken = new Set()) {
 
 // ticketautomaat binnen r m (en ±10 blokken hoogte) van een station: de beloopbare plek ervoor
 const ticketCache = new Map();
-export function ticketNear(nav, get, p, r = 28) {
+export function ticketNear(nav, get, p, r = 22) {
   const key = Math.round(p.x / 16) + ',' + Math.round(p.y / 4) + ',' + Math.round(p.z / 16);
   if (ticketCache.has(key)) return ticketCache.get(key);
   let best = null;
   const x0 = Math.floor(p.x), z0 = Math.floor(p.z), y0 = Math.floor(p.y);
-  for (let dy = -10; dy <= 10; dy++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+  for (let dy = -8; dy <= 8; dy++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
     const bx = x0 + dx, by = y0 + dy, bz = z0 + dz;
     if (get(bx, by, bz) !== B.TICKET) continue;
     for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {

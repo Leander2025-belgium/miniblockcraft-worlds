@@ -19,6 +19,14 @@ import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
+// reisplanner in een Web Worker voor reizigers (js/planworker.js); zonder worker: geen async (de reiziger plant dan zelf)
+let PLAN_WORKER = null, PLAN_SEQ = 0; const PLAN_WAIT = new Map();
+function planAsyncOf() {
+  try {
+    if (!PLAN_WORKER) { PLAN_WORKER = new Worker(new URL('./planworker.js', import.meta.url), { type: 'module' }); PLAN_WORKER.onmessage = (e) => { const f = PLAN_WAIT.get(e.data.id); if (f) { PLAN_WAIT.delete(e.data.id); f(e.data.r); } }; PLAN_WORKER.onerror = () => { for (const f of PLAN_WAIT.values()) f(null); PLAN_WAIT.clear(); }; }
+    return (from, to, hour) => new Promise((res) => { const id = ++PLAN_SEQ; PLAN_WAIT.set(id, res); PLAN_WORKER.postMessage({ id, from, to, hour }); });
+  } catch { return null; }
+}
 import { rleEncode, rleDecode } from './storage.js';
 import { Ships } from './vessel.js';
 import { Airports, FlightControl, Plane } from './aircraft.js';
@@ -1394,7 +1402,7 @@ export class Game {
     if (!this.travelers && this.traffic) {
       this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground;
       // Megatower City: hele reizen van deur tot deur met de reisplanner (TERRANOVA 15, js/journeys.js)
-      if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
+      if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, planAsync: planAsyncOf(), places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
     }
     return this.travelers;
   }

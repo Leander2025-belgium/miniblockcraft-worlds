@@ -202,7 +202,7 @@ export class Drive {
     } else { pose = this.railPose(1.6); up = this.a.kind === 'train' ? 2.55 : 2.25; back = 0; }
     const fx = Math.sin(pose.yaw), fz = Math.cos(pose.yaw);
     let x = pose.x + fx * back, y = pose.y + up, z = pose.z + fz * back;
-    if (this.car && this.cam === 'cab') { x += fz * 0.38; z -= fx * 0.38; } // links zitten
+    if (this.car && this.cam === 'cab') { const lat = this.bus ? 0.52 : 0.38; x += fz * lat; z -= fx * lat; } // links zitten (bus: op de chauffeursstoel achter het stuur, js/vehicles.js busCab)
     let yaw = pose.yaw + Math.PI + p.yaw + (this.seatLook || 0), pitch = p.pitch;
     if (this.cam === 'chase') {
       const L = this.car ? this.spec.L : this.a.L * (this.a.kind === 'ship' ? 0.6 : 1);

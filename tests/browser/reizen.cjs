@@ -25,9 +25,9 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
         tr.update(0.1, g.player.pos, 1, 8); g.updateBusPax(0.1, 1);
         const t0 = performance.now(); T.spawnTick(0.1, g.player.pos, tr.period || 'dal'); T.update(0.1, g.player.pos); worst = Math.max(worst, performance.now() - t0);
       }
-      return { worst, j: T.jstats, n: T.list.filter(t => t.journey).length, states: T.list.filter(t => t.journey).map(t => t.state) };
+      return { worst, ms: T.ms, j: T.jstats, n: T.list.filter(t => t.journey).length, states: T.list.filter(t => t.journey).map(t => t.state) };
     });
-    R.msPerTick.push(r.worst); R.j = r.j;
+    R.msPerTick.push(r.worst); R.j = r.j; R.ms = r.ms;
     if (k % 20 === 0) console.log(k, JSON.stringify(r.j), r.n, JSON.stringify(r.states));
   }
   // controles op het logboek van elke reiziger: instappen alleen in de geplande lijn, uitstappen aan de geplande halte
@@ -42,15 +42,19 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
       }
     }
     // bezetting: geen negatieve ritten, en reizigers op afstand tellen mee
-    const trips = tr.trips.list(); out.negatief = trips.filter(T2 => T2.occ < 0).length; out.opAfstandInRit = trips.reduce((a, T2) => a + (T2.remote || 0), 0);
+    const trips = tr.trips.list(); out.negatief = trips.filter(T2 => T2.occ < 0).length;
+    // wie op afstand meerijdt, telt in precies één rit: per rit het aantal reizigers (gezin = 3) gelijk aan T.remote
+    const per = new Map(); for (const t of T.list) if (t.state === 'op afstand' && t.rtrip) per.set(t.rtrip, (per.get(t.rtrip) || 0) + (t.group || 1));
+    out.opAfstandInRit = [...per.values()].reduce((a, b) => a + b, 0); out.opAfstandKlopt = [...per.entries()].every(([T2, n]) => T2.remote === n && T2.occ >= n);
     out.stats = { paden: T.stats.paden, nietBeloopbaar: T.stats.nietBeloopbaar, grootsteStap: T.stats.grootsteStap, grootsteHoogtestap: T.stats.grootsteHoogtestap };
     out.voorbeeld = (T.journeyLog || []).filter(t => t.hist.some(h => h.wat === 'ingestapt')).slice(0, 2).map(t => ({ type: t.type, plan: t.journey0, stappen: t.hist.map(h => h.wat + (h.halte ? ' @' + h.halte : '') + (h.lijn ? ' ' + h.lijn : '') + (h.opAfstand ? ' (op afstand)' : '')) }));
     return out;
   });
   const sorted = [...R.msPerTick].sort((a, b) => a - b); R.p95ms = sorted[Math.floor(sorted.length * 0.95)];
-  console.log('reizen:', JSON.stringify({ j: R.j, check: R.check, p95ms: R.p95ms }));
+  console.log('reizen:', JSON.stringify({ j: R.j, check: R.check, p95ms: R.p95ms, ms: R.ms }));
   const j = R.j, c = R.check;
   const ok = j.gestart >= 5 && j.vanuitDeur >= 1 && c.ingestapt >= 2 && c.juisteLijn === c.ingestapt && c.juisteHalte === c.uitgestaptZichtbaar && j.opAfstand >= 1 && j.aangekomen >= 1
+    && j.zichtbaarWeer >= 1 && j.naarDeur >= 1 && c.opAfstandKlopt && c.opAfstandInRit >= 1
     && c.negatief === 0 && c.stats.nietBeloopbaar === 0 && c.stats.grootsteStap <= 1.5 && c.stats.grootsteHoogtestap <= 1 && R.p95ms < 40;
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');
