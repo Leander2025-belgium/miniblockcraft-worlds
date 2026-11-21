@@ -38,7 +38,7 @@ export class RouteGuide {
     if (this.state === 'naarHalte') {
       if (v) { this.state = 'wachten'; return this.update(); } // al ingestapt
       const a = this.arrow(R.from.x, R.from.z);
-      if (a.d < 30) { this.state = 'wachten'; this.note('bij de halte', { halte: R.from.name }); }
+      if (a.d < 30) { this.state = 'wachten'; this.note('bij de halte', { halte: R.from.name }); return this.update(); }
       return `${this.i ? '🔁 Stap over: loop' : '🚶 Loop'} naar ${R.from.name} (${a.txt}) · daar ${R.line} richting ${R.dir}`;
     }
     if (this.state === 'wachten') {
@@ -54,7 +54,7 @@ export class RouteGuide {
     }
     if (this.state === 'rijden') {
       if (v) {
-        const ns = v.nextStop || (this.g.traffic && this.g.traffic.nextStop ? this.g.traffic.nextStop(v) : null);
+        let ns = v.nextStop || null; try { if (!ns && v.route && this.g.traffic?.nextStop) ns = this.g.traffic.nextStop(v); } catch { ns = null; }
         const toHere = this.arrow(R.to.x, R.to.z);
         return `${ICON[R.mode] || ''} Rij mee met ${R.line} tot ${R.to.name} (${toHere.txt})${ns && ns.name ? ` · volgende halte: ${ns.name}` : ''}${toHere.d < 150 ? ' · stap hier uit (H)' : ''}`;
       }

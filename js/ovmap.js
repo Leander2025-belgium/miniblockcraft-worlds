@@ -44,7 +44,7 @@ export function openOvMap(game) {
     for (const a of real) {
       const h = game.traffic.behind(a, 0, {});
       const T = a.trip, nx = game.traffic.nextStop?.(a);
-      S.items.push({ type: 'veh', real: true, x: h.x, z: h.z, kind: a.kind, line: a.line || (a.kind === 'bus' ? 'bus' : a.kind), color: a.kind === 'metro' ? '#2f6db5' : a.kind === 'tram' ? '#e67e22' : a.kind === 'bus' ? '#27ae60' : '#f1c40f', trip: T ? { id: T.id, occ: T.occ, cap: T.cap, dest: T.dest, delay: T.delay } : null, next: nx?.name || null, at: a.wait > 0 ? a.atStop : null });
+      S.items.push({ type: 'veh', real: true, x: h.x, z: h.z, kmh: Math.round((a.v || 0) * 3.6), kind: a.kind, line: a.line || (a.kind === 'bus' ? 'bus' : a.kind), color: a.kind === 'metro' ? '#2f6db5' : a.kind === 'tram' ? '#e67e22' : a.kind === 'bus' ? '#27ae60' : '#f1c40f', trip: T ? { id: T.id, occ: T.occ, cap: T.cap, dest: T.dest, delay: T.delay } : null, next: nx?.name || null, at: a.wait > 0 ? a.atStop : null });
     }
     for (const v of scheduled(hourNow())) {
       if (Math.hypot(v.x - p.x, v.z - p.z) < NEAR) continue; // daar rijden de echte voertuigen
@@ -66,7 +66,7 @@ export function openOvMap(game) {
     if (s.veh) {
       const v = s.veh;
       info.innerHTML = `<b>${KIND_ICON[v.kind || v.mode] || ''} ${esc(v.line)}</b>${v.dir ? ' richting ' + esc(v.dir) : v.trip?.dest ? ' → ' + esc(v.trip.dest) : ''}<br>` +
-        (v.real ? `<span class="small">In beeld (echt voertuig)${v.trip ? ` · rit ${esc(v.trip.id)} · bezetting ${v.trip.occ}/${v.trip.cap}${v.trip.delay ? ` · +${Math.round(v.trip.delay / 60)} min` : ''}` : ''}${v.at ? ` · staat aan ${esc(v.at)}` : v.next ? ` · volgende halte ${esc(v.next)}` : ''}</span>`
+        (v.real ? `<span class="small">In beeld (echt voertuig) · ${v.kmh ?? 0} km/u${v.trip ? ` · rit ${esc(v.trip.id)} · bezetting ${v.trip.occ}/${v.trip.cap}${v.trip.delay ? ` · +${Math.round(v.trip.delay / 60)} min` : ' · vertraging niet gemeten'}` : ''}${v.at ? ` · staat aan ${esc(v.at)}` : v.next ? ` · volgende halte ${esc(v.next)}` : ''}</span>`
           : `<span class="small">Volgens dienstregeling · rit ${esc(v.id)} · volgende halte ${esc(v.next)} om ${fmtTime(v.nextT)}</span>`);
       return;
     }
