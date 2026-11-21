@@ -14,6 +14,7 @@ const WALK = 1.35, MAXN = 120000, AUTO_N = 20000; // A*-budget voor vanzelf vers
 const AUTO_WANT = { spits: 14, dal: 9, avond: 6, nacht: 2 }, AUTO_EVERY = 2.5, AUTO_NEAR = 120, AUTO_FAR = 520, AUTO_WAIT = 1500;
 const AUTO_TYPES = ['pendelaar', 'pendelaar', 'student', 'toerist', 'luchthaven', 'beperkt', 'nacht', 'zakenreiziger', 'gezin'];
 // hele reizen met de planner (TERRANOVA 15, js/journeys.js): hoeveel tegelijk (zichtbaar + op afstand) en hoe vaak er één bij komt
+const TOWER_WANT = { lobby: 14, mall: 18, sky: 9, top: 12, hotel: 5, office: 6, apt: 2, lux: 2, pent: 2, concourse: 10 }; // bezoekers per verdieping
 const JOURNEY_MAX = 60, JOURNEY_EVERY = 5, MATERIALIZE = 300;
 const LIFT = 77; // B.ELEVATOR: liftblok onderaan en bovenaan een koker (zoals de speler: js/game.js)
 export class NavGrid {
@@ -133,7 +134,9 @@ export class Travelers {
   spawnTick(dt, player, period) {
     this.spT = (this.spT || 0) + dt;
     // opruimen
+    this.towerTick(player);
     this.list = this.list.filter(t => {
+      if (t.towerF !== undefined) return t.towerF === this.towerFloor; // bezoeker in de Megatower: alleen op de verdieping van de speler
       if (!t.auto) return true;
       const far = Math.hypot(t.x - player.x, t.z - player.z) > AUTO_FAR;
       if (t.journey) { // hele reis: buiten beeld gaat de reis op afstand verder (js/journeys.js)
@@ -151,7 +154,7 @@ export class Travelers {
     // drukte: spits meer dan nacht, en meer rond grote stations (trein of metro in de buurt)
     const near = [...(this.tr.served?.values() || [])].filter(q => Math.hypot(q.x - player.x, q.z - player.z) < 160);
     const busy = near.some(q => q.kind === 'train' || q.kind === 'metro') ? 1.6 : 1;
-    const want = Math.round((AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand').length;
+    const want = Math.round((AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand' && t.towerF === undefined).length;
     if (have >= want) return;
     // hele reizen met de planner (van deur tot deur, met overstappen)
     if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; const t0 = performance.now(), ok = this.spawnJourney(player); this.msMax('spawn', performance.now() - t0); if (ok) return; }
@@ -179,6 +182,26 @@ export class Travelers {
   }
   // ── hele reis (TERRANOVA 15) ── vertrek aan een deur rond de speler, bestemming 1–4,5 km verder of een bekende plek;
   // de planner (zelfde als de speler gebruikt) kiest de ritten en overstappen
+  // ── bezoekers in de Megatower (TERRANOVA 15) ── op openbare verdiepingen (lobby, winkels, sky gardens, observatie…)
+  // lopen mensen rond over de echte vloer (A*), alleen op de verdieping waar de speler is. this.tower wordt gezet door
+  // de wereld: { at(pos) → { f, zone, y } | null } (js/game.js met js/megatower.js)
+  towerTick(player) {
+    const info = this.tower && this.tower.at(player);
+    this.towerFloor = info ? info.f : null;
+    if (!info) return;
+    const want = TOWER_WANT[info.zone] ?? 0, have = this.list.filter(t => t.towerF === info.f).length;
+    // wie klaar is met rondlopen, loopt verder naar een volgende plek
+    for (const t of this.list) if (t.towerF === info.f && t.done) { t.done = false; t.steps = [{ wander: 14 + this.rr() * 16 }]; t.i = 0; t.state = 'volgende'; }
+    if (have >= want || (this.towerT = (this.towerT || 0) + 1) % 20) return; // één nieuwe bezoeker per 20 tikken
+    for (let k = 0; k < 6; k++) {
+      const a = this.rr() * 6.283, r = 4 + this.rr() * 30, q = this.nav.snap(player.x + Math.cos(a) * r, info.y, player.z + Math.sin(a) * r, 3);
+      if (!q || Math.abs(q.y - info.y) > 1) continue;
+      const type = ['pendelaar', 'toerist', 'zakenreiziger', 'gezin', 'student'][Math.floor(this.rr() * 5)];
+      const t = this.add({ from: q, type, steps: [{ wander: 14 + this.rr() * 16 }] });
+      if (t) { t.towerF = info.f; t.group = PROFILES[type].group || 1; this.stats.torenbezoekers = (this.stats.torenbezoekers || 0) + 1; }
+      return;
+    }
+  }
   // type: willekeurig, maar bij de luchthaven vooral luchthavenreizigers met koffers en 's nachts nachtreizigers
   pickType(near) {
     const h = this.journey ? this.journey.hour() : (this.tr.hour ?? 12);

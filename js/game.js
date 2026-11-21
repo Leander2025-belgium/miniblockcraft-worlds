@@ -1402,6 +1402,7 @@ export class Game {
     if (!this.travelers && this.traffic) {
       this.travelers = new Travelers(this.scene, this.world, this.traffic); this.travelers.ground = this.traffic.G ?? this.meta?.ground;
       // Megatower City: hele reizen van deur tot deur met de reisplanner (TERRANOVA 15, js/journeys.js)
+      if (this.tiled && this.tiled.spec.megatower) import('./megatower.js').then((M) => { const T = this.travelers; if (!T) return; T.tower = { at: (p) => { if (!M.inTowerBox(p.x, p.z)) return null; const f = M.floorAt(Math.floor(p.y)); return { f, zone: M.zoneOf(f), y: M.floorY(f) }; } }; }).catch((e) => console.error(e));
       if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, planAsync: planAsyncOf(), places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
     }
     return this.travelers;
