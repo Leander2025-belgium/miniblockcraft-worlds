@@ -26,7 +26,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
       const V = T.list.filter(t => t.towerF === f), moved = V.filter(t => pos0.has(t) && Math.hypot(t.x - pos0.get(t)[0], t.z - pos0.get(t)[1]) > 1).length;
       return { zone: m.zoneOf(f), bezoekers: V.length, bewogen: moved, andereVerdieping: V.filter(t => Math.abs(t.y - y) > 1.5).length, toestanden: [...new Set(V.map(t => t.state))], nietBeloopbaar: T.stats.nietBeloopbaar || 0, grootsteHoogtestap: T.stats.grootsteHoogtestap || 0 };
     }, f);
-    if (name === 'lobby') { await p.evaluate(() => { document.getElementById('ov-start').hidden = true; }); await p.waitForTimeout(1500); await p.screenshot({ path: process.env.SHOT || '/tmp/torenbezoekers.png', timeout: 240000 }); }
+    if (name === 'lobby') { await p.evaluate(() => { const g = window.blokGame(), T = g.travelers, V = T.list.filter(t => t.towerF === 0), c = V[0]; if (c) { g.player.yaw = Math.atan2(-(c.x - g.player.pos.x), -(c.z - g.player.pos.z)); g.player.pitch = -0.12; } T.update(0.05, g.player.pos); document.getElementById('ov-start').hidden = true; }); await p.waitForTimeout(1500); await p.screenshot({ path: process.env.SHOT || '/tmp/torenbezoekers.png', timeout: 240000 }); }
   }
   console.log('torenbezoekers:', JSON.stringify(R));
   const ok = R.lobby.bezoekers >= 5 && R.lobby.bewogen >= 2 && R.lobby.andereVerdieping === 0 && R.sky.bezoekers >= 3 && R.sky.andereVerdieping === 0 && R.sky.nietBeloopbaar === 0 && R.sky.grootsteHoogtestap <= 1;

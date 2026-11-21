@@ -11,6 +11,7 @@ const SCENES = [
   { id: 'villawijk', cam: [1250, 22, 1250], at: [1310, 2, 1300] },
   { id: 'haven', cam: [2215, 16, 3880], at: [2120, 6, 3930] },
   { id: 'laan', cam: [3080, 4, 3380], at: [3058, 2, 3430] },
+  { id: 'laan-nacht', hour: 22, cam: [3085, 9, 3330], at: [3072, 1, 3420] }, // koplampbundels, verlichte reclamezuilen
 ];
 (async () => {
   fs.mkdirSync(SHOTS, { recursive: true });
@@ -25,7 +26,7 @@ const SCENES = [
   await p.waitForFunction(() => { const g = window.blokGame && window.blokGame(); return g && g.running && g.mega; }, null, { timeout: 240000 });
   const R = {};
   for (const S of SCENES) {
-    await p.evaluate(({ cam, at }) => { const g = window.blokGame(), P = g.player, G = g.meta.ground; P.fly = true; P.pos.set(cam[0], G + cam[1], cam[2]); P.yaw = Math.atan2(-(at[0] - cam[0]), -(at[2] - cam[2])); P.pitch = Math.atan2(at[1] - cam[1], Math.hypot(at[0] - cam[0], at[2] - cam[2])); g.updateTiles(true); document.getElementById('ov-start').hidden = true; }, S);
+    await p.evaluate(({ cam, at, hour }) => { const g = window.blokGame(), P = g.player, G = g.meta.ground; g.settings.hour = hour ?? 11; P.fly = true; P.pos.set(cam[0], G + cam[1], cam[2]); P.yaw = Math.atan2(-(at[0] - cam[0]), -(at[2] - cam[2])); P.pitch = Math.atan2(at[1] - cam[1], Math.hypot(at[0] - cam[0], at[2] - cam[2])); g.updateTiles(true); document.getElementById('ov-start').hidden = true; }, S);
     for (let i = 0; i < 240; i++) { await p.waitForTimeout(500); if (await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && g.tiled.inFlight === 0 && g.queue.length < 4; })) break; }
     await p.evaluate(() => { const g = window.blokGame(); for (let q = 0; q < 800 && g.queue.length; q++) g.buildSome(); document.getElementById('ov-start').hidden = true; });
     await p.waitForTimeout(2500);

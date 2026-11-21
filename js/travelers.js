@@ -191,14 +191,14 @@ export class Travelers {
     if (!info) return;
     const want = TOWER_WANT[info.zone] ?? 0, have = this.list.filter(t => t.towerF === info.f).length;
     // wie klaar is met rondlopen, loopt verder naar een volgende plek
-    for (const t of this.list) if (t.towerF === info.f && t.done) { t.done = false; t.steps = [{ wander: 14 + this.rr() * 16 }]; t.i = 0; t.state = 'volgende'; }
+    for (const t of this.list) if (t.towerF === info.f && (t.done || t.state === 'geen pad')) { t.done = false; t.steps = [{ wander: 14 + this.rr() * 16 }]; t.i = 0; t.state = 'volgende'; }
     if (have >= want || (this.towerT = (this.towerT || 0) + 1) % 20) return; // één nieuwe bezoeker per 20 tikken
     for (let k = 0; k < 6; k++) {
       const a = this.rr() * 6.283, r = 4 + this.rr() * 30, q = this.nav.snap(player.x + Math.cos(a) * r, info.y, player.z + Math.sin(a) * r, 3);
       if (!q || Math.abs(q.y - info.y) > 1) continue;
       const type = ['pendelaar', 'toerist', 'zakenreiziger', 'gezin', 'student'][Math.floor(this.rr() * 5)];
       const t = this.add({ from: q, type, steps: [{ wander: 14 + this.rr() * 16 }] });
-      if (t) { t.towerF = info.f; t.group = PROFILES[type].group || 1; this.stats.torenbezoekers = (this.stats.torenbezoekers || 0) + 1; }
+      if (t) { t.towerF = info.f; t.prof = { ...t.prof, noStairs: true }; t.group = PROFILES[type].group || 1; /* blijft op deze verdieping (geen trappen) */ this.stats.torenbezoekers = (this.stats.torenbezoekers || 0) + 1; }
       return;
     }
   }

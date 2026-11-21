@@ -864,6 +864,13 @@ export class Traffic {
     if (this.warnMesh) this.warnMesh.count = 0;
     this.signUsed = 0;
     this.lodStat = { vol: 0, licht: 0 };
+    // koplampbundels op het wegdek ('s nachts, TERRANOVA 15): één doorzichtig vlak per voertuig, additief, één tekenopdracht
+    if (!this.beams) {
+      const g = new THREE.PlaneGeometry(3.4, 10); g.rotateX(-Math.PI / 2); g.translate(0, 0, 5.2);
+      const m = new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false });
+      this.beams = new THREE.InstancedMesh(g, m, 96); this.beams.frustumCulled = false; this.beams.renderOrder = 2; this.group.add(this.beams);
+    }
+    this.beams.count = 0; this.beamOn = day < 0.35; this.beams.material.opacity = 0.32 * Math.min(1, (0.35 - day) / 0.15);
     let pn = 0;
     const P = this.people, A = this.tmpA, Bp = this.tmpB;
     // NPC's die op een vaste plek staan: personeel, wachtende reizigers, piloten, grondpersoneel
@@ -945,6 +952,11 @@ export class Traffic {
         this.putTrim(M, a.lodFar, cov);
         if (s.beacon) { const side = Math.floor(this.clock * 5) % 2 ? 'L' : 'R', Bm = this.meshes['beacon' + s.beacon + side]; if (Bm && Bm.n < Bm.max) { const j = Bm.n++; for (const m of Object.values(Bm.set)) m.setMatrixAt(j, this.m4); } }
         if (s === a.secs[0] && !s.flip) this.headSign(a, s, yaw, this.v.x, this.v.y, this.v.z, player);
+        if (s === a.secs[0] && this.beamOn && (a.kind === 'car' || a.kind === 'bus' || a.kind === 'tram') && this.beams.count < 96 && Math.hypot(fx - player.x, fz - player.z) < 150) {
+          const hd2 = this.behind(a, 0, this.tmpBeam || (this.tmpBeam = {})), j = this.beams.count++;
+          this.e.set(0, yaw + (s.flip ? Math.PI : 0), 0); this.q.setFromEuler(this.e); this.v.set(hd2.x, hd2.y + 0.07, hd2.z); this.s.set(1, 1, 1);
+          this.beams.setMatrixAt(j, this.m4.compose(this.v, this.q, this.s)); this.beams.instanceMatrix.needsUpdate = true;
+        }
         const leaves = METRO_LEAVES[s.m];
         // deurwaarschuwing: de laatste 3 s voor het sluiten knipperen oranje lampjes boven de deuren aan de perronkant
         if (leaves && a.doorsOpen && a.wait < 5.5) {
