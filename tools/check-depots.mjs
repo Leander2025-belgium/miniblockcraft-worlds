@@ -35,8 +35,10 @@ for (let i = 0; i < G.DEPOTS.length; i++) {
   for (const P of D.sidings) for (let u = P.len - 230; u < P.len - 5; u += 15) {
     const q = P.at(u), x = Math.floor(q.x), z = Math.floor(q.z), { col } = G._columnAt(x, z); n++;
     // bovenkant van het spoorbed (de generator rondt de hoogte van het dichtste opstelspoor af: ±1 blok)
-    let y = Math.round(q.y); if (!col[y] && col[y - 1]) y--; else if (col[y + 1] && !col[y + 2]) y++;
-    if (col[y] === 54 || col[y]) ballast++;
+    let y = Math.round(q.y);
+    const pit = !col[y] && col[y - 1] === 9 && col[y + 9]; // werkplaatsput (15.0): beton 1 m lager, dak gewoon op 9 m
+    if (!pit && !col[y] && col[y - 1]) y--; else if (!pit && col[y + 1] && !col[y + 2]) y++;
+    if (col[y] === 54 || col[y] || pit) ballast++;
     let ok = true; for (let k = y + 1; k <= y + 7; k++) if (col[k]) ok = false; if (ok) vrij++;
     if (u > P.len - 210) { nd++; if (col[y + (D.under ? 8 : 9)]) dak++; } // hal: dak (9 m) of tunnelplafond (8 m)
   }

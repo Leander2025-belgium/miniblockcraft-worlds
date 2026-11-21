@@ -1157,8 +1157,23 @@ function depotColumn(col, t, dp) {
     if (edge || back) for (let k = y + 1; k < roof; k++) col[k] = (k === y + 5 || k === y + 6) && Math.round(dp.u) % 8 < 5 && !back ? B.GLASS : B.PANEL_DARK;
     else if (Math.round(dp.u) % 24 === 0 && Math.abs(((a - o0 - 2.5) % 5 + 5) % 5) < 0.6) for (let k = y + 1; k < roof; k++) col[k] = B.METAL; // kolommen tussen de sporen
     else if (Math.round(dp.u) % 12 === 6 && Math.abs(((a - o0 - 2.5) % 5 + 5) % 5) < 0.6) col[roof - 1] = B.LAMP;
+    // werkplaats (TERRANOVA 15) in het achterste deel van de hal: inspectieputten tussen de rails, een rolbrug,
+    // werkbanken en rekken tegen de achterwand
+    if (dp.u > H.u1 - 60 && !edge && !back) {
+      if (dp.d < 0.55) { col[y] = 0; col[y - 1] = B.CONCRETE; }                                       // put (1 m diep, tussen de rails)
+      if (Math.round(dp.u) % 20 === 10) col[roof - 1] = B.PAINT_YELLOW;                                // rolbrug onder het dak, boven het vrije profiel (7 m)
+      if (dp.u > H.u1 - 4 && dp.d > 2.2 && dp.d < 2.8) { col[y + 1] = B.COUNTER; col[y + 2] = (Math.round(dp.u) + dp.ti) % 2 ? B.SHELF : 0; }
+    }
     t = Math.max(t, roof);
   }
+  // wasstraat over opstelspoor 1, vlak voor de hal: portaal met borstels aan beide kanten en een sproeibalk
+  if (!dp.inHall && dp.ti === 0 && dp.u >= H.u0 - 30 && dp.u <= H.u0 - 26) {
+    if (dp.d > 2.55 && dp.d < 3.1) { for (let k = y + 1; k <= y + 7; k++) col[k] = B.METAL; t = Math.max(t, y + 7); }  // staanders
+    else if (dp.d > 2.1 && dp.d <= 2.55 && dp.u >= H.u0 - 29 && dp.u <= H.u0 - 27) { for (let k = y + 2; k <= y + 5; k++) col[k] = B.PAINT_BLUE; t = Math.max(t, y + 5); } // borstels
+    if (dp.d <= 3.1) { col[y + 7] = B.METAL; if (dp.d < 2 && Math.round(dp.u) === Math.round(H.u0 - 28)) col[y + 7] = B.PAINT_BLUE; t = Math.max(t, y + 7); } // sproeibalk
+  }
+  // dwergseinen aan de ingang van de hal, naast elk opstelspoor (rood = stop, wit = rijden op zicht)
+  if (!dp.inHall && dp.ti >= 0 && dp.side < 0 && dp.d > 2.4 && dp.d < 2.9 && Math.abs(dp.u - (H.u0 - 8)) < 0.5) { col[y + 1] = B.POST; col[y + 2] = (dp.ti % 2) ? B.PAINT_RED : B.LAMP; t = Math.max(t, y + 2); }
   return t;
 }
 // ---------- metro: tunnels, perronhallen en trappen naar de straat (onder de bestaande straten en gebouwen) ----------

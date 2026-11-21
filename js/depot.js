@@ -46,7 +46,7 @@ export class DepotPath {
     for (let i = Math.floor(from / STEP); i + 1 < this.n; i++) {
       const ax = P[i * 3], az = P[i * 3 + 2], bx = P[i * 3 + 3], bz = P[i * 3 + 5], vx = bx - ax, vz = bz - az, L2 = vx * vx + vz * vz || 1;
       const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / L2)), d = Math.hypot(x - ax - vx * t, z - az - vz * t);
-      if (d <= maxd && (!best || d < best.d)) best = { d, y: P[i * 3 + 1] + (P[i * 3 + 4] - P[i * 3 + 1]) * t, s: this.cum[i] + t * Math.sqrt(L2), c: this };
+      if (d <= maxd && (!best || d < best.d)) best = { d, y: P[i * 3 + 1] + (P[i * 3 + 4] - P[i * 3 + 1]) * t, s: this.cum[i] + t * Math.sqrt(L2), c: this, side: Math.sign(vx * (z - az) - vz * (x - ax)) || 1 };
     }
     return best;
   }
@@ -100,11 +100,11 @@ export function depotNear(DEPOTS, x, z) {
     }
     const q = D.L.near(Math.floor(x), Math.floor(z), 50); if (!q) continue;
     const u = (q.s - D.sEdge) * D.e; if (u < D.uThroat - 4 || u > D.uEnd + 8) continue;
-    let best = null;
-    for (const P of D.sidings) { const r = P.near(x, z, 6, Math.max(0, D.uThroat - 8)); if (r && (!best || r.d < best.d)) best = r; }
+    let best = null, ti = -1;
+    D.sidings.forEach((P, k) => { const r = P.near(x, z, 6, Math.max(0, D.uThroat - 8)); if (r && (!best || r.d < best.d)) { best = r; ti = k; } });
     const hall = D.hall, inHall = u >= hall.u0 && u <= hall.u1 && q.sd * D.side >= Math.abs(hall.o0) && q.sd * D.side <= Math.abs(hall.o1);
     if (!best && !inHall) continue;
-    return { D, u, sd: q.sd, d: best ? best.d : 99, y: best ? best.y : q.y, inHall };
+    return { D, u, sd: q.sd, d: best ? best.d : 99, y: best ? best.y : q.y, inHall, ti, side: best ? best.side : 0, sU: best ? best.s : 0 };
   }
   return null;
 }

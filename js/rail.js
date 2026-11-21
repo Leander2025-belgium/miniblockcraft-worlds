@@ -364,7 +364,7 @@ function doorsOpenAt(a) {
 // voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
 export function activeAt(now) { return activeTrains(now); }
 // voor de remises (js/depotsim.js) en controles zonder browser
-export function _depotHelpers() { return { runs, delayOf, posAt, trackOffset }; }
+export function _depotHelpers() { return { runs, delayOf, effDelay, posAt, trackOffset }; }
 export function _design(type, liv) { return design(type, liv); } // voor controles zonder browser (interieur)
 function activeTrains(now) {
   const out = [];
@@ -1170,7 +1170,7 @@ export class AlpRail {
   // plannen per dag (en opnieuw bij een andere dienstregeling of ander weer: vertragingen veranderen de omloop)
   depotPlans() {
     const key = dayNr() + '|' + delayFactor + '|' + RUNS.length;
-    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, posAt, trackOffset })); }
+    if (this._dpKey !== key) { this._dpKey = key; this._dp = (NET.depots || []).map(D => depotPlan(D, RUNS, { runs, delayOf, effDelay, posAt, trackOffset })); }
     return this._dp;
   }
   updateDepots(now, p, dt, seen) {

@@ -234,12 +234,25 @@ function blockColumn(x, z, tx, tz, lx, lz, L, col) {
 //   shops      winkelkwartier tussen Megatower Plaza en station Centraal: autovrij plein met winkels, terrassen, fontein
 //   villa      villawijk in het noordwesten: grote moderne villa's met tuin, terras en zwembad
 //   warehouse  havenpakhuizen langs de rivier: bakstenen pakhuizen met laaddeuren, kratten en bolders
+// busremise (TERRANOVA 15): tegel 45,50 aan buslijn B11 (laan x = 5888) en B31 (laan z = 6400). Vier percelen:
+// werkplaats met wasstraat, twee stallingen met laadpalen, chauffeursgebouw met poortgebouw. Stallingsplaatsen
+// (BUS_DEPOT.bays) gebruikt het verkeer om bussen te parkeren, uit en in te laten rukken (js/traffic.js).
+export const BUS_DEPOT = (() => {
+  const tx = 45, tz = 50, X0 = tx * T, Z0 = tz * T, bays = [];
+  // stallingen: perceel rechtsboven (qx 1, qz 0) en linksonder (qx 0, qz 1): 2 rijen van 6 plaatsen (4 m breed, 13 m lang)
+  for (const [lx0, lz0] of [[70, 14], [14, 70]]) for (const row of [0, 1]) for (let k = 0; k < 6; k++) {
+    const x = X0 + lx0 + 6 + k * 5 + 2, z0 = Z0 + lz0 + 4 + row * 22;
+    bays.push({ x, z0, z1: z0 + 13, charger: { x, z: row ? z0 + 14 : z0 - 1 } });
+  }
+  return { tx, tz, name: 'Busremise Oostkade', gate: { x: X0 + T - 14, z: Z0 + 92 }, gate2: { x: X0 + 92, z: Z0 + T - 14 }, bays, cx: X0 + 64, cz: Z0 + 64 };
+})();
 const HIST_WALLS = [B.BRICK, B.BRICK_DARK, B.RED_SANDSTONE, B.PLASTER_BEIGE, B.LIMESTONE, B.YELLOWBRICK, B.BRICK, B.PLASTER];
 const QUARTER = (tx, tz) => {
   if (tx >= 30 && tx <= 34 && tz >= 38 && tz <= 42) return 'historic';
   if (tx >= 33 && tx <= 37 && tz >= 43 && tz <= 46) return 'shops';
   if (tx >= 6 && tx <= 15 && tz >= 6 && tz <= 15) return 'villa';
   if ((tx === RIVER_TX - 1 || tx === RIVER_TX + 1) && tz >= 18 && tz <= 62) return 'warehouse';
+  if (tx === BUS_DEPOT.tx && tz === BUS_DEPOT.tz) return 'busdepot';
   return null;
 };
 export const quarterAt = (x, z) => QUARTER(Math.floor(x / T), Math.floor(z / T));
@@ -387,6 +400,65 @@ function warehouseColumn(x, z, px, pz, L, col) {
   return G + h;
 }
 
+// busremise: per perceel een andere functie; de randen zijn hekken met een in- en uitrit naar de lanen
+function busDepotColumn(x, z, qx, qz, px, pz, col) {
+  const role = (qx & 1) + 2 * (qz & 1); // 0 werkplaats+wasstraat, 1 stalling, 2 stalling, 3 chauffeursgebouw
+  const { d, along } = lotSide(px, pz);
+  col[G - 1] = B.ASPHALT;
+  // hek rondom (met poorten aan de straatkant van elk perceel)
+  if (d === 0) { if (along >= 16 && along <= 27) { col[G - 1] = B.ASPHALT; return G - 1; } col[G] = B.METAL; col[G + 1] = B.POST; return G + 1; }
+  if (role === 1 || role === 2) {
+    // stalling: twee rijen van 6 plaatsen met witte lijnen en laadpalen aan de kop
+    for (const row of [0, 1]) {
+      const z0 = 4 + row * 22;
+      if (pz >= z0 && pz < z0 + 13 && px >= 6 && px < 36) { if ((px - 6) % 5 === 0) col[G - 1] = B.LINE_WHITE; return G - 1; }
+      const cz = row ? z0 + 14 : z0 - 1;
+      if (pz === cz && px >= 6 && px < 36 && (px - 6) % 5 === 2) { col[G] = B.CHARGER; col[G + 1] = B.POST; col[G + 2] = B.LAMP; return G + 2; } // laadpaal met lamp
+    }
+    if ((px === 3 || px === 40) && pz % 12 === 6) { for (let y = G; y < G + 6; y++) col[y] = B.POST; col[G + 6] = B.LAMP; return G + 6; }       // terreinverlichting
+    return G - 1;
+  }
+  if (role === 0) {
+    // werkplaats: hal met 3 brugplaatsen (putten), rolpoorten, lichtstraat; wasstraat ernaast met borstelportaal
+    const inHall = px >= 4 && px <= 26 && pz >= 6 && pz <= 38, edge = px === 4 || px === 26 || pz === 6 || pz === 38;
+    if (inHall) {
+      col[G - 1] = B.CONCRETE;
+      const lane = Math.floor((px - 5) / 7), lx = (px - 5) % 7;
+      if (!edge && lx === 3 && pz >= 12 && pz <= 30) { col[G - 1] = 0; col[G - 2] = B.CONCRETE; }                 // put onder de bus
+      for (let k = 1; k <= 8; k++) {
+        const y = G - 1 + k;
+        if (edge) col[y] = (pz === 6 && lx >= 1 && lx <= 5 && k <= 5 && !(px === 4 || px === 26)) ? (k === 5 ? B.PAINT_ORANGE : 0) : (k === 4 || k === 5) && (pz + px) % 3 === 0 ? B.GLASS : B.PANEL_WHITE; // rolpoorten open
+        else col[y] = k === 8 ? (px === 15 ? B.GLASS : B.ROOF_DARK) : (k === 7 && lx === 3 && pz % 6 === 0 ? B.LAMP : 0);
+      }
+      if (!edge && px >= 5 && px <= 7 && pz >= 32 && pz <= 36) { col[G] = B.COUNTER; col[G + 1] = pz % 2 ? B.SHELF : 0; return G + 7; } // werkbank en rekken
+      return G + 7;
+    }
+    if (px >= 30 && px <= 39 && pz >= 6 && pz <= 38) {
+      // wasstraat: doorrijhal met borstelportaal in het midden
+      const e2 = px === 30 || px === 39;
+      for (let k = 1; k <= 6; k++) { const y = G - 1 + k; col[y] = e2 ? (k <= 4 && (pz === 6 || pz === 38) ? 0 : B.GLASS_BLUE) : k === 6 ? B.PANEL_WHITE : 0; }
+      if (!e2 && pz >= 20 && pz <= 22 && (px === 31 || px === 38)) for (let k = 1; k <= 4; k++) col[G - 1 + k] = B.PAINT_BLUE; // borstels
+      if (!e2 && pz === 21) col[G + 4] = B.PAINT_BLUE;
+      return G + 5;
+    }
+    return G - 1;
+  }
+  // chauffeursgebouw (2 verdiepingen, kantine en dienstruimte), poortgebouw en parkeerplaats voor de chauffeurs
+  if (px >= 6 && px <= 24 && pz >= 6 && pz <= 18) {
+    const edge = px === 6 || px === 24 || pz === 6 || pz === 18;
+    col[G - 1] = B.TILE;
+    for (let k = 1; k <= 7; k++) {
+      const y = G - 1 + k;
+      if (edge) col[y] = k === 7 ? B.PANEL_DARK : (k <= 2 && pz === 18 && px === 15 ? (k === 1 ? B.DOOR_GLASS : B.GLASS) : (k % 3 !== 0 && px % 3 !== 0 ? B.GLASS : B.PANEL_DARK));
+      else col[y] = k === 4 ? B.TILE : k === 7 ? B.CONCRETE : (k === 1 && px % 4 === 0 && pz === 10 ? B.TABLE : k === 1 && px % 4 === 1 && pz === 10 ? B.CHAIR : 0);
+    }
+    return G + 6;
+  }
+  if (px >= 30 && px <= 34 && pz >= 30 && pz <= 34) { const e = px === 30 || px === 34 || pz === 30 || pz === 34; for (let k = 1; k <= 3; k++) col[G - 1 + k] = e ? (k === 2 ? B.GLASS : B.PANEL_WHITE) : 0; col[G + 3] = B.PANEL_DARK; return G + 3; } // poortgebouw
+  if (pz >= 24 && pz <= 28 && px >= 6 && px <= 24 && (px - 6) % 3 === 0) col[G - 1] = B.LINE_WHITE;                // parkeerplaatsen chauffeurs
+  return G - 1;
+}
+
 // ---------- percelen ----------
 const FACADES = ['curtain', 'ribbon', 'bands', 'fins', 'stone', 'curtain', 'bands', 'fins'];
 // gevelblok op hoogte k (verdiepingen van 4 m) en plaats `along` langs de gevel. Elke stijl houdt grote, rechthoekige
@@ -473,6 +545,7 @@ function lotColumn(x, z, qx, qz, px, pz, col, industry) {
     case 'shops': return shopsColumn(x, z, px, pz, L, col);
     case 'villa': return villaColumn(x, z, px, pz, L, col);
     case 'warehouse': return warehouseColumn(x, z, px, pz, L, col);
+    case 'busdepot': return busDepotColumn(x, z, qx, qz, px, pz, col);
   }
   return G - 1;
 }
