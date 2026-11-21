@@ -364,6 +364,12 @@ function doorsOpenAt(a) {
 // voor controles zonder browser (tools/check-wisselroutes.mjs): alle treinen op tijdstip `now`
 export function activeAt(now) { return activeTrains(now); }
 // voor de remises (js/depotsim.js) en controles zonder browser
+// geplande aankomst (klok van de dienstregeling) van de bestuurde trein aan een station van zijn rit (js/career.js)
+export function schedArrival(pt, st) {
+  const a = pt.sched; if (!a || !a.run || pt.base == null || a.run.pr.L !== pt.L) return null;
+  const pr = a.run.pr, x = (st.s - pr.s0) * a.run.dir; if (x < 0 || x > pr.D) return null;
+  return pt.base + timeAt(pr, x);
+}
 export function _depotHelpers() { return { runs, delayOf, effDelay, posAt, trackOffset }; }
 export function _design(type, liv) { return design(type, liv); } // voor controles zonder browser (interieur)
 function activeTrains(now) {
@@ -1051,7 +1057,7 @@ export class AlpRail {
   // ---------- zelf rijden ----------
   startDriving(tr, c) {
     const g = this.g, a = tr.a;
-    this.player = { tr, L: tr.L, dir: tr.dir, s: tr.s, v: tr.v || 0, throttle: 0, brake: 0, emergency: false, doors: false, id: tr.id, car: c, nextStop: null, delay: 0, sched: a };
+    this.player = { tr, L: tr.L, dir: tr.dir, s: tr.s, v: tr.v || 0, throttle: 0, brake: 0, emergency: false, doors: false, id: tr.id, car: c, nextStop: null, delay: 0, sched: a, base: a ? railClock() - (a.t || 0) : null }; // base: vertrek volgens de dienstregeling (voor de carrièremodus)
     tr.id = 'speler'; this.trains.delete(a.id); this.trains.set('speler', tr);
     g.leaveVessel(); // physics: camera in de cabine
     g.drive = new TrainCab(this);

@@ -11,6 +11,7 @@ import { TILE_INDEX } from './textures.js';
 import { FarView } from './lod.js';
 import { Traffic } from './traffic.js';
 import { Missions } from './missions.js';
+import { Career } from './career.js';
 import { Avatar, DEFAULT_LOOK } from './avatar.js';
 import { Drive } from './drive.js';
 import { diag } from './diag.js';
@@ -412,6 +413,7 @@ export class Game {
     this.avatar = new Avatar(this.scene, this.settings.look);
     this.builder = new Builder(this);
     this.eye = new THREE.Vector3();
+    this.career = new Career(this); // carrièremodus (js/career.js), vrijwillig: zonder dienst of opdracht blijft het sandbox
     this.missions = new Missions((m) => { this.toast(`🏆 Opdracht voltooid: ${m.name}${this.wallet ? ' · +40 VC' : ''}`); if (this.wallet) this.wallet.earn(40, `opdracht ${m.name}`); });
     window.addEventListener('resize', () => this.resize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
@@ -500,7 +502,7 @@ export class Game {
         MV = mv;
         this.far = new mv.MountainView();
         this.scene.add(this.far.gondolas.group, this.far.gondolas.cabRoot, this.far.lifts.group);
-        if (rail) { rail.useNet(netMod.NET); this.alpRail = new rail.AlpRail(this); }
+        if (rail) { rail.useNet(netMod.NET); this.alpRail = new rail.AlpRail(this); this.career.schedArrival = rail.schedArrival; this.career.clock = rail.railClock; }
       }).catch((e) => console.error(e));
     }
     this.mini = { canvas: this.lod.canvas, scale: this.lod.cell * (spec.miniStep || 1), sizeX: this.world.sizeX, sizeZ: this.world.sizeZ };
@@ -1768,6 +1770,7 @@ export class Game {
 
     this.updateTarget();
     this.builder.update();
+    this.career?.update(dt);
     this.updateHud();
     // opdrachten: hoogte, afstand, nacht
     {

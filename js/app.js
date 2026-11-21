@@ -239,7 +239,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
+      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1203,6 +1203,17 @@ refreshList().then(() => {
 // diagnose in het pauzemenu
 $('#btn-diag')?.addEventListener('click', () => { $('#diag-text').value = diagText(); game && game.showOverlay('diag'); });
 // reisplanner Megatower City
+// carrièremodus (js/career.js): diensten, bouwopdrachten, levels, prestaties
+const careerRender = () => { if (!game || !game.career) return; $('#career-body').innerHTML = game.career.html(); };
+$('#btn-career')?.addEventListener('click', () => { if (!game || !game.career) return; careerRender(); game.showOverlay('career'); });
+$('#career-close')?.addEventListener('click', () => game && game.resume());
+$('#career-body')?.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cr]'); if (!b || !game || !game.career) return;
+  const k = b.dataset.cr, C = game.career;
+  if (k === 'start') { if (C.startShift()) game.resume(); else careerRender(); return; }
+  if (k === 'stop') { C.endShift('afgebroken'); careerRender(); return; }
+  if (k.startsWith('check:')) { const id = k.slice(6), r = C.check(id); careerRender(); const el = document.getElementById('cr-res-' + id); if (el && r) el.textContent = r.ok ? '✅ Klopt! Opdracht voltooid.' : '❌ ' + r.waarom.join(' · '); }
+});
 $('#btn-megaplan')?.addEventListener('click', async () => {
   if (!game || !game.mega) return;
   const m = await import('./megaplan.js'), from = $('#mp-from'), to = $('#mp-to'), hr = $('#mp-hour');

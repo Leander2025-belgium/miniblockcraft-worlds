@@ -259,6 +259,9 @@
   .cab-desk .lever { pointer-events: auto; cursor: ns-resize; touch-action: none; }
   .cab-desk .sig-lamp { width: 18px; height: 18px; border-radius: 50%; border: 3px solid #111; box-shadow: 0 0 8px currentColor; }
   .cab-desk .lim-sign { width: 30px; height: 30px; border-radius: 50%; border: 4px solid #d22; background: #fff; color: #111; font: 700 11px system-ui; display: grid; place-items: center; }
+  .cr-bar { height: 8px; background: rgba(255,255,255,.12); border-radius: 4px; overflow: hidden; margin: 4px 0; } .cr-bar i { display: block; height: 100%; background: #4ade80; }
+  .cr-task { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.08); } .cr-res { color: #fbbf24; }
+  #career-hud { position: fixed; left: 50%; transform: translateX(-50%); top: 46px; background: rgba(10,14,20,.78); color: #fff; padding: 4px 10px; border-radius: 8px; font-size: 13px; z-index: 30; pointer-events: none; max-width: 92vw; }
   .mp-result { background: rgba(255,255,255,.05); border-radius: 10px; padding: 8px 12px; margin: 8px 0; max-height: 46vh; overflow: auto; }
   .plan-legs { margin: 6px 0 0 18px; padding: 0; line-height: 1.5; }
   #ov-megaplan select { max-width: 46vw; }
@@ -603,6 +606,7 @@
   <button class="touch tbtn" id="t-use" aria-label="Bedienen">✋</button>
   <div id="use-hint" hidden></div>
   <div id="nav-hud" hidden></div>
+  <div id="career-hud" hidden></div>
   <div id="build-bar" class="build-bar" hidden>
     <button class="btn" id="bb-c1" title="Hoek 1 = blok waar je naar kijkt (linkerklik)">① hoek</button>
     <button class="btn" id="bb-c2" title="Hoek 2 (rechterklik)">② hoek</button>
@@ -675,6 +679,14 @@
       <div class="row"><button class="btn primary" id="gnmi-close">Terug naar het spel</button></div>
     </div>
   </div>
+  <div class="ov" id="ov-career" hidden>
+    <div class="card">
+      <h2>📋 Carrière</h2>
+      <p class="small muted">Vrijwillig: diensten als bestuurder en bouwopdrachten met ervaring, levels en beoordelingen. Zonder dienst of opdracht speel je gewoon vrij (sandbox). Je voortgang blijft op dit toestel bewaard.</p>
+      <div id="career-body" class="mp-result"></div>
+      <div class="row"><button class="btn" id="career-close">Terug naar het spel</button></div>
+    </div>
+  </div>
   <div class="ov" id="ov-megaplan" hidden>
     <div class="card map-card">
       <h2>🧭 Reisplanner Megatower City</h2>
@@ -742,6 +754,7 @@
         <button class="btn" id="btn-ovdiag">🛠 OV-diagnose</button>
         <button class="btn" id="btn-megaplan" hidden>🧭 Reisplanner</button>
         <button class="btn" id="btn-ovmap" hidden>🗺 Live OV-kaart</button>
+        <button class="btn" id="btn-career">📋 Carrière</button>
       </div>
       <label>Opdrachten</label>
       <div id="missions" class="missions"></div>
