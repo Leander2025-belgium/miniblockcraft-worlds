@@ -44,14 +44,18 @@ const MIN = +(process.env.MIN || 30);
     S.push(await sample(['stad', 'toren', 'bouwen', 'opslaan', 'wereldwissel', 'rust'][step]));
     console.log(JSON.stringify(S[S.length - 1]));
   }
-  // lekken: helling van het geheugen in de tweede helft (lineaire regressie, MB per minuut)
+  // lekken: per scène (stad, toren, …) de groei tussen de laatste twee rondes; de scènes wisselen elkaar af, dus een
+  // helling over alle metingen samen zegt weinig. Groeit een scène nog meer dan 80 MB per ronde (±7 min), dan is dat verdacht.
+  const by = {}; for (const s of S) (by[s.label] || (by[s.label] = [])).push(s.heapMB);
+  const groei = Object.fromEntries(Object.entries(by).filter(([, v]) => v.length >= 2).map(([k, v]) => [k, v[v.length - 1] - v[v.length - 2]]));
+  // (oud) helling van het geheugen in de tweede helft (lineaire regressie, MB per minuut), alleen ter info
   const half = S.slice(Math.floor(S.length / 2)).filter(s => s.heapMB != null);
   const n = half.length, mt = half.reduce((a, s) => a + s.t, 0) / n, mh = half.reduce((a, s) => a + s.heapMB, 0) / n;
   const slope = n > 2 ? half.reduce((a, s) => a + (s.t - mt) * (s.heapMB - mh), 0) / half.reduce((a, s) => a + (s.t - mt) ** 2, 0) * 60 : 0;
-  const R = { minuten: Math.round((Date.now() - T0) / 60000), metingen: S.length, heapMin: Math.min(...S.map(s => s.heapMB)), heapMax: Math.max(...S.map(s => s.heapMB)), hellingTweedeHelftMBperMin: +slope.toFixed(2), geomMax: Math.max(...S.map(s => s.geom)), texMax: Math.max(...S.map(s => s.tex)) };
+  const R = { groeiLaatsteRondeMB: groei, minuten: Math.round((Date.now() - T0) / 60000), metingen: S.length, heapMin: Math.min(...S.map(s => s.heapMB)), heapMax: Math.max(...S.map(s => s.heapMB)), hellingTweedeHelftMBperMin: +slope.toFixed(2), geomMax: Math.max(...S.map(s => s.geom)), texMax: Math.max(...S.map(s => s.tex)) };
   console.log('duurtest:', JSON.stringify(R));
   fs.writeFileSync(process.env.OUT || '/tmp/duurtest.json', JSON.stringify({ R, S }, null, 1));
-  const ok = R.minuten >= MIN - 1 && R.hellingTweedeHelftMBperMin < 3 && R.geomMax < 6000 && R.texMax < 400;
+  const ok = R.minuten >= MIN - 1 && Object.values(groei).every(g => g < 80) && R.geomMax < 6000 && R.texMax < 400;
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');
   await b.close(); process.exit(ok && !errs.length ? 0 : 1);

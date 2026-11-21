@@ -251,7 +251,7 @@ export class Travelers {
       this.jstats.inkomend = (this.jstats.inkomend || 0) + 1;
     }
     t.journey = { dep: r2.dep, arr: r2.arr, ritten: rides, van: inbound ? 'van ver' : src, naar: dest.name || null, lijnen: steps.filter(s => s.ride).map(s => s.ride.line) };
-    t.journey0 = t.journey; (this.journeyLog || (this.journeyLog = [])).push(t); if (this.journeyLog.length > 200) this.journeyLog.shift(); // voor diagnose en tests
+    t.journey0 = t.journey; (this.journeyLog || (this.journeyLog = [])).push(t); if (this.journeyLog.length > 60) this.journeyLog.shift(); // voor diagnose en tests
     this.stats.verschenen++; this.typeStats(type).verschenen++;
     this.jstats.gestart++; this.jstats.ritten += rides; this.jstats.overstappen += Math.max(0, rides - 1); if (!inbound) this.jstats[src === 'deur' ? 'vanuitDeur' : 'vanuitGevel']++;
     return t;
@@ -330,7 +330,7 @@ export class Travelers {
     t.check = { punten: (t.check?.punten || 0) + pts.length, nietBeloopbaar: (t.check?.nietBeloopbaar || 0) + bad, grootsteStap: Math.max(t.check?.grootsteStap || 0, step), grootsteHoogtestap: Math.max(t.check?.grootsteHoogtestap || 0, stepH) };
     { const ty = this.typeStats(t.type); ty.paden++; for (let i = 1; i < pts.length; i++) if (pts[i].y !== pts[i - 1].y && !pts[i].lift) ty.treden++; else if (pts[i].lift) ty.lift = (ty.lift || 0) + 1; ty.grootsteHoogtestap = Math.max(ty.grootsteHoogtestap, stepH); }
     this.stats.paden = (this.stats.paden || 0) + 1; this.stats.punten = (this.stats.punten || 0) + pts.length; this.stats.nietBeloopbaar = (this.stats.nietBeloopbaar || 0) + bad; this.stats.grootsteStap = Math.max(this.stats.grootsteStap || 0, step); this.stats.grootsteHoogtestap = Math.max(this.stats.grootsteHoogtestap || 0, stepH);
-    t.path = pts; t.pi = 0; t.state = 'lopen'; t.pathLen = pts.length; (t.paths || (t.paths = [])).push(pts); return true;
+    t.path = pts; t.pi = 0; t.state = 'lopen'; t.pathLen = pts.length; if (!t.auto) (t.paths || (t.paths = [])).push(pts); return true; // alle paden bewaren alleen voor geplande reizen (tests); vanzelf verschenen reizigers niet (geheugen)
   }
   update(dt, player) { const t0 = performance.now(); this.update0(dt, player); this.msMax('update', performance.now() - t0); }
   update0(dt, player) {
