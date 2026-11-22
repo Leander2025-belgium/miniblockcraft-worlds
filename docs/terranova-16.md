@@ -152,7 +152,58 @@ In het spel: pauzemenu → 👥 Samen spelen (proef) → adres `ws://…:8787` (
 
 ## Fase 9-13 — regressie, metingen
 
-(ingevuld na de volledige regressie, zie hieronder)
+Alle cijfers komen uit deze ontwikkelomgeving: headless Chromium met SwiftShader (rekent zonder grafische kaart,
+4 kernen). FPS-waarden zijn daardoor heel laag en alleen onderling vergelijkbaar (15 tegenover 16 op dezelfde machine),
+niet met een telefoon of pc.
+
+**Regressie** (alle controles zonder browser + 49 browsertests, één voor één):
+- `run-all` (alle controles zonder browser, inclusief de 5 nieuwe en de servertest): geslaagd.
+- 47 van de 49 browsertests slaagden in de eerste volledige ronde. `megatower` werd onderbroken door de tijdslimiet
+  van de achtergrondtaak (geen fout) en slaagde daarna apart.
+- `samenspelen` faalde twee keer: speler A zag de nieuwe positie van speler B nog niet na 2,5 s. Oorzaak: de test
+  wachtte een vaste tijd terwijl de spellus onder belasting traag is. De test wacht nu tot de positie aankomt (max.
+  15 s) en slaagt. Aan de game zelf is niets veranderd.
+- `prestatietest` bleef twee keer 15 minuten hangen (in de volledige ronde en in de eerste herkansing). Daarna slaagde
+  hij drie keer na elkaar in ± 2,5 minuut. De oorzaak van het hangen heb ik **niet gevonden**; bij een losse meting
+  verliep elke stap normaal. Dit blijft een open punt.
+
+**Benchmark 15 tegenover 16** (`tests/browser/bench.cjs`, zelfde profiel, zelfde machine, na elkaar;
+[`bench16/`](bench16/)):
+
+| Scène | 15 (FPS) | 16 (FPS) |
+|---|---|---|
+| Megatower overdag | 1,3 | 1,2 |
+| Megatower ’s nachts | 1,0 | 1,1 |
+| Laan met tram | 1,0 | 0,9 |
+| Metroperron | 3,3 | 3,4 |
+| Station Megatower Centraal | 0,9 | 0,9 |
+| Munkbay | 0,4 | 0,5 |
+| Alpen Hbf | 0,6 | 0,8 |
+
+Binnen de meetonzekerheid (± 10–20 % tussen twee runs) is er geen verschil. Een eerste run van 16 was veel trager
+(metro 0,7 FPS, `na-16-uitschieter.json`). Ik kon dat niet herhalen: een tweede volledige run en een meting per
+onderdeel van de spellus (verkeer, reizigers, laden, tekenen) gaven dezelfde waarden als 15. Die eerste run staat
+erbij zodat niets wordt weggelaten.
+
+**Duurtest 60 minuten** (`tests/browser/duurtest.cjs`, MIN=60, [`bench16/duurtest-60min.json`](bench16/duurtest-60min.json)):
+afwisselend door de stad vliegen, de toren in, bouwen, opslaan, van wereld wisselen en stilstaan. 61 minuten,
+49 metingen, geen fouten. JS-geheugen tussen 345 en 1400 MB, in de tweede helft licht dalend (−1,6 MB per minuut):
+geen lek gemeten. Maximaal 3230 geometrieën en 13 texturen.
+
+**Niet gemeten:** echte telefoons (iPhone, Android) en een echte grafische kaart. Het 30-FPS-onderzoek op de iPhone
+kan alleen met de prestatietest (📊) op het toestel zelf.
+
+**Gewijzigde bestanden** ten opzichte van `main`: 47 bestanden, ± 2050 regels erbij, ± 80 eraf. Nieuw: `js/adaptive.js`,
+`js/memdiag.js`, `js/weather.js`, `js/economy.js`, `js/multiplayer.js`, `server/`, `tools/depmap.mjs`, 6 browsertests,
+5 controles. Aangepast: o.a. `js/game.js`, `js/build.js`, `js/career.js`, `js/traffic.js`, `js/ovmap.js`,
+`js/megaplan.js`, `js/perftest.js`, `js/rail.js`, `js/drive.js`, `js/app.js`, `index.html`.
+
+**Bekende problemen:**
+- `prestatietest.cjs` bleef twee keer hangen zonder gevonden oorzaak (zie boven).
+- Docker-image van de server niet gebouwd (Docker Hub weigerde het basisimage door een downloadlimiet);
+  `docker compose config` is geldig.
+- Samen spelen is een proef: geen accounts, alleen een gedeeld wachtwoord, en geen gedeelde voertuigen of OV.
+- Gemeten vertraging alleen voor voertuigen in de buurt van de speler (daar rijdt de simulatie).
 
 ## Samenvatting van de 14 fasen
 
@@ -170,6 +221,6 @@ In het spel: pauzemenu → 👥 Samen spelen (proef) → adres `ws://…:8787` (
 | 9 | Multiplayer | **Prototype** | server + client + Docker Compose, getest met twee browsers; Docker-image niet gebouwd (Docker Hub-limiet) |
 | 10 | Audio | **Niet gebouwd** | |
 | 11 | Interface | **Niet gebouwd** | alleen nieuwe knoppen en schermen voor de nieuwe functies |
-| 12 | Stabiliteit, savegames | **Gedaan** (binnen deze omgeving) | compatibiliteitstest, crashherstel blijft, duurtest (zie hieronder) |
+| 12 | Stabiliteit, savegames | **Gedaan** (binnen deze omgeving) | compatibiliteitstest, crashherstel blijft, duurtest 60 min zonder lek (zie boven) |
 | 13 | Testsuite | **Uitgebreid** | 6 nieuwe browsertests, 5 nieuwe controles zonder browser, servertest |
 | 14 | Release | **Releasekandidaat op de branch** | niet gepubliceerd |
