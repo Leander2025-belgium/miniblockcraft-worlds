@@ -41,7 +41,8 @@ export class Builder {
     const w = this.g.world, from = w.get(x, y, z);
     if (from === b) return false;
     if (!w.set(x, y, z, b)) return false;
-    if (this.g.career) { if (b) this.g.career.onPlace(x, y, z); else this.g.career.onBreak(x, y, z); } // carrière: wat de speler zelf bouwt (js/career.js)
+    if (this.g.career) { if (b) this.g.career.onPlace(x, y, z); else this.g.career.onBreak(x, y, z); }
+    this.g.mp?.localEdit(x, y, z, b); // samen spelen: de server bevestigt en stuurt het naar de anderen // carrière: wat de speler zelf bouwt (js/career.js)
     if (this.cur) {
       const k = x + ',' + y + ',' + z, e = this.cur.get(k);
       if (e) e[4] = b; else this.cur.set(k, [x, y, z, from, b]);

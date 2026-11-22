@@ -243,7 +243,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
+      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1292,6 +1292,45 @@ const openOvMap = async () => { if (!game || !game.mega) return; const m = await
 $('#btn-ovmap')?.addEventListener('click', openOvMap);
 $('#btn-map-ov')?.addEventListener('click', openOvMap);
 $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
+// ---------- samen spelen (proef, js/multiplayer.js + server/mp-server.mjs) ----------
+const mpRoom = () => 'w:' + String(game?.meta?.id || 'wereld').replace(/[^\w:.-]/g, '_').slice(0, 44);
+function mpRender() {
+  const M = game?.mp, on = M && M.status === 'verbonden';
+  $('#mp-status').textContent = M ? `${M.status}${on ? ` als ${M.myName} · wereld ${M.room}` : ''}` : 'Niet verbonden.';
+  $('#mp-connect').hidden = !!on; $('#mp-leave').hidden = !on;
+  $('#mp-players').textContent = on ? `Andere spelers: ${[...M.others.values()].map(o => o.name).join(', ') || 'nog niemand'}` : '';
+  $('#mp-chat').innerHTML = (M?.chat || []).slice(-30).map(c => `<div>${c.text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</div>`).join('');
+}
+$('#btn-mp')?.addEventListener('click', () => {
+  if (!game) return;
+  let st = {}; try { st = JSON.parse(localStorage.getItem('terranova-mp') || '{}') || {}; } catch { /* */ }
+  $('#mp-url').value = st.url || 'ws://localhost:8787'; $('#mp-name').value = st.name || '';
+  mpRender(); game.showOverlay('mp');
+  clearInterval(game.mpTimer); game.mpTimer = setInterval(() => { if ($('#ov-mp').hidden) return clearInterval(game.mpTimer); mpRender(); }, 1000);
+});
+$('#mp-connect')?.addEventListener('click', async () => {
+  const url = $('#mp-url').value.trim(), name = $('#mp-name').value.trim();
+  if (!/^wss?:\/\//.test(url)) return flash('Adres moet beginnen met ws:// of wss://');
+  if (name.length < 2) return flash('Kies een naam (minstens 2 tekens)');
+  try { localStorage.setItem('terranova-mp', JSON.stringify({ url, name })); } catch { /* */ }
+  game.mp?.close();
+  const m = await import('./multiplayer.js');
+  game.mp = new m.Multiplayer(game, { url, name, token: $('#mp-token').value, room: mpRoom() });
+  mpRender(); await game.mp.connect(); mpRender();
+});
+$('#mp-leave')?.addEventListener('click', () => { game?.mp?.close(); if (game) game.mp = null; mpRender(); });
+const mpSend = () => { const t = $('#mp-say').value.trim(); if (!t || !game?.mp) return; game.mp.sendChat(t); $('#mp-say').value = ''; };
+$('#mp-send')?.addEventListener('click', mpSend);
+$('#mp-say')?.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') mpSend(); });
+$('#mp-share')?.addEventListener('click', () => {
+  const M = game?.mp; if (!M) return;
+  const p = game.player.pos; let best = game.drive?.a || null, bd = 80;
+  if (!best) for (const a of game.traffic?.agents || []) { if (a.dead || a.kind === 'walk') continue; const h = game.traffic.behind(a, 0, {}); const d = Math.hypot(h.x - p.x, h.z - p.z); if (d < bd) { bd = d; best = a; } }
+  if (!best) return flash('Geen voertuig in de buurt');
+  const h = game.traffic.behind(best, 0, {});
+  M.shareLook(`${{ bus: 'bus', tram: 'tram', metro: 'metro', train: 'trein', car: 'auto' }[best.kind] || best.kind}${best.line ? ' ' + best.line : ''}`, h.x, h.z); flash('Gedeeld ✓');
+});
+$('#mp-close')?.addEventListener('click', () => game && game.resume());
 $('#btn-memdiag')?.addEventListener('click', async () => { if (!game) return; const m = await import('./memdiag.js'); const r = m.memReport(game); window.__memReport = r; $('#diag-text').value = m.memText(r); game.showOverlay('diag'); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());

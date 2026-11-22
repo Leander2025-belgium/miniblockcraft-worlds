@@ -1132,6 +1132,8 @@ export class Game {
       this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y, visOff: this.visOff || 0 },
         0.2 + 0.8 * env.day, (mode !== 'first' || this.photo === true && this.settings.cam !== 'first') && !this.drive && !this.ride);
     }
+    // samen spelen (proef): eigen positie sturen, anderen vloeiend tonen; andere wereld geopend = verbinding stoppen
+    if (this.mp) { if (this.mp.room !== 'w:' + String(this.meta?.id || 'wereld').replace(/[^\w:.-]/g, '_').slice(0, 44)) { this.mp.close(); this.mp = null; } else this.mp.update(dt, 0.2 + 0.8 * env.day); }
     if (this.far) {
       this.far.gondolas.update(dt, env.day);
       this.far.lifts.update(dt, env.day);

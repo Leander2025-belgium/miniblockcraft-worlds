@@ -1,0 +1,11 @@
+{
+  "name": "terranova-multiplayer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Optionele multiplayerserver (prototype) voor TERRANOVA. De game werkt zonder deze server volledig offline.",
+  "type": "module",
+  "main": "mp-server.mjs",
+  "scripts": { "start": "node mp-server.mjs", "test": "node test-protocol.mjs" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ws": "8.18.0" }
+}

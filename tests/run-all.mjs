@@ -20,6 +20,7 @@ const checks = [
   ['Greenisland: remises (vrije plek, ballast en hal, uit- en inrukken zonder conflict)', 'tools/check-depots.mjs'],
   ['Megatower City: gevels (alle soorten, niet meer driehoeken dan vroeger)', 'tools/check-gevels.mjs'],
   ['Dubbeldekker: beide verdiepingen bereikbaar via de trap, elke zitplaats bij een loopplek', 'tools/check-dubbeldekker.mjs'],
+  ['Multiplayerserver (proef): aanmelden, posities, bouwvolgorde, weigeringen, ratelimiet, opslag', 'tools/check-multiplayer.mjs'],
   ['Adaptieve kwaliteit: 60 of stabiele 30 FPS op nagebootste toestellen, vaste grens Batterijbesparing', 'tools/check-adaptive.mjs'],
 ];
 let fail = 0;
