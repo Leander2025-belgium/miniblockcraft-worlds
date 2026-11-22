@@ -45,7 +45,9 @@ const PORT = 18787, DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'tn-mp-b-'));
   await A.waitForTimeout(1500);
   // B beweegt: A ziet hem bewegen
   await B.evaluate(() => { const g = window.blokGame(); g.player.pos.x += 3; });
-  await A.waitForTimeout(2500);
+  // wachten tot de nieuwe positie aankomt (onder zware belasting kan de spellus van B traag zijn), max. 15 s
+  for (let i = 0; i < 30; i++) { await A.waitForTimeout(500); if (await A.evaluate(() => { const o = [...window.blokGame().mp.others.values()][0]; return o && o.cur.x > 5156; })) break; }
+  await A.waitForTimeout(500);
   R.zien = await A.evaluate(() => { const g = window.blokGame(), o = [...g.mp.others.values()][0]; return o && { naam: o.name, x: +o.cur.x.toFixed(1), zichtbaar: o.av.group.visible, label: o.label.visible }; });
   R.bPos = await B.evaluate(() => +window.blokGame().player.pos.x.toFixed(1));
   // A bouwt een blok vlak bij zich (via de gewone bouwlaag), B krijgt het
