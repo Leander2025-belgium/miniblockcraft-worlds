@@ -248,15 +248,18 @@ export class Drive {
     } else if (this.car) {
       const c = this.car, S = this.spec;
       const hand = k.has('Space') || g.padStop || (this.bus && c.doorsOpen);
-      if (up && !(this.bus && c.doorsOpen)) c.speed += (c.speed < 0 ? 9 : S.acc * Math.max(0.1, 1 - c.speed / S.vmax)) * dt;
-      else if (down) c.speed -= (c.speed > 0.5 ? 9 : 2.5) * dt;
+      // grip van de weg (TERRANOVA 16, js/weather.js): nat, sneeuw of ijzel = trager optrekken en langer remmen
+      const grip = g.grip ?? 1; this.grip = grip;
+      if (up && !(this.bus && c.doorsOpen)) c.speed += (c.speed < 0 ? 9 : S.acc * Math.max(0.1, 1 - c.speed / S.vmax)) * (0.45 + 0.55 * grip) * dt;
+      else if (down) c.speed -= (c.speed > 0.5 ? 9 * grip : 2.5) * dt;
       else c.speed *= Math.pow(0.6, dt);
       if (hand) c.speed *= Math.pow(0.05, dt);
       c.speed = Math.max(-6, Math.min(S.vmax, c.speed));
       const target = (left ? 1 : 0) - (right ? 1 : 0);
       this.steer += (target - this.steer) * Math.min(1, dt * 5);
       const maxSteer = 0.55 / (1 + Math.abs(c.speed) / 10);
-      c.yaw += c.speed * Math.tan(this.steer * maxSteer) / S.wb * dt;
+      // weinig grip: de auto stuurt minder in bij snelheid (onderstuur)
+      c.yaw += c.speed * Math.tan(this.steer * maxSteer) / S.wb * dt * (Math.abs(c.speed) > 8 ? 0.55 + 0.45 * grip : 1);
       this.moveCar(c, dt);
       speed = c.speed;
       if (this.bus) { this.busHud(dt, up, down, hand); speed = c.speed; info = null; }

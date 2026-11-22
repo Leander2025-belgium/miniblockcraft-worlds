@@ -22,6 +22,7 @@ import { Ambient } from './ambient.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
 import { Adaptive, PROFILES } from './adaptive.js';
+import { weatherOf, snowStep, roadGrip, windAt } from './weather.js';
 // reisplanner in een Web Worker voor reizigers (js/planworker.js); zonder worker: geen async (de reiziger plant dan zelf)
 let PLAN_WORKER = null, PLAN_SEQ = 0; const PLAN_WAIT = new Map();
 function planAsyncOf() {
@@ -73,6 +74,7 @@ uniform mat4 shadowMatrix;
 uniform float shadowOn;
 uniform float isUnder;
 uniform float wet;
+uniform float snowCover;
 uniform float flashOn;
 uniform vec3 flashPos;
 uniform vec3 flashDir;
@@ -235,6 +237,12 @@ void main() {
         col *= 1.0 - 0.2 * wet * (0.55 + 0.45 * streak);
       }
     }
+    // sneeuwdek (TERRANOVA 16, js/weather.js): bovenkanten worden wit, eerst vlekkerig, dan dicht; niet binnen of onder de grond
+    if (snowCover > 0.01 && isUnder < 0.5 && indoor < 0.5 && n.y > 0.6 && !emissive) {
+      float spot = h3(floor(vWorld));
+      float k = smoothstep(spot - 0.15, spot + 0.15, snowCover * 1.3 - 0.1);
+      col = mix(col, vec3(0.92, 0.94, 0.98) * (0.22 + 0.78 * day) * (0.65 + 0.35 * sh), k * 0.92);
+    }
   }
   // atmosfeer: verre dingen nemen de luchtkleur aan, warmer in de richting van de zon
   float fog = smoothstep(fogNear, fogFar, vDist);
@@ -387,7 +395,7 @@ export class Game {
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
       shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
-      wet: { value: 0 }, isUnder: { value: 0 }, streetY: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
+      wet: { value: 0 }, snowCover: { value: 0 }, isUnder: { value: 0 }, streetY: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
       fillTile: { value: new THREE.Vector2(TILE_INDEX.room_fill % ATLAS_COLS, Math.floor(TILE_INDEX.room_fill / ATLAS_COLS)) },
@@ -1098,6 +1106,7 @@ export class Game {
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
       u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
       if (ug) { u.fogColor.value.set(0.01, 0.01, 0.015); u.fogNear.value = 8; u.fogFar.value = 64; }
+      else if (this.curWeather === 'mist') { u.fogNear.value = 8; u.fogFar.value = Math.min(u.fogFar.value, 120); }
       else if (this.curWeather === 'rain' || this.curWeather === 'storm' || this.curWeather === 'snow') { u.fogNear.value = Math.min(u.fogNear.value, 60); u.fogFar.value = Math.min(u.fogFar.value, this.curWeather === 'storm' ? 380 : 650); }
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
@@ -1340,8 +1349,14 @@ export class Game {
     if (w === 'gnmi') w = this.gnmiWeather() || 'clear';
     if (w === 'auto') { const t = Math.floor(this.clock / 240) % 5; w = ['clear', 'cloudy', 'rain', 'clear', 'storm'][t]; }
     this.curWeather = w;
-    const grey = { clear: 0, cloudy: 0.35, rain: 0.55, storm: 0.75, snow: 0.45 }[w] || 0;
-    if (this.sky) this.sky.cover = { clear: 0.38, cloudy: 0.7, rain: 0.85, storm: 0.95, snow: 0.8 }[w] ?? 0.45; // wolken aan de hemel
+    const W = weatherOf(w), grey = W.grey;
+    if (this.sky) this.sky.cover = W.cover; // wolken aan de hemel
+    // TERRANOVA 16: wind, sneeuwdek en grip van de weg (js/weather.js)
+    this.wind = windAt(w, this.clock || 0);
+    this.snowCover = snowStep(this.snowCover || 0, w, dt);
+    for (const m of this.mats) m.uniforms.snowCover.value = this.snowCover;
+    this.grip = roadGrip(w, this.wet || 0, this.snowCover);
+    if (this.traffic) this.traffic.weatherSpeed = Math.min(W.speed, 1 - 0.3 * this.snowCover);
     if (grey) {
       const g = 0.62 * env.day + 0.05;
       env.sky = env.sky.map(v => v * (1 - grey) + g * grey);
@@ -1349,14 +1364,14 @@ export class Game {
       env.sunColor = env.sunColor.map(v => v * (1 - grey * 0.75));
     }
     // natheid neemt langzaam toe en droogt weer op
-    const wantWet = w === 'rain' ? 0.8 : w === 'storm' ? 1 : 0;
+    const wantWet = W.wet;
     this.wet = (this.wet || 0) + (wantWet - (this.wet || 0)) * Math.min(1, dt * (wantWet > (this.wet || 0) ? 0.08 : 0.03));
     for (const m of this.mats) m.uniforms.wet.value = this.wet;
     // bliksem
     if (w === 'storm' && Math.random() < dt * 0.06) this.flashT = 0.25;
     if (this.flashT > 0) { this.flashT -= dt; env.sky = env.sky.map(v => Math.min(1, v + 0.5)); }
     // neerslag rond de camera
-    const want = (w === 'rain' || w === 'storm') ? 'rain' : w === 'snow' ? 'snow' : null;
+    const want = W.precip;
     if (!this.precip || this.precip.kind !== want) {
       if (this.precip) { this.scene.remove(this.precip.obj); this.precip.obj.geometry.dispose(); }
       this.precip = null;
@@ -1378,6 +1393,10 @@ export class Game {
         if (!rain) { P.pos[o] += Math.sin(this.clock + i) * dt * 0.4; }
         if (y < 0) { y += 40; }
         P.pos[o + 1] = y; if (rain) P.pos[o + 4] = y - 0.7;
+        // wind: neerslag drijft mee en valt schuin (binnen het vak van 60 m rond de camera)
+        const wx = this.wind.x * dt * (rain ? 0.5 : 0.9), wz = this.wind.z * dt * (rain ? 0.5 : 0.9);
+        let nx = P.pos[o] + wx, nz = P.pos[o + 2] + wz; if (nx > 30) nx -= 60; else if (nx < -30) nx += 60; if (nz > 30) nz -= 60; else if (nz < -30) nz += 60;
+        P.pos[o] = nx; P.pos[o + 2] = nz; if (rain) { P.pos[o + 3] = nx - this.wind.x * 0.03; P.pos[o + 5] = nz - this.wind.z * 0.03; }
       }
       P.obj.position.set(Math.floor(c.x / 60) * 0 + c.x, c.y - 20, c.z);
       P.obj.geometry.attributes.position.needsUpdate = true;

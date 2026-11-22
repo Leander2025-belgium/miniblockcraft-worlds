@@ -84,7 +84,7 @@ export function trainPhysics(tr) {
   return { M, Md: Md || M * 0.3, F: F || 150, P: P || 1500, len: Math.round(len - GAP), aero: tr.cars.some(c => c.d.type === 'iceHead') ? 0.7 : 1 };
 }
 // kleefkracht wiel–rail: droog 0,30; regen 0,20; onweer 0,17; sneeuw 0,12
-export function adhesion(w) { return w === 'snow' ? 0.12 : w === 'storm' ? 0.17 : w === 'rain' ? 0.2 : 0.3; }
+export function adhesion(w) { return w === 'snow' ? 0.12 : w === 'storm' ? 0.17 : w === 'rain' ? 0.2 : w === 'mist' ? 0.25 : 0.3; } // mist: vochtige spoorstaven
 const CAR_LEN = { ddCab: 26, ddMid: 26, sbCab: 22, sbMid: 22, mCab: 18, mMid: 18, axCab: 26, axMid: 26, regCab: 26, regMid: 26, locoD: 20, loco: 19, coach1: 26, coach2: 26, dining: 26, sleeper: 26, panorama: 24, emuCab: 26, emuMid: 26, iceHead: 26, ice: 26, rack: 16, rackLoco: 12, tram: 15, bus: 12, box: 15, tank: 14, flat: 15 };
 function design(vtype, liv) {
   // materieel per categorie (js/trainshell.js CAR_BASE): eigen lengte en deuren, de indeling van het basistype

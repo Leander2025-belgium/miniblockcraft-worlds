@@ -754,6 +754,7 @@ export class Traffic {
         this.place(a); continue;
       }
       let target = a.kind === 'walk' ? SPEED.walk * (0.85 + a.r * 0.3) : a.kind === 'ship' ? a.vmax : SPEED[a.kind] * (0.85 + a.r * 0.3);
+      if (a.kind !== 'walk' && a.kind !== 'ship' && this.weatherSpeed) target *= this.weatherSpeed; // voorzichtiger bij regen, sneeuw, mist (js/weather.js)
       if (a.emergency) target *= 1.35;
       if (e.conn) target = Math.min(target, 6.5);
       // verkeerslicht: rood of oranje = stoppen voor de streep
