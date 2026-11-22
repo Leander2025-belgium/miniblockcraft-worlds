@@ -549,13 +549,15 @@ export class Traffic {
   // gemeten vertraging (TERRANOVA 16): per rit, van aankomst tot aankomst aan de volgende halte, t.o.v. de geplande
   // tijd (afgelegde weg / geplande rijsnelheid + geplande halteertijd). Alleen wat echt gereden is sinds de rit in
   // beeld kwam; daarvoor is de vertraging 'niet beschikbaar'. Positief = te laat, negatief = te vroeg.
+  get arrAgent() { return this._arrAgent || (this._arrAgent = new WeakMap()); }
   measureDelay(a) {
     const T = a.trip, now = this.clock || 0; if (!T || !PLAN_SPEED[a.kind]) return;
-    if (T.arrClock != null && T.arrAgent === a && (a.odo || 0) > T.arrOdo) {
+    if (T.arrClock != null && this.arrAgent.get(T) === a && (a.odo || 0) > T.arrOdo) {
       const run = a.odo - T.arrOdo, plan = run / PLAN_SPEED[a.kind] + (T.planDwell || 0), act = now - T.arrClock;
       if (act > 0 && act < 3600 && run < 8000) { T.delay = Math.round((T.delay || 0) + act - plan); T.measured = (T.measured || 0) + 1; T.lastSeg = { m: Math.round(run), gepland_s: Math.round(plan), echt_s: Math.round(act) }; }
     }
-    T.arrClock = now; T.arrOdo = a.odo || 0; T.arrAgent = a; T.planDwell = DWELL[this.period || 'dal'][a.kind] ?? 12;
+    T.arrClock = now; T.arrOdo = a.odo || 0; this.arrAgent.set(T, a); // geen verwijzing in de rit zelf (die gaat naar JSON)
+    T.planDwell = DWELL[this.period || 'dal'][a.kind] ?? 12;
   }
   move(a, dist) {
     let guard = 0;
