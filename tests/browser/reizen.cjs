@@ -1,4 +1,6 @@
 // TERRANOVA 15 — hele reizen van deur tot deur (js/journeys.js + js/travelers.js) in Megatower City.
+// (TERRANOVA 16: zonder de bewoners van js/society.js — deze test controleert de reismechaniek met willekeurige
+// reizen van 1–4,5 km; de bewoners hebben ook korte wandelingen en worden getest in bewoners.cjs.)
 const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
 const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_modules/three/build/three.module.js');
@@ -8,7 +10,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.route('**/three.module.js', r => r.fulfill({ body: fs.readFileSync(THREE_PATH), contentType: 'application/javascript' }));
   await p.goto('http://localhost:8765/#debug');
-  await p.evaluate(() => localStorage.setItem('blokstad-settings', JSON.stringify({ hour: 8, cycle: false, weather: 'clear', weatherSet: true, view: 96, lod: 600, quality: 'fast', auto: false })));
+  await p.evaluate(() => localStorage.setItem('blokstad-settings', JSON.stringify({ hour: 8, cycle: false, weather: 'clear', weatherSet: true, view: 96, lod: 600, quality: 'fast', auto: false, bewoners: false })));
   await p.reload();
   await p.evaluate(() => document.getElementById('btn-mega').click());
   await p.waitForFunction(() => { const g = window.blokGame && window.blokGame(); return g && g.running && g.mega && g.traffic; }, null, { timeout: 180000 });

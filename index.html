@@ -361,6 +361,15 @@
   body.a11y-calm *, body.a11y-calm *::before, body.a11y-calm *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
   #captions { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; max-width: 90vw; }
   #captions .cap { background: rgba(0,0,0,.78); color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 1.05em; text-align: center; }
+  .soc-bars { display: grid; gap: 3px; }
+  .soc-bar { display: grid; grid-template-columns: 130px 1fr 48px; align-items: center; gap: 6px; font-size: .9em; }
+  .soc-bar i { display: block; height: 12px; border-radius: 3px; min-width: 1px; }
+  .soc-bar b { text-align: right; }
+  .soc-list { margin: 0; padding-left: 16px; font-size: .9em; }
+  .soc-person { margin: 6px 0; padding: 6px 8px; background: rgba(255,255,255,.05); border-radius: 6px; font-size: .9em; }
+  .soc-day { position: relative; height: 12px; margin: 4px 0; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+  .soc-day i { position: absolute; top: 0; bottom: 0; }
+  .soc-day u { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
 </style>
 </head>
 <body>
@@ -760,6 +769,15 @@
     </div>
   </div>
   <div id="perf-hud" hidden style="position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(16,20,28,.85);color:#9fe0ff;padding:6px 14px;border-radius:10px;font-size:14px;z-index:40"></div>
+  <div class="ov" id="ov-society" hidden>
+    <div class="card map-card">
+      <div class="row" style="align-items:center"><h2 style="margin:0">👪 Bewoners</h2><span class="sp"></span>
+        <label class="small">Dag <select id="soc-dow"><option value="">werkdag (standaard)</option><option value="1">maandag</option><option value="2">dinsdag</option><option value="3">woensdag</option><option value="4">donderdag</option><option value="5">vrijdag</option><option value="6">zaterdag</option><option value="0">zondag</option></select></label>
+        <button class="btn" id="soc-close">✕</button></div>
+      <p class="help" style="margin-top:4px">Iedere bewoner heeft een woning, een werk- of schoolplek en een eigen dagritme (ook ploegendiensten, studenten en gepensioneerden; het weekend is anders). De reizigers op straat zijn bewoners die op dit moment echt onderweg zijn.</p>
+      <div id="soc-body"></div>
+    </div>
+  </div>
   <div class="ov" id="ov-mp" hidden>
     <div class="card map-card">
       <h2>👥 Samen spelen (proef)</h2>
@@ -828,6 +846,7 @@
         <button class="btn" id="btn-memdiag" title="Wat houdt de game nu in het geheugen vast, en wat lijkt ongebruikt?">🧠 Geheugen</button>
         <button class="btn" id="btn-megaplan" hidden>🧭 Reisplanner</button>
         <button class="btn" id="btn-ovmap" hidden>🗺 Live OV-kaart</button>
+        <button class="btn" id="btn-society" hidden title="Wie woont hier, wat doen ze vandaag, wie is er onderweg?">👪 Bewoners</button>
         <button class="btn" id="btn-career">📋 Carrière</button>
       </div>
       <label>Opdrachten</label>
@@ -882,6 +901,7 @@
       <section class="tabpane" data-pane="wereld" hidden>
       <label>Tijd van de dag: <span id="set-hour-label"></span>
         <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
+      <label class="check"><input type="checkbox" id="set-bewoners"> Bewoners met een dagritme (Megatower City: wie op straat loopt, is echt onderweg)</label>
       <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
       <label>Weer
         <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw (blijft liggen)</option><option value="mist">Mist (zicht ± 120 m)</option><option value="wind">Harde wind</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>

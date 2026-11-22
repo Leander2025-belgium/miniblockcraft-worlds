@@ -1456,6 +1456,8 @@ export class Game {
       // Megatower City: hele reizen van deur tot deur met de reisplanner (TERRANOVA 15, js/journeys.js)
       if (this.tiled && this.tiled.spec.megatower) import('./megatower.js').then((M) => { const T = this.travelers; if (!T) return; T.tower = { at: (p) => { if (!M.inTowerBox(p.x, p.z)) return null; const f = M.floorAt(Math.floor(p.y)); return { f, zone: M.zoneOf(f), y: M.floorY(f) }; } }; }).catch((e) => console.error(e));
       if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, planAsync: planAsyncOf(), places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
+      // bewoners met een dagritme (TERRANOVA 16 fase 5, js/society.js): de reizigers zijn bewoners die nu echt onderweg zijn
+      if (this.tiled && this.tiled.spec.megatower && this.settings.bewoners !== false) { const T = this.travelers; this.societyOn().then((S) => { if (S && this.travelers === T) T.society = S; }).catch((e) => console.error(e)); }
     }
     return this.travelers;
   }
@@ -2008,8 +2010,16 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const sob = document.getElementById('btn-society'); if (sob) sob.hidden = !this.mega; const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
+  }
+  // de bevolking van Megatower City (één keer opgebouwd, ± 0,1 s); dag van de week: instelling 'dag' (scherm Bewoners), anders een gewone werkdag (dinsdag)
+  societyOn() {
+    if (this.societyP) return this.societyP;
+    return (this.societyP = Promise.all([import('./society.js'), import('./megacity.js')]).then(([S, M]) => {
+      const soc = new S.Society(S.megaPlaces(M), { n: 12000, zoneName: M.zoneName });
+      return (this.society = { soc, dow: () => (Number.isInteger(this.settings.dag) ? this.settings.dag : 2), stats: { reizen: 0, geenBewoner: 0 } });
+    }));
   }
   resume() {
     if (this.touch) { this.setPaused(false); return; }
@@ -2105,10 +2115,10 @@ export class Game {
     }
     const fpsEl = document.getElementById('set-fps');
     if (fpsEl) { fpsEl.checked = !!this.settings.fps; if (!fpsEl.dataset.bound) { fpsEl.dataset.bound = '1'; fpsEl.addEventListener('change', () => { this.settings.fps = fpsEl.checked; saveSettings(this.settings); }); } }
-    for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
+    for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto'], ['set-bewoners', 'bewoners']]) {
       const el = document.getElementById(id); if (!el) continue;
       el.checked = this.settings[key] !== false;
-      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.adaptive = null; this.viewCut = 0; this.applyQuality(); } saveSettings(this.settings); }); }
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.adaptive = null; this.viewCut = 0; this.applyQuality(); } saveSettings(this.settings); if (key === 'bewoners' && this.travelers) { if (el.checked) this.societyOn().then((S) => { if (this.travelers) this.travelers.society = this.mega ? S : null; }); else this.travelers.society = null; } }); }
     }
     const lodR = document.getElementById('set-lod');
     if (lodR) {

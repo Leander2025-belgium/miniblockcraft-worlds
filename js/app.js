@@ -257,7 +257,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
+      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), society: $('#ov-society'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1364,6 +1364,11 @@ $('#sp-share')?.addEventListener('click', () => {
   M.shareLook(`${{ bus: 'bus', tram: 'tram', metro: 'metro', train: 'trein', car: 'auto' }[best.kind] || best.kind}${best.line ? ' ' + best.line : ''}`, h.x, h.z); flash('Gedeeld ✓');
 });
 $('#sp-close')?.addEventListener('click', () => game && game.resume());
+// TERRANOVA 16 fase 5: scherm Bewoners
+async function showSociety() { if (!game) return; const m = await import('./societyview.js'); $('#soc-dow').value = Number.isInteger(game.settings.dag) ? String(game.settings.dag) : ''; window.__society = await m.renderSociety(game, $('#soc-body')); }
+$('#btn-society')?.addEventListener('click', async () => { if (!game) return; game.showOverlay('society'); await showSociety(); });
+$('#soc-dow')?.addEventListener('change', () => { if (game) { const d = $('#soc-dow').value; if (d === '') delete game.settings.dag; else game.settings.dag = +d; try { localStorage.setItem('blokstad-settings', JSON.stringify(game.settings)); } catch { /* geen opslag */ } } showSociety(); }); // de stad volgt de gekozen dag
+$('#soc-close')?.addEventListener('click', () => game && game.showOverlay('pause'));
 $('#btn-memdiag')?.addEventListener('click', async () => { if (!game) return; const m = await import('./memdiag.js'); const r = m.memReport(game); window.__memReport = r; $('#diag-text').value = m.memText(r); game.showOverlay('diag'); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
