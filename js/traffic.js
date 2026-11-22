@@ -236,6 +236,8 @@ function consist(kind, r) {
 }
 const MAX = { police: 12, ambulance: 8, fire: 6, beaconCarL: 12, beaconCarR: 12, beaconVanL: 8, beaconVanR: 8, beaconTruckL: 6, beaconTruckR: 6, metroCab: 24, metroMid: 48, metro2Cab: 24, metro2Mid: 48, tram2Cab: 40, tram2Mid: 60, busNew: 24, busNewDoors: 24, metroDoorsCab: 24, metroDoorsMid: 48, metroLeaf: 900, sedan: 160, hatch: 140, suv: 100, van: 60, taxi: 40, bus: 30, tramCab: 40, tramMid: 60, busCity: 24, busElec: 24, busArtF: 16, busArtR: 16, busCoach: 8, busMini: 10, busDD: 10, busRegio: 10, busDDDoors: 10, busRegioDoors: 10, busCityDoors: 24, busElecDoors: 24, busArtFDoors: 16, busArtRDoors: 16, busCoachDoors: 8, busMiniDoors: 10, tramDoorsCab: 40, tramDoorsMid: 60, iceHead: 16, iceCoach: 60, regioCab: 12, regioCoach: 40 };
 const SPEED = { car: 13, bus: 10, tram: 11, train: 22, walk: 1.35, ship: 6, metro: 17 };
+// geplande rijsnelheid tussen twee haltes (zonder halteertijd), voor de gemeten vertraging (TERRANOVA 16)
+export const PLAN_SPEED = { bus: 7.5, tram: 8.5, metro: 14, train: 18 };
 
 export class Traffic {
   // haltes en verkeerslichten van het netwerk (voor het busdashboard en de wachtenden aan bushaltes)
@@ -544,8 +546,20 @@ export class Traffic {
     for (let d = 0; d <= ne.len; d += 0.5) { at(ne, d, this.tmpB); const q = Math.hypot(this.tmpB.x - tail.x, this.tmpB.z - tail.z); if (q < bd) { bd = q; best = d; } }
     a.route = nr; a.d = best; a.lastStop = null;
   }
+  // gemeten vertraging (TERRANOVA 16): per rit, van aankomst tot aankomst aan de volgende halte, t.o.v. de geplande
+  // tijd (afgelegde weg / geplande rijsnelheid + geplande halteertijd). Alleen wat echt gereden is sinds de rit in
+  // beeld kwam; daarvoor is de vertraging 'niet beschikbaar'. Positief = te laat, negatief = te vroeg.
+  measureDelay(a) {
+    const T = a.trip, now = this.clock || 0; if (!T || !PLAN_SPEED[a.kind]) return;
+    if (T.arrClock != null && T.arrAgent === a && (a.odo || 0) > T.arrOdo) {
+      const run = a.odo - T.arrOdo, plan = run / PLAN_SPEED[a.kind] + (T.planDwell || 0), act = now - T.arrClock;
+      if (act > 0 && act < 3600 && run < 8000) { T.delay = Math.round((T.delay || 0) + act - plan); T.measured = (T.measured || 0) + 1; T.lastSeg = { m: Math.round(run), gepland_s: Math.round(plan), echt_s: Math.round(act) }; }
+    }
+    T.arrClock = now; T.arrOdo = a.odo || 0; T.arrAgent = a; T.planDwell = DWELL[this.period || 'dal'][a.kind] ?? 12;
+  }
   move(a, dist) {
     let guard = 0;
+    a.odo = (a.odo || 0) + Math.abs(dist); // afgelegde weg (voor de gemeten vertraging)
     for (;;) {
       const r = a.route[0], e = r.e;
       a.d += r.dir * dist; dist = 0;
@@ -806,6 +820,7 @@ export class Traffic {
             const dist = (goal - a.d) * r.dir;
             if (dist < -1 || dist > 120) continue;
             if (dist < 0.6) {
+              this.measureDelay(a);
               a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0;
               // haltes die echt bediend worden (voor de reizigers die vanzelf verschijnen, js/travelers.js): plek van het voertuig aan de halte
               a.stopSeq = (a.stopSeq || 0) + 1; { const hm = this.behind(a, a.L / 2, {}); (this.served || (this.served = new Map())).set(key + '|' + a.kind, { name: a.atStop, kind: a.kind, x: hm.x, y: hm.y, z: hm.z, t: this.clock || 0 }); }

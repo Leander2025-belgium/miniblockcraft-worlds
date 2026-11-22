@@ -158,7 +158,7 @@ export function planHtml(r) {
   const min = (s) => Math.max(1, Math.round(s / 60));
   return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, bus om de ${BUS_HEADWAY[r.per] / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
     <div><b>Aankomst ${fmt(r.arr)}</b> · reistijd ${min(r.arr - r.dep)} min · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · ${r.wandelen} m wandelen</div>
-    <div class="small muted">Vertrek ${fmt(r.dep)} · ${r.ritten} rit${r.ritten === 1 ? '' : 'ten'} · totale wachttijd ${min(r.wachten || 0)} min · vertraging: niet gemeten in Megatower City (de voertuigen rond je volgen deze dienstregeling niet op de minuut)</div>
+    <div class="small muted">Vertrek ${fmt(r.dep)} · ${r.ritten} rit${r.ritten === 1 ? '' : 'ten'} · totale wachttijd ${min(r.wachten || 0)} min · vertraging: de planner rekent met de dienstregeling; de gemeten vertraging per voertuig staat op de live OV-kaart</div>
     <ol class="plan-legs">${r.legs.map(l => l.mode === 'wandelen'
       ? `<li>${ICON.wandelen} ${fmt(l.dep)} wandel ${l.m} m naar <b>${l.to.name}</b> (${min(l.arr - l.dep)} min)</li>`
       : `<li>${ICON[l.mode]} ${fmt(l.dep)} <b>${l.line}</b> richting ${l.dir}${l.perron ? `, perron ${l.perron}` : ''}, van ${l.from.name} naar <b>${l.to.name}</b> · aankomst ${fmt(l.arr)} (${l.stops} halte${l.stops === 1 ? '' : 's'}${l.wait > 30 ? ` · ${min(l.wait)} min wachten` : ''})</li>`).join('')}</ol>`;
