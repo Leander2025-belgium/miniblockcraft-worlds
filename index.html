@@ -213,6 +213,10 @@
   }
   .look { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 10px; }
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
+  .mixer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 4px 0 8px; }
+  .mixer .small { grid-column: 1 / -1; }
+  .mixer .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
+  .mixer input[type=range] { width: 55%; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
   #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
   #t-flash { top: calc(10px + var(--st)); right: calc(312px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
@@ -821,7 +825,12 @@
           <option value="ultra">Ultra (schaduwen 4096, scherpst)</option>
         </select></label>
       <label class="check"><input type="checkbox" id="set-shadows"> Zonneschaduwen</label>
-      <label class="check"><input type="checkbox" id="set-ambient"> Omgevingsgeluid (stad, wind, regen, galm in tunnels)</label>
+      <label class="check"><input type="checkbox" id="set-ambient"> Geluid van de omgeving (stad, wind, regen, donder, vogels, voetstappen, gong aan de halte)</label>
+      <div class="mixer" id="mixer"><span class="small">Geluid:</span>
+        <label class="mini">Alles <input type="range" id="mix-master" min="0" max="100" step="5" aria-label="Hoofdvolume"></label>
+        <label class="mini">Omgeving <input type="range" id="mix-omgeving" min="0" max="100" step="5" aria-label="Volume omgeving"></label>
+        <label class="mini">Voertuigen <input type="range" id="mix-voertuigen" min="0" max="100" step="5" aria-label="Volume voertuigen"></label>
+        <label class="mini">Effecten <input type="range" id="mix-effecten" min="0" max="100" step="5" aria-label="Volume effecten"></label></div>
       <label class="check"><input type="checkbox" id="set-fps"> FPS-meter tonen (F3): beelden per seconde, driehoeken, geheugen, laadtijd</label>
       <label class="check"><input type="checkbox" id="set-auto"> Kwaliteit automatisch aanpassen (vloeiend blijven)</label>
       <label>Verre gebouwen tot: <span id="set-lod-label"></span>

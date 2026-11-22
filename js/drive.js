@@ -4,23 +4,26 @@
 // - Auto en bus: vrij rijden met gas, rem/achteruit en sturen; het voertuig volgt de grond en botst tegen muren.
 // - Meerijden: als passagier in elk voertuig dat in de buurt rijdt.
 import * as THREE from 'three';
-import { RailSound } from './sound.js';
+import { RailSound, bus, audioCtx } from './sound.js';
 import { SEAT_SPOTS } from './vehicles.js';
 
 const KMH = 3.6;
-let audio = null;
-function ctx() {
-  if (audio) return audio;
-  try { const A = window.AudioContext || window.webkitAudioContext; audio = new A(); } catch { audio = null; }
-  return audio;
+// TERRANOVA 16: versnelling en toerental (0..1) bij een snelheid in m/s, voor het motorgeluid
+export function gearOf(speed, isBus = false) {
+  const G = isBus ? [0, 4, 8, 13, 18, 30] : [0, 5, 10, 16, 23, 31, 60], s = Math.abs(speed);
+  let gi = G.findIndex((v, i) => i > 0 && s < v); if (gi === -1) gi = G.length - 1;
+  const lo = G[gi - 1], hi = G[gi];
+  return { gear: gi, rpm: 0.25 + 0.75 * Math.min(1, (s - lo) / Math.max(1, hi - lo)) };
 }
+// één gedeelde AudioContext (js/sound.js): zo lopen alle geluiden via dezelfde mixer
+function ctx() { return audioCtx(); }
 function chime() {
   const a = ctx(); if (!a) return;
   [659, 523].forEach((f, i) => {
     const o = a.createOscillator(), g = a.createGain(); o.type = 'sine'; o.frequency.value = f;
     g.gain.setValueAtTime(0, a.currentTime + i * 0.45); g.gain.linearRampToValueAtTime(0.18, a.currentTime + i * 0.45 + 0.03);
     g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + i * 0.45 + 0.9);
-    o.connect(g).connect(a.destination); o.start(a.currentTime + i * 0.45); o.stop(a.currentTime + i * 0.45 + 1);
+    o.connect(g).connect(bus('effecten')); o.start(a.currentTime + i * 0.45); o.stop(a.currentTime + i * 0.45 + 1);
   });
 }
 function speak(text) {
@@ -110,7 +113,7 @@ export class Drive {
       this.osc = a.createOscillator(); this.osc.type = 'sawtooth'; this.osc.frequency.value = 40;
       const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
       this.gain = a.createGain(); this.gain.gain.value = 0;
-      this.osc.connect(f).connect(this.gain).connect(a.destination); this.osc.start();
+      this.osc.connect(f).connect(this.gain).connect(bus('voertuigen')); this.osc.start();
       if (a.state === 'suspended') a.resume();
     } catch { this.osc = null; }
   }
@@ -253,6 +256,7 @@ export class Drive {
       if (up && !(this.bus && c.doorsOpen)) c.speed += (c.speed < 0 ? 9 : S.acc * Math.max(0.1, 1 - c.speed / S.vmax)) * (0.45 + 0.55 * grip) * dt;
       else if (down) c.speed -= (c.speed > 0.5 ? 9 * grip : 2.5) * dt;
       else c.speed *= Math.pow(0.6, dt);
+      this.braking = !!(down && c.speed > 0.5) || !!(hand && Math.abs(c.speed) > 0.5);
       if (hand) c.speed *= Math.pow(0.05, dt);
       c.speed = Math.max(-6, Math.min(S.vmax, c.speed));
       const target = (left ? 1 : 0) - (right ? 1 : 0);
@@ -283,7 +287,16 @@ export class Drive {
         <div class="dh-row muted">V camera · H uitstappen${this.cam === 'walk' ? ' · WASD lopen' : ''}</div>`;
     }
     if (this.rs) { const c = this.a.player; const dv = speed - (this.rsV ?? speed); this.rsV = speed; this.rs.update(dt, speed, c ? c.throttle : dv > 0.002 ? 0.7 : 0.05, c ? (c.emergency ? 1 : c.brake) : dv < -0.004 ? 0.8 : 0, !['chase', 'side'].includes(this.cam)); }
-    if (this.gain) { const s = Math.abs(speed); this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * (this.rail ? 4 : 7); }
+    if (this.gain) {
+      // TERRANOVA 16: toerental met versnellingen (auto en bus): het toerental stijgt per versnelling en zakt bij het schakelen
+      const s = Math.abs(speed), up = !!(this.g.keys && (this.g.keys.has('KeyW') || this.g.keys.has('ArrowUp'))) || !!this.g.padUp;
+      if (this.rail) { this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * 4; }
+      else {
+        const { gear, rpm } = gearOf(s, this.bus); this.gear = gear; this.rpm = +(800 + rpm * (this.bus ? 1600 : 4200)).toFixed(0);
+        this.osc.frequency.value = (this.bus ? 22 : 30) + rpm * (this.bus ? 38 : 75);
+        this.gain.gain.value = Math.min(0.06, 0.014 + rpm * 0.02 + (up ? 0.012 : 0));
+      }
+    }
     if (this.hud && info !== null && this.t - (this.hudT || 0) > 0.15) {
       this.hudT = this.t;
       this.hud.innerHTML = `<div class="dh-speed">${Math.round(Math.abs(speed) * KMH)}<small> km/h</small></div><div class="dh-info">${info}</div>`;

@@ -821,6 +821,7 @@ export class Traffic {
             if (dist < -1 || dist > 120) continue;
             if (dist < 0.6) {
               this.measureDelay(a);
+              if (this.onArrive) { try { this.onArrive(a, this.behind(a, a.L / 2, {})); } catch { /* geluid mag het verkeer nooit stoppen */ } }
               a.v = 0; a.wait = a.dwell = (DWELL[this.period || 'dal'][a.kind] ?? 12); a.platN = this.platformSide(a); a.lastStop = key; a.atStop = (e.stopNames && e.stopNames[e.stops.indexOf(sd)]) || 'Station'; target = 0;
               // haltes die echt bediend worden (voor de reizigers die vanzelf verschijnen, js/travelers.js): plek van het voertuig aan de halte
               a.stopSeq = (a.stopSeq || 0) + 1; { const hm = this.behind(a, a.L / 2, {}); (this.served || (this.served = new Map())).set(key + '|' + a.kind, { name: a.atStop, kind: a.kind, x: hm.x, y: hm.y, z: hm.z, t: this.clock || 0 }); }

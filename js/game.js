@@ -19,6 +19,8 @@ import { diag } from './diag.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
+import { Soundscape } from './soundscape.js';
+import { setMix, mixState } from './sound.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
 import { Adaptive, PROFILES } from './adaptive.js';
@@ -1131,6 +1133,12 @@ export class Game {
         this.ambient.update(0.5, { vehicles: Math.min(n, 60), height: p.pos.y - (this.meta && this.meta.ground || 0), weather: this.curWeather, under: ug, muted: this.paused || document.hidden });
       }
     } else if (this.ambient) { this.ambient.stop(); this.ambient = null; }
+    // geluidslandschap (TERRANOVA 16, js/soundscape.js): voetstappen, donder, vogels/krekels, gong, banden, demping
+    if (this.settings.ambient !== false) {
+      if (!this.sounds) { this.sounds = new Soundscape(this); setMix(this.settings.mix); }
+      if (this.traffic && !this.traffic.onArrive) this.traffic.onArrive = (a, pos) => this.sounds?.arrive(a, pos);
+      this.sounds.update(dt, { weather: this.curWeather, under: ug, hour: this.settings.hour, snowCover: this.snowCover || 0, vehicles: this.ambient?.levels ? Math.round((this.ambient.levels.stad || 0) / 0.0012) : 0, height: p.pos.y - (this.meta && this.meta.ground || 0), muted: this.paused || document.hidden });
+    } else if (this.sounds) { this.sounds.stop(); this.sounds = null; if (this.traffic) this.traffic.onArrive = null; }
     if (this.ships) this.ships.update(dt);
     if (this.airports) this.airports.update(dt, env.day);
     if (this.alpRail) this.alpRail.update(dt, env.day);
@@ -2083,6 +2091,13 @@ export class Game {
     }
     const ambEl = document.getElementById('set-ambient');
     if (ambEl) { ambEl.checked = this.settings.ambient !== false; if (!ambEl.dataset.bound) { ambEl.dataset.bound = '1'; ambEl.addEventListener('change', () => { this.settings.ambient = ambEl.checked; saveSettings(this.settings); if (ambEl.checked) this.ambient?.start(); }); } }
+    // mixer (TERRANOVA 16): volume per categorie, meteen hoorbaar en bewaard
+    for (const k of ['master', 'omgeving', 'voertuigen', 'effecten']) {
+      const el = document.getElementById('mix-' + k); if (!el) continue;
+      const cur = { master: 0.8, omgeving: 0.8, voertuigen: 0.9, effecten: 0.8, ...(this.settings.mix || {}) };
+      el.value = Math.round(cur[k] * 100);
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('input', () => { this.settings.mix = { ...cur, ...(this.settings.mix || {}), [k]: +el.value / 100 }; setMix(this.settings.mix); saveSettings(this.settings); }); }
+    }
     const fpsEl = document.getElementById('set-fps');
     if (fpsEl) { fpsEl.checked = !!this.settings.fps; if (!fpsEl.dataset.bound) { fpsEl.dataset.bound = '1'; fpsEl.addEventListener('change', () => { this.settings.fps = fpsEl.checked; saveSettings(this.settings); }); } }
     for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
