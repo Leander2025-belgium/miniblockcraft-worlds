@@ -21,6 +21,7 @@ import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
+import { Adaptive, PROFILES } from './adaptive.js';
 // reisplanner in een Web Worker voor reizigers (js/planworker.js); zonder worker: geen async (de reiziger plant dan zelf)
 let PLAN_WORKER = null, PLAN_SEQ = 0; const PLAN_WAIT = new Map();
 function planAsyncOf() {
@@ -772,7 +773,7 @@ export class Game {
     if (this.queue.length > 1) this.sortQueue(); // bij snel vliegen: eerst wat dichtbij is
     const W = this.world, T = W.T, p = this.player.pos;
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
-    const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
+    const R = Math.max(1, Math.ceil((this.viewNow() + 48) / T));
     // vliegrichting en snelheid: waar ben je over een paar seconden?
     const v = this.extVel || this.player.vel, sp = Math.hypot(v.x, v.z);
     const lookT = sp > 60 ? 5 : sp > 25 ? 4 : 2.5;
@@ -990,6 +991,12 @@ export class Game {
     this.last = performance.now();
     const loop = (t) => {
       if (!this.running) return;
+      // prestatietest (js/perftest.js): het eigen ritme van de browser meten zonder iets te tekenen
+      if (this.idleFrame) { this.last = t; this.raf = requestAnimationFrame(loop); return; }
+      // vaste grens (profiel Batterijbesparing): frames overslaan tot het volgende moment (minder rekenen = minder stroom)
+      const cap = this.settings.fpsCap || 0;
+      if (cap && this.lastDraw && t - this.lastDraw < 1000 / cap - 4) { this.raf = requestAnimationFrame(loop); return; }
+      this.rawFt = this.lastDraw ? t - this.lastDraw : 0; this.lastDraw = t; // echte frametijd (niet afgekapt) voor de adaptieve kwaliteit
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
       if (this.tiled) this.updateTiles();
@@ -1067,7 +1074,7 @@ export class Game {
   render() {
     const p = this.player;
     this.placeCamera();
-    const far = this.settings.view;
+    const far = this.viewNow();
     // dag en nacht
     const now = performance.now();
     const dt = Math.min(0.1, (now - (this.lastRender || now)) / 1000);
@@ -1459,24 +1466,23 @@ export class Game {
     el.hidden = false;
     const inf = this.renderer.info.render, mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB' : 'n.v.t.';
     const col = fps >= 50 ? '#4ade80' : fps >= 28 ? '#fbbf24' : '#ff5a4a';
-    el.innerHTML = `<b style="color:${col}">${fps.toFixed(0)} FPS</b> · traagste ${(worst * 1000).toFixed(0)} ms<br>${inf.calls} tekenopdr. · ${(inf.triangles / 1000).toFixed(0)}k driehoeken<br>geheugen ${mem} · resolutie ${Math.round((this.tune?.scale ?? 1) * 100)}%${this.autoLow ? ' (laag)' : ''}<br>laadtijd ${P.loaded ? (P.loaded / 1000).toFixed(1) + ' s' : '…'} · wachtrij ${this.queue ? this.queue.length : 0}`;
+    el.innerHTML = `<b style="color:${col}">${fps.toFixed(0)} FPS</b> · traagste ${(worst * 1000).toFixed(0)} ms<br>${inf.calls} tekenopdr. · ${(inf.triangles / 1000).toFixed(0)}k driehoeken<br>geheugen ${mem} · resolutie ${Math.round((this.tune?.scale ?? 1) * 100)}%${this.adaptive ? ` · doel ${this.adaptive.state.target} FPS` : ''}${this.viewCut ? ` · kijkafstand −${this.viewCut} m` : ''}${this.autoLow ? ' (laag)' : ''}<br>laadtijd ${P.loaded ? (P.loaded / 1000).toFixed(1) + ' s' : '…'} · wachtrij ${this.queue ? this.queue.length : 0}`;
   }
-  // automatische kwaliteit: bij te weinig beelden per seconde de resolutie en schaduwen terugschroeven
-  autoTune(dt) {
+  // automatische kwaliteit (TERRANOVA 16, js/adaptive.js): stuurt op gemeten frametijden naar 60 of een stabiele 30 FPS
+  autoTune() {
     if (this.settings.auto === false || this.photo) return;
-    const a = this.tune || (this.tune = { t: 0, n: 0, scale: 1, good: 0 });
-    a.t += dt; a.n++;
-    if (a.t < 2.5) return;
-    const fps = a.n / a.t; a.t = 0; a.n = 0;
-    this.fps = fps;
-    let changed = false;
-    if (fps < 27 && a.scale > 0.55) { a.scale = Math.max(0.55, a.scale - 0.15); a.good = 0; changed = true; }
-    else if (fps < 24 && !this.autoLow) { this.autoLow = true; changed = true; }
-    else if (fps > 52) { if (++a.good >= 3) { a.good = 0; if (this.autoLow) { this.autoLow = false; changed = true; } else if (a.scale < 1) { a.scale = Math.min(1, a.scale + 0.1); changed = true; } } }
-    else a.good = 0;
-    if (a.scale < 0.75 && !this.autoLow) { this.autoLow = true; changed = true; }
-    if (changed) this.applyQuality();
+    const cap = this.settings.fpsCap || 0, av = !!this.settings.adaptView;
+    if (!this.adaptive || this.adaptive.cap !== cap || this.adaptive.av !== av) { this.adaptive = new Adaptive({ cap, adaptView: av }); this.adaptive.av = av; }
+    const st = this.adaptive.frame(this.rawFt || 0);
+    if (!st) return;
+    const lowWas = this.autoLow, cutWas = this.viewCut || 0;
+    this.tune = { scale: st.scale }; this.autoLow = st.low; this.viewCut = st.cut;
+    this.applyQuality();
+    if (cutWas !== st.cut && this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
+    if (lowWas !== st.low) diag('kwaliteit', this.adaptive.state);
   }
+  // kijkafstand die nu geldt: de instelling, min wat de adaptieve kwaliteit tijdelijk inlevert
+  viewNow() { return Math.max(48, this.settings.view - (this.settings.auto === false ? 0 : this.viewCut || 0)); }
 
   // ---------- minikaart ----------
   ensureMini() {
@@ -2020,10 +2026,10 @@ export class Game {
     if (prof) {
       prof.value = this.settings.profile || '';
       if (!prof.dataset.bound) { prof.dataset.bound = '1'; prof.addEventListener('change', () => {
-        const P = { laag: { quality: 'fast', shadows: false, view: 96, lod: 800 }, gemiddeld: { quality: 'normal', shadows: false, view: 160, lod: 1600 },
-          hoog: { quality: 'normal', shadows: true, view: 224, lod: 2600 }, ultra: { quality: 'ultra', shadows: true, view: 320, lod: 4000 } }[prof.value];
+        const P = PROFILES[prof.value];
         this.settings.profile = prof.value;
-        if (P) Object.assign(this.settings, P);
+        if (P) Object.assign(this.settings, P); else Object.assign(this.settings, { fpsCap: 0, adaptView: false });
+        this.adaptive = null; this.tune = null; this.autoLow = false; this.viewCut = 0;
         saveSettings(this.settings); this.applySettings(); this.applyQuality(); this.updateTiles?.(true);
       }); }
     }
@@ -2060,7 +2066,7 @@ export class Game {
     for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
       const el = document.getElementById(id); if (!el) continue;
       el.checked = this.settings[key] !== false;
-      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.applyQuality(); } saveSettings(this.settings); }); }
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.adaptive = null; this.viewCut = 0; this.applyQuality(); } saveSettings(this.settings); }); }
     }
     const lodR = document.getElementById('set-lod');
     if (lodR) {

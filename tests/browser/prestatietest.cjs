@@ -16,10 +16,11 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
   await p.reload();
   await p.evaluate(() => document.getElementById('btn-perftest').click());
   await p.waitForFunction(() => !document.getElementById('ov-perf').hidden, null, { timeout: 900000, polling: 1000 });
-  const R = await p.evaluate(() => ({ res: window.__perfResult, html: document.getElementById('perf-result').textContent.slice(0, 300), hash: location.hash, instellingen: JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }));
+  const R = await p.evaluate(() => ({ res: window.__perfResult, html: document.getElementById('perf-result').textContent.slice(0, 300), html2: document.getElementById('perf-result').textContent, hash: location.hash, instellingen: JSON.parse(localStorage.getItem('blokstad-settings') || '{}') }));
   const sc = Object.values(R.res.scenes);
   console.log('prestatietest:', JSON.stringify({ toestel: R.res.toestel.gpu, scenes: Object.fromEntries(Object.entries(R.res.scenes).map(([k, v]) => [k, { fps: v.fps, p95: v.p95_ms, tekenopdr: v.tekenopdr, tris_k: v.driehoeken_k }])), hash: R.hash, instellingen: R.instellingen }));
-  const ok = sc.length === 5 && sc.every(r => r.fps > 0 && r.frames > 0 && r.tekenopdr > 0) && !!R.res.toestel.gpu && R.res.versie && R.hash === ''
+  console.log("ritme:", JSON.stringify(R.res.ritme), "vsync:", JSON.stringify(sc.map(s => s.vsync)));
+  const ok = !!R.res.ritme && R.res.ritme.hz > 0 && sc.every(s => s.vsync) && /Ritme van de browser/.test(R.html2 || "") && sc.length === 5 && sc.every(r => r.fps > 0 && r.frames > 0 && r.tekenopdr > 0) && !!R.res.toestel.gpu && R.res.versie && R.hash === ''
     && R.instellingen.view === 64 && R.instellingen.quality === 'fast' && R.instellingen.eigen === 'blijft' && /Grafische kaart/.test(R.html);
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');

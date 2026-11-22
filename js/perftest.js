@@ -41,8 +41,35 @@ function sample(g, ms) {
     requestAnimationFrame(() => { last = performance.now(); requestAnimationFrame(step); });
   });
 }
+// TERRANOVA 16: het ritme van de browser zelf, zonder dat de game iets tekent of rekent. Geeft de browser maar 30
+// beelden per seconde (bv. energiebesparingsmodus van iOS, een 30 Hz-scherm), dan kan de game nooit sneller.
+function idleRhythm(g, ms) {
+  return new Promise(done => {
+    g.idleFrame = true; const ft = []; let last = performance.now(); const end = last + ms;
+    const step = () => { const now = performance.now(); ft.push(now - last); last = now; if (now < end) requestAnimationFrame(step); else { g.idleFrame = false; done(ft.slice(2)); } };
+    requestAnimationFrame(() => { last = performance.now(); requestAnimationFrame(step); });
+  });
+}
+// verdeling van de frames over vsync-stappen: 1 = op het volle ritme van het scherm, 2 = elke tweede verversing
+// (bij 60 Hz: 30 FPS), 3 = elke derde … Frames die net iets te traag zijn voor 1 stap vallen naar 2: zo ontstaan
+// 'precies 30 FPS' zonder dat er ergens een grens van 30 in de code staat.
+export function vsyncSteps(ft, interval) {
+  const c = { 1: 0, 2: 0, 3: 0, '4+': 0 };
+  for (const t of ft) { const k = Math.max(1, Math.round(t / interval)); c[k >= 4 ? '4+' : k]++; }
+  for (const k in c) c[k] = +(c[k] / Math.max(1, ft.length)).toFixed(2);
+  return c;
+}
+export function rhythmVerdict(res) {
+  const r = res.ritme; if (!r) return null;
+  if (r.hz < 40) return `De browser zelf geeft maar ${r.hz} beelden per seconde, ook als de game niets tekent: de grens ligt bij het toestel of de browser (bv. energiebesparingsmodus), niet bij TERRANOVA.`;
+  const sc = Object.values(res.scenes).filter(s => s.vsync);
+  const at2 = sc.filter(s => s.vsync[2] >= 0.5).map(s => s.naam);
+  if (at2.length) return `De browser kan ${r.hz} beelden per seconde. In ${at2.join(', ')} duurt het tekenen net te lang voor één verversing, waardoor de meeste frames twee verversingen wachten (${Math.round(r.hz / 2)} FPS). Dat is geen ingebouwde grens: wat lichter tekenen (resolutie, kijkafstand, schaduwen) kan die scènes naar ${r.hz} FPS brengen.`;
+  return `De browser kan ${r.hz} beelden per seconde; er is geen vaste grens van 30 FPS gemeten.`;
+}
 export async function runPerfTest(g, onStep) {
   const res = { versie: document.querySelector('meta[name="tn-version"]')?.content || null, datum: new Date().toISOString(), toestel: deviceInfo(g.renderer), profiel: PROFILE, scenes: {} };
+  { const ft = await idleRhythm(g, KORT ? 800 : 2000), iv = pct(ft, 0.5); res.ritme = { interval_ms: +iv.toFixed(2), hz: Math.round(1000 / iv) }; }
   for (let i = 0; i < SCENES.length; i++) {
     const S = SCENES[i], r = { naam: S.naam };
     onStep?.(i, S);
@@ -57,6 +84,7 @@ export async function runPerfTest(g, onStep) {
     r.laden_ms = Math.round(performance.now() - t0);
     await wait(WARM);
     const m = await sample(g, SAMPLE), ft = m.ft, avg = ft.reduce((a, b) => a + b, 0) / ft.length;
+    r.vsync = vsyncSteps(ft, res.ritme.interval_ms);
     r.frames = ft.length; r.fps = +(1000 / avg).toFixed(1); r.mediaan_ms = +pct(ft, 0.5).toFixed(1); r.p95_ms = +pct(ft, 0.95).toFixed(1); r.max_ms = +Math.max(...ft).toFixed(1);
     r.tekenopdr = Math.round(m.calls.reduce((a, b) => a + b, 0) / m.calls.length); r.driehoeken_k = Math.round(m.tris.reduce((a, b) => a + b, 0) / m.tris.length / 1000);
     const mem = performance.memory; r.heap_MB = mem ? Math.round(mem.usedJSHeapSize / 1048576) : null;
@@ -68,7 +96,10 @@ export function resultHtml(res) {
   const esc = (s) => String(s ?? '—').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const t = res.toestel;
   let h = `<p class="small"><b>Grafische kaart:</b> ${esc(t.gpu)} <span class="muted">(${esc(t.gpuMaker)})</span><br><b>Scherm:</b> ${esc(t.scherm)} · canvas ${esc(t.canvas)} · ${esc(t.cpuKernen)} kernen${t.geheugen_GB ? ` · ${t.geheugen_GB} GB` : ''}</p>`;
-  h += '<div style="overflow:auto"><table class="small" style="width:100%;border-collapse:collapse"><tr><th align="left">Scène</th><th>FPS</th><th>mediaan</th><th>p95</th><th>max</th><th>tekenopdr.</th><th>driehoeken</th><th>laden</th></tr>';
-  for (const r of Object.values(res.scenes)) h += `<tr><td>${esc(r.naam)}</td><td align="center"><b>${r.fps}</b></td><td align="center">${r.mediaan_ms} ms</td><td align="center">${r.p95_ms} ms</td><td align="center">${r.max_ms} ms</td><td align="center">${r.tekenopdr}</td><td align="center">${r.driehoeken_k}k</td><td align="center">${(r.laden_ms / 1000).toFixed(1)} s</td></tr>`;
-  return h + '</table></div>';
+  h += '<div style="overflow:auto"><table class="small" style="width:100%;border-collapse:collapse"><tr><th align="left">Scène</th><th>FPS</th><th>mediaan</th><th>p95</th><th>max</th><th>tekenopdr.</th><th>driehoeken</th><th>laden</th><th title="Aandeel frames op 1, 2, 3 of meer schermverversingen">vsync 1/2/3+</th></tr>';
+  for (const r of Object.values(res.scenes)) h += `<tr><td>${esc(r.naam)}</td><td align="center"><b>${r.fps}</b></td><td align="center">${r.mediaan_ms} ms</td><td align="center">${r.p95_ms} ms</td><td align="center">${r.max_ms} ms</td><td align="center">${r.tekenopdr}</td><td align="center">${r.driehoeken_k}k</td><td align="center">${(r.laden_ms / 1000).toFixed(1)} s</td><td align="center">${r.vsync ? `${Math.round(r.vsync[1] * 100)}/${Math.round(r.vsync[2] * 100)}/${Math.round((r.vsync[3] + r.vsync['4+']) * 100)} %` : '—'}</td></tr>`;
+  h += '</table></div>';
+  const v = rhythmVerdict(res);
+  if (res.ritme) h += `<p class="small"><b>Ritme van de browser zonder tekenen:</b> ${res.ritme.hz} Hz (${res.ritme.interval_ms} ms per verversing).${v ? '<br>' + esc(v) : ''}</p>`;
+  return h;
 }
