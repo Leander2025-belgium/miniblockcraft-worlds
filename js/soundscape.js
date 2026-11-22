@@ -8,6 +8,7 @@
 // Alles loopt via de mixer (js/sound.js): categorieën omgeving, voertuigen en effecten met eigen volume.
 import { audioCtx, bus, setMuffle } from './sound.js';
 import { BLOCKS } from './blocks.js';
+import { caption } from './a11y.js';
 
 let nb = null;
 function noiseBuf(a) {
@@ -69,8 +70,9 @@ export class Soundscape {
     this.burst(out, 110, 0.6, 3.5 + Math.random() * 2, 0.35 - dist * 0.15, 'lowpass', late + 0.1);
     this.burst(out, 60, 0.8, 4.5, 0.25, 'lowpass', late + 0.5);
     this.events.donder++;
+    caption(this.g.settings, dist < 0.5 ? 'Donder, dichtbij' : 'Donder in de verte', '⛈');
     const s = this.g.settings;
-    if (!s.reduceMotion) this.flash(dist < 0.5 ? 0.55 : 0.3);
+    if (!s.reduceMotion && !document.body.classList.contains('a11y-calm')) this.flash(dist < 0.5 ? 0.55 : 0.3);
   }
   flash(k) {
     let el = document.getElementById('lightning');
@@ -98,7 +100,7 @@ export class Soundscape {
   arrive(a, pos) {
     if (!pos || !['train', 'metro', 'tram'].includes(a.kind)) return;
     const p = this.g.player.pos; if (Math.hypot(pos.x - p.x, pos.z - p.z) > 45 || Math.abs(pos.y - p.y) > 12) return;
-    this.gong();
+    this.gong(); caption(this.g.settings, `Gong: ${{ train: 'trein', metro: 'metro', tram: 'tram' }[a.kind]} komt aan${a.atStop ? ' in ' + a.atStop : ''}`, '🔔');
   }
   squeal(on, k = 1) {
     const a = this.ok(); if (!a) return;

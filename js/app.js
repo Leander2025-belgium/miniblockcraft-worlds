@@ -30,6 +30,9 @@ async function loadGreen() {
 // Megatower City (stad + toren van 1.000 m)
 import { META as MEGA, PLACES as MEGA_PLACES, zoneName as megaZoneName, SPAWN as MEGA_SPAWN, groundAt as megaGround } from './megacity.js';
 import { PLACES as TOWER_PLACES, shellInside as towerInside, shellFill as towerShell, TOWER_TX, TOWER_TZ } from './megatower.js';
+import { applyA11y } from './a11y.js';
+// TERRANOVA 16: tekstgrootte, contrast, kleurfilter … ook al in het menu, vóór een wereld geladen is
+try { applyA11y(JSON.parse(localStorage.getItem('blokstad-settings') || '{}')); } catch { /* geen of kapotte instellingen */ }
 // zelfgegenereerde werelden
 const PROC = {
   [MEGA.id]: { META: MEGA, PLACES: [...TOWER_PLACES.map(([n, x, z, y]) => [n, x, z, y]), ...MEGA_PLACES.slice(1)], zoneName: megaZoneName, groundAt: megaGround,

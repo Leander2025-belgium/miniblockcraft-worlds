@@ -345,6 +345,22 @@
     .is-touch #t-move { width: 50%; }
     .is-touch #t-look { width: 50%; }
   }
+  /* TERRANOVA 16 fase 11: tabbladen in het pauzemenu en toegankelijkheid */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; border-bottom: 1px solid rgba(255,255,255,.15); padding-bottom: 6px; }
+  .tab { background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: .9em; cursor: pointer; }
+  .tab[aria-selected="true"] { background: #2f6fd6; border-color: #6ea0ff; color: #fff; }
+  .tab:focus-visible { outline: 3px solid #ffd54a; outline-offset: 2px; }
+  .tabpane[hidden] { display: none !important; }
+  body.a11y-big .btn, body.a11y-big .tab { min-height: 48px; padding: 10px 16px; font-size: 1.05em; }
+  body.a11y-big input[type=range] { height: 32px; }
+  body.a11y-big input[type=checkbox] { width: 22px; height: 22px; }
+  body.a11y-contrast .card, body.a11y-contrast .hud, body.a11y-contrast .ov .card { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+  body.a11y-contrast .btn, body.a11y-contrast .tab { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+  body.a11y-contrast .btn.primary, body.a11y-contrast .tab[aria-selected="true"] { background: #ffd54a !important; color: #000 !important; }
+  body.a11y-contrast .help, body.a11y-contrast .muted, body.a11y-contrast .small { color: #fff !important; opacity: 1 !important; }
+  body.a11y-calm *, body.a11y-calm *::before, body.a11y-calm *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  #captions { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; max-width: 90vw; }
+  #captions .cap { background: rgba(0,0,0,.78); color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 1.05em; text-align: center; }
 </style>
 </head>
 <body>
@@ -770,6 +786,16 @@
     <div class="card">
       <img src="assets/brand/terranova-logo.svg" alt="TERRANOVA" width="220" height="41" style="display:block;margin:0 0 6px">
       <h2>Pauze</h2>
+      <div class="tabs" role="tablist" id="pause-tabs" aria-label="Pauzemenu">
+        <button class="tab" role="tab" data-tab="spel" aria-selected="true">🎮 Spel</button>
+        <button class="tab" role="tab" data-tab="personage" aria-selected="false">🧍 Personage</button>
+        <button class="tab" role="tab" data-tab="beeld" aria-selected="false">🖥 Beeld</button>
+        <button class="tab" role="tab" data-tab="wereld" aria-selected="false">🌦 Tijd &amp; weer</button>
+        <button class="tab" role="tab" data-tab="geluid" aria-selected="false">🔊 Geluid</button>
+        <button class="tab" role="tab" data-tab="besturing" aria-selected="false">🎛 Besturing</button>
+        <button class="tab" role="tab" data-tab="toegankelijk" aria-selected="false">♿ Toegankelijkheid</button>
+      </div>
+      <section class="tabpane" data-pane="spel">
       <div class="row">
         <button class="btn primary" id="btn-resume">Verder spelen</button>
         <button class="btn" id="btn-save">Opslaan</button>
@@ -794,6 +820,8 @@
         <label>Snel naar</label>
         <div id="tp-list" class="tp-list"></div>
       </div>
+      </section>
+      <section class="tabpane" data-pane="personage" hidden>
       <label>Personage &amp; camera</label>
       <div class="look">
         <label class="mini">Camera <select id="set-cam"><option value="first">Eerste persoon</option><option value="third">Derde persoon (achter)</option><option value="front">Van voren</option></select></label>
@@ -805,6 +833,8 @@
         <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option></select></label>
         <label class="check mini"><input type="checkbox" id="look-backpack"> Rugzak</label>
       </div>
+      </section>
+      <section class="tabpane" data-pane="beeld" hidden>
       <label>Kijkafstand: <span id="set-view-label"></span>
         <input type="range" id="set-view" min="48" max="320" step="16"></label>
       <label>Grafisch profiel
@@ -825,23 +855,29 @@
           <option value="ultra">Ultra (schaduwen 4096, scherpst)</option>
         </select></label>
       <label class="check"><input type="checkbox" id="set-shadows"> Zonneschaduwen</label>
+      <label class="check"><input type="checkbox" id="set-fps"> FPS-meter tonen (F3): beelden per seconde, driehoeken, geheugen, laadtijd</label>
+      <label class="check"><input type="checkbox" id="set-auto"> Kwaliteit automatisch aanpassen (vloeiend blijven)</label>
+      <label>Verre gebouwen tot: <span id="set-lod-label"></span>
+        <input type="range" id="set-lod" min="400" max="4000" step="100"></label>
+      <label>Zichtveld (ook voor de fotomodus): <span id="set-fov-label"></span>
+        <input type="range" id="set-fov" min="40" max="100" step="1"></label>
+      </section>
+      <section class="tabpane" data-pane="wereld" hidden>
+      <label>Tijd van de dag: <span id="set-hour-label"></span>
+        <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
+      <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
+      <label>Weer
+        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw (blijft liggen)</option><option value="mist">Mist (zicht ± 120 m)</option><option value="wind">Harde wind</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>
+      </section>
+      <section class="tabpane" data-pane="geluid" hidden>
       <label class="check"><input type="checkbox" id="set-ambient"> Geluid van de omgeving (stad, wind, regen, donder, vogels, voetstappen, gong aan de halte)</label>
       <div class="mixer" id="mixer"><span class="small">Geluid:</span>
         <label class="mini">Alles <input type="range" id="mix-master" min="0" max="100" step="5" aria-label="Hoofdvolume"></label>
         <label class="mini">Omgeving <input type="range" id="mix-omgeving" min="0" max="100" step="5" aria-label="Volume omgeving"></label>
         <label class="mini">Voertuigen <input type="range" id="mix-voertuigen" min="0" max="100" step="5" aria-label="Volume voertuigen"></label>
         <label class="mini">Effecten <input type="range" id="mix-effecten" min="0" max="100" step="5" aria-label="Volume effecten"></label></div>
-      <label class="check"><input type="checkbox" id="set-fps"> FPS-meter tonen (F3): beelden per seconde, driehoeken, geheugen, laadtijd</label>
-      <label class="check"><input type="checkbox" id="set-auto"> Kwaliteit automatisch aanpassen (vloeiend blijven)</label>
-      <label>Verre gebouwen tot: <span id="set-lod-label"></span>
-        <input type="range" id="set-lod" min="400" max="4000" step="100"></label>
-      <label>Tijd van de dag: <span id="set-hour-label"></span>
-        <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
-      <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
-      <label>Weer
-        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw (blijft liggen)</option><option value="mist">Mist (zicht ± 120 m)</option><option value="wind">Harde wind</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>
-      <label>Zichtveld (ook voor de fotomodus): <span id="set-fov-label"></span>
-        <input type="range" id="set-fov" min="40" max="100" step="1"></label>
+      </section>
+      <section class="tabpane" data-pane="besturing" hidden>
       <label>Gevoeligheid
         <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1"></label>
       <div class="keys desk-only">
@@ -858,6 +894,24 @@
         <kbd>M</kbd><span>kaart: klik om erheen te vliegen</span>
         <kbd>P</kbd><span>fotomodus (Enter = foto opslaan)</span>
       </div>
+      </section>
+      <section class="tabpane" data-pane="toegankelijk" hidden>
+      <label>Tekstgrootte: <span id="set-uiscale-label"></span>
+        <input type="range" id="set-uiscale" min="85" max="150" step="5" aria-describedby="set-uiscale-label"></label>
+      <label class="check"><input type="checkbox" id="set-bigbtn"> Grote knoppen (makkelijker aanraken)</label>
+      <label class="check"><input type="checkbox" id="set-contrast"> Hoog contrast (donkere panelen, witte tekst, duidelijke randen)</label>
+      <label class="check"><input type="checkbox" id="set-motion"> Minder beweging (geen bliksemflitsen, geen animaties en overgangen in menu's)</label>
+      <label class="check"><input type="checkbox" id="set-captions"> Geluiden als tekst tonen (gong, donder, omroep)</label>
+      <label>Kleuren aanpassen
+        <select id="set-colorfilter">
+          <option value="">Geen</option>
+          <option value="protan">Rood-zwak (protanopie)</option>
+          <option value="deutan">Groen-zwak (deuteranopie)</option>
+          <option value="tritan">Blauw-zwak (tritanopie)</option>
+          <option value="grey">Grijstinten</option>
+        </select></label>
+      <p class="help">Alles wordt meteen toegepast en bewaard op dit toestel.</p>
+      </section>
       <p class="help">Je zit in een gedownload stuk stad. Aan de rand staat een onzichtbare muur — download het stuk ernaast om verder te verkennen.</p>
     </div>
   </div>

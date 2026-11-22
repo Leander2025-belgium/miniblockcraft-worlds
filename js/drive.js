@@ -26,7 +26,11 @@ function chime() {
     o.connect(g).connect(bus('effecten')); o.start(a.currentTime + i * 0.45); o.stop(a.currentTime + i * 0.45 + 1);
   });
 }
+// TERRANOVA 16: omroepteksten ook als tekst tonen (ondertitels, js/a11y.js)
+let speakHook = null;
+export function setSpeakHook(f) { speakHook = f; }
 function speak(text) {
+  try { speakHook?.(text); } catch { /* ondertitel mag de omroep niet stoppen */ }
   try {
     const u = new SpeechSynthesisUtterance(text); u.lang = 'nl-BE'; u.rate = 0.95;
     const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('nl')); if (v) u.voice = v;

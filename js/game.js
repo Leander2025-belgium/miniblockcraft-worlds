@@ -21,6 +21,8 @@ import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
 import { Soundscape } from './soundscape.js';
 import { setMix, mixState } from './sound.js';
+import { applyA11y, bindA11yControls, bindTabs, caption } from './a11y.js';
+import { setSpeakHook } from './drive.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
 import { Adaptive, PROFILES } from './adaptive.js';
@@ -2091,6 +2093,9 @@ export class Game {
     }
     const ambEl = document.getElementById('set-ambient');
     if (ambEl) { ambEl.checked = this.settings.ambient !== false; if (!ambEl.dataset.bound) { ambEl.dataset.bound = '1'; ambEl.addEventListener('change', () => { this.settings.ambient = ambEl.checked; saveSettings(this.settings); if (ambEl.checked) this.ambient?.start(); }); } }
+    // interface en toegankelijkheid (TERRANOVA 16 fase 11, js/a11y.js): tabbladen in het pauzemenu en het tabblad Toegankelijkheid
+    bindTabs('pause-tabs'); bindA11yControls(this.settings, () => saveSettings(this.settings)); applyA11y(this.settings);
+    setSpeakHook((t) => caption(this.settings, t, '📢'));
     // mixer (TERRANOVA 16): volume per categorie, meteen hoorbaar en bewaard
     for (const k of ['master', 'omgeving', 'voertuigen', 'effecten']) {
       const el = document.getElementById('mix-' + k); if (!el) continue;
