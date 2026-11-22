@@ -1,6 +1,30 @@
 # Changelog
 
-## TERRANOVA 16.0 (ontwikkelversie) · 2026-11-25a — branch `terranova-16`
+## TERRANOVA 16.0 (ontwikkelversie) · 2026-11-25b — branch `terranova-16`
+
+Tweede ronde: de fasen die eerst ontbraken, elk als eerste geteste versie. Details en grenzen: [`docs/terranova-16.md`](docs/terranova-16.md).
+
+### Nieuw
+- 🌲 **Wildernis**: nieuwe wereld van 8 × 8 km met zaadgetal, 12 biomen, rivieren, bergen, grotten en ertsen.
+- 🏗 **Lege bouwwereld** en **wereldbouwer** in de bouwmodus: weg (N), spoor (G), voetpad (J), vlak maken (Shift+F),
+  heuvel (Shift+U), beplanten (Shift+I).
+- 👪 **Bewoners** met beroep, woning, werk en dagritme in Megatower City; de reizigers op straat zijn bewoners.
+- 🚦 **Treinbeveiliging** voor zelf bestuurde metro's, treinen en trams: blokseinen, remcurve, ATB, STS,
+  waakinrichting (B).
+- 🔊 **Geluid**: mixer per categorie, voetstappen per ondergrond, donder met bliksem, vogels en krekels, gong aan de
+  halte, demping bij sneeuw en onder water, piepende banden, motor met versnellingen.
+- ♿ **Interface**: pauzemenu in tabbladen, tabblad Toegankelijkheid (tekstgrootte, grote knoppen, hoog contrast,
+  minder beweging, kleurfilters, geluiden als tekst).
+- 🧭 Reisplanner over het geladen OV-net voor werelden zonder eigen planner.
+- 🛍 **Winkel** (ViridCoin): bouwhelm, OV-pet, hoge hoed. 🚕 Nieuwe carrière **taxichauffeur**; bouwopdrachten weg
+  en spoorlijn; ATB-ingrepen en STS tellen mee in de score.
+
+### Opgelost
+- Waakinrichting ging nooit af doordat schermknoppen `undefined` gaven.
+- Bewoners: verkeerd reisdoel door een te kleine cache.
+- Wereldbouwer: stoepen, lantaarns en kartelige randen bij een helling.
+
+## TERRANOVA 16.0 (ontwikkelversie) · 2026-11-25a
 
 Volledig rapport met tests, metingen en wat niet gebouwd is: [`docs/terranova-16.md`](docs/terranova-16.md).
 

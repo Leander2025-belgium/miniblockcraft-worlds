@@ -1,12 +1,14 @@
-# TERRANOVA 16 — rapport (ontwikkelversie 2026-11-25a)
+# TERRANOVA 16 — rapport (ontwikkelversie 2026-11-25b)
 
 Branch `terranova-16`, vertrokken van main `25843f5` (TERRANOVA 15.0 ontwikkelversie). `main` is niet aangeraakt.
 Gebouwd, getest en gemeten in een Linux-container **zonder grafische kaart** (Chromium met SwiftShader,
 software-rendering). Frametijden zijn daar 10–100× trager dan op een echt toestel; echte telefoons, tablets, Macs
 of Windows-pc's waren niet beschikbaar.
 
-**Naam.** De opdracht is bewust veel groter dan één update. Een groot deel van de 14 fasen is niet of maar
-gedeeltelijk gebouwd (zie de tabel onderaan). Daarom heet deze versie **TERRANOVA 16.0 (ontwikkelversie)**.
+**Naam.** De opdracht is bewust veel groter dan één update. In een tweede ronde (versie 2026-11-25b) zijn ook de
+fasen 2, 4, 5, 8, 10 en 11 en de ontbrekende delen van 6 en 7 gebouwd — elk als een eerste, geteste versie, niet
+als het volledige eindbeeld uit de opdracht (zie de tabel onderaan en de grenzen per fase). Daarom heet deze versie
+nog steeds **TERRANOVA 16.0 (ontwikkelversie)**.
 
 ## Fase 0 — audit en vertrekpunt
 
@@ -150,6 +152,112 @@ In het spel: pauzemenu → 👥 Samen spelen (proef) → adres `ws://…:8787` (
   worden geladen en na opslaan onveranderd teruggevonden; de nieuwe velden komen erbij.
 - Crashherstel (veilig opslaan, vorige versie, beschadigde kopie apart) uit 15 blijft (`crashherstel.cjs`).
 
+## Ronde 2 (2026-11-25b) — de fasen die eerst ontbraken
+
+### Fase 2 — wereldgeneratie: Wildernis
+Nieuwe wereld **Wildernis** (`js/wildernis.js`), 8 × 8 km, met een **zaadgetal**: hetzelfde getal = exact dezelfde
+wereld, een ander getal = een aparte wereld met eigen ID (`wildernis-<getal>`) en eigen opslag. Zee en stranden,
+rivieren die in de bergen smaller worden, heuvels en bergketens met besneeuwde toppen, en **12 biomen** volgens
+temperatuur en vochtigheid (woestijn, steppe, grasland, loofbos, naaldbos, moeras, toendra, gebergte, toppen,
+strand, zee, rivier), elk met eigen bodem, planten en bomen. Onder de grond lagen (aarde, steen, diepsteen,
+bodemrots) met **kolen, ijzer, goud en diamant** en slingerende **grotten**. Biomenkaart in het menu.
+- Getest (`wildernis.cjs`): 12 kleuren op de menukaart, start op droog land, bovenlaag in woestijn (zand),
+  toendra (sneeuw) en zee (water) klopt met de generator, ± 1500 grotblokken en ± 1600 ertsblokken onder de speler,
+  zaadgetal 42 geeft een andere wereld (38 van 40 hoogtes anders).
+- Grenzen: ± 270 ms per tegel (in de achtergrondwerker); geen dorpen of wegen; de andere werelden zijn ongewijzigd.
+
+### Fase 4 — transportsimulator: treinbeveiliging
+`js/atb.js` voor zelf bestuurde metro's, treinen en trams (Megatower City en de verkeerswerelden): **blokseinen**
+(rood/geel/groen volgens het bezette blok erachter), **lijnsnelheid en naderingssnelheid** met een **remcurve**,
+**ATB** (eerst een bel; remt de bestuurder niet binnen 3 s, dan remt de trein zelf), **STS** (rood sein voorbij =
+noodremming tot stilstand), **waakinrichting** (60 s geen bediening = bel, na 65 s remming; B bevestigt). Een
+dashboardregel toont sein, afstand en toegestane snelheid. Greenisland en de Alpen hadden al seinen met een
+eenvoudige automatische remming (`js/rail.js`); die blijven.
+- Getest: `tools/check-atb.mjs` (seinbeelden, op tijd remmen = geen ingreep, ingreep na 3 s, STS, waaktimer 62/67 s)
+  en `atb16.cjs` in het spel (waarschuwing en ingreep van 90 naar onder de toegestane snelheid, waakremming tot
+  stilstand en vrijgeven met B, waaktimer loopt 19,6 s bij 19,6 s rijden).
+- Fout gevonden en opgelost: de schermknoppen gaven `undefined` in plaats van `false`, waardoor elk beeld als
+  bediening telde en de waakinrichting nooit afging.
+- Grenzen: geen echte seinpalen in de wereld voor deze voertuigen (alleen in het dashboard); de blokken zijn vaste
+  lengtes langs de lijn, geen echte seinplaatsen.
+
+### Fase 5 — levende samenleving: bewoners met een dagritme
+`js/society.js`: **12.000 bewoners** in Megatower City met naam, leeftijd, beroep (kantoor, winkel, zorg, industrie,
+luchthaven, horeca, docent, student, gepensioneerd), een woning en werkplek op **echte percelen** (woontorens,
+rijhuizen, villa's, kantoren, winkels, industrie, universiteit, ziekenhuis, luchthaven) en een **dagplanning**
+(slapen, thuis, naar het werk, werken, boodschappen, vrije tijd, ploegendiensten vroeg/laat/nacht, weekend anders).
+De **reizigers op straat zijn bewoners** met een echte verplaatsing die nu begint of eindigt in de buurt (60 % vertrek
+hier, 40 % aankomst), en de drukte volgt hoeveel mensen nu onderweg zijn. Scherm **👪 Bewoners** in het pauzemenu
+(wie doet wat, verloop over de dag, voorbeeldbewoners met hun dag, wie er rond je onderweg is). Uit te zetten in
+Tijd & weer. Standaard een werkdag (dinsdag); de dag is te kiezen.
+- Getest (`bewoners.cjs`): sluitende planning voor alle 12.000 (geen gaten), 's nachts > 9000 slapend, spits > 300
+  onderweg, zaterdag veel minder werk en meer winkelen, drukte 8u en 17u30 > 2× 3u; reizigers met naam, beroep en
+  doel dat klopt met hun planning, niemand twee keer tegelijk.
+- Gevonden en opgelost: het doel stond soms verkeerd ('naar huis' i.p.v. 'naar het werk') door een te kleine cache.
+- Gevolg voor de oude test `reizen.cjs`: met bewoners lopen veel korte verplaatsingen te voet, waardoor zijn
+  momentopname 'iemand rijdt op afstand mee' vaker leeg was. Die test (reismechaniek) draait nu met bewoners uit.
+- Grenzen: alleen in Megatower City; ± 1 op 3 gekozen bewoners heeft geen bereikbare deur in het geladen stuk en
+  wordt overgeslagen (dan een willekeurige reiziger zoals vroeger); geen gezinnen of relaties tussen bewoners.
+
+### Fase 8 — wereldbouwer
+In de bouwmodus (B), van hoek ① naar hoek ②: **weg** (N: twee rijstroken, onderbroken middenstreep, stoepen,
+lantaarns, helling als de hoeken op een andere hoogte liggen, steunlaag en pijlers boven een dal), **spoor** (G:
+ballast, dwarsliggers, spoorstaven), **voetpad** (J, volgt de grond), **terrein vlak maken** (Shift+F), **heuvel**
+(Shift+U), **beplanten** (Shift+I). Elk is één stap ongedaan te maken. Nieuwe **lege bouwwereld** (4 × 4 km vlak gras)
+in het menu. Twee nieuwe bouwopdrachten in de carrière: *weg* en *spoorlijn*.
+- Getest (`wereldbouwer.cjs`): weg met middenstreep, stoepen, helling 0 → 3 → 6 m, 40 pijlerblokken boven een dal,
+  5 lantaarns; spoor 567 ballast, 162 spoorstaven; voetpad; heuvel 14 m; vlak maken; ongedaan maken; bewaard na
+  herladen.
+- Gevonden en opgelost: stoepen en lantaarns ontbraken door een afrondingsfout; kartelige randen bij een helling.
+- Grenzen: de aangelegde wegen en sporen zijn blokken: het verkeer en de treinen van de stad rijden er **niet**
+  over; geen bochten (rechte stukken van hoek tot hoek).
+
+### Fase 10 — geluid
+Mixer met volume per categorie (**alles, omgeving, voertuigen, effecten**), bewaard in de instellingen; alle geluid
+via één AudioContext. Nieuw (`js/soundscape.js`): **voetstappen per ondergrond** (zacht, hard, hout, metaal, zand,
+sneeuw, water), **donder met bliksemflits** bij onweer, **vogels** overdag en **krekels** 's nachts op rustige
+plekken, **aankomstgong** als een metro, trein of tram vlakbij aan een halte stopt, **demping** bij sneeuw en onder
+water, **piepende banden** zonder grip, **motor met versnellingen**.
+- Getest (`geluid16.cjs`): echt hoorbaar signaal achter de mixer gemeten, volume-schuif werkt en wordt bewaard,
+  8 stappen op 8 m, donder (niet ondergronds), geen vogels in de regen, gong alleen voor rail vlakbij, versnellingen.
+- Grenzen: alles is synthetisch (geen opgenomen geluiden); geen ruimtelijk 3D-geluid per voertuig.
+
+### Fase 11 — interface en toegankelijkheid
+Het pauzemenu is opgedeeld in **tabbladen** (Spel, Personage, Beeld, Tijd & weer, Geluid, Besturing,
+Toegankelijkheid; ook met de pijltjestoetsen). Nieuw tabblad **Toegankelijkheid**: tekstgrootte 85–150 %, grote
+knoppen, hoog contrast, minder beweging (volgt de instelling van het toestel), **kleurfilters** voor rood-, groen-
+en blauwzwak zien (daltonisering) en grijstinten, **geluiden als tekst** (gong, donder, omroep). Al toegepast in het
+menu, vóór een wereld geladen is.
+- Getest (`interface16.cjs`): alle oude instellingen staan in een tabblad, pijltjestoetsen, 130 % tekst, knoppen
+  ≥ 48 px, zwarte panelen met witte rand, geen overgangen en geen bliksemflits bij minder beweging, ondertitels;
+  het kleurfilter is pixel voor pixel gecontroleerd tegen de matrix (afwijking < 1,5 op 255).
+- Grenzen: geen volledig nieuw ontwerp van het HUD; geen schermlezer-test.
+
+### Fase 6 (rest) — reisplanner in de andere verkeerswerelden
+`js/localplan.js`: planner over het **geladen** OV-net (metro, trein, tram, bus, lopen, overstappen te voet) voor
+werelden zonder eigen planner (echte OSM-steden). Knop 🧭 in het pauzemenu.
+- Getest: `tools/check-localplan.mjs` (nagebootst net: lopen, metro, metro + overstap + tram, bus — sneller dan
+  lopen, stukken sluiten aan) en `planner-overal.cjs` (scherm, echt net van het spel).
+- Grenzen (eerlijk): Nova Metropool heeft **geen OV-haltes** (alleen wegen), dus daar is niets te plannen; het
+  geladen gebied is klein (± 500 m), dus lopen is daar vaak het snelst; zonder dienstregeling (gemiddelde wachttijd).
+  De echte OSM-steden heb ik niet kunnen testen (geen internet in deze omgeving).
+
+### Fase 7 (rest) — winkel en nieuwe carrière
+**Winkel** in het carrièrescherm (ViridCoin, spelgeld): bouwhelm, OV-pet (alleen met een brevet voor bus, tram, metro
+of trein), hoge hoed; gekocht = blijft, meteen te dragen, in de hoed-keuze alleen gekochte. **Taxichauffeur**: met
+een auto een klant naar een bestemming 0,5–1,5 km verder brengen (eerste rit = examen → **taxivergunning**, daarna
+loon; rood licht en traagheid kosten punten). **ATB-ingrepen** (−10) en **STS** (−40) tellen mee in de dienstscore.
+- Getest (`carriere16.cjs`): kopen, te weinig geld en zonder brevet geweigerd, saldo klopt, avatar draagt het;
+  taxi-examen gezakt (rood licht + STS), daarna gehaald, daarna loon; opdrachten weg en spoorlijn betaald.
+- Grenzen: de taxi-test bootst het voertuig na (de dienstlogica wordt getest, niet het rijden zelf); geen
+  klant-figuur in de auto.
+
+### Fase 1 en 3 (rest) — wat al bestond
+- Niet tekenen wat je niet ziet: ondergronds worden sinds 14 alleen de ondergrondse delen en wat dichtbij is
+  getekend (`js/game.js`, renderprioriteit). Geen nieuwe occlusion culling of streaming gebouwd.
+- Hemel en water: de koepel met maan en fonkelende sterren en het water met golfjes en glinstering bestonden al
+  (sinds 14). Niets nieuws gebouwd aan materialen, hemel of water.
+
 ## Fase 9-13 — regressie, metingen
 
 Alle cijfers komen uit deze ontwikkelomgeving: headless Chromium met SwiftShader (rekent zonder grafische kaart,
@@ -210,17 +318,17 @@ kan alleen met de prestatietest (📊) op het toestel zelf.
 | Fase | Onderwerp | Status | Wat er is / wat ontbreekt |
 |---|---|---|---|
 | 0 | Audit, baseline | **Gedaan** | afhankelijkheidskaart, baseline 15, 30-FPS-onderzoek met meetinstrument (niet op de iPhone zelf) |
-| 1 | Engine 16 | **Gedeeltelijk** | profielen incl. Batterij en Adaptief, regelaar op frametijden, FPS-grens, geheugendiagnose, compact ongedaan maken; geen occlusion culling of nieuwe streaming |
-| 2 | Wereldgeneratie | **Niet gebouwd** | bestaande werelden en OSM-steden ongewijzigd |
-| 3 | Graphics | **Gedeeltelijk** | alleen weer: sneeuwdek, mist, wind, grip; geen nieuwe materialen, hemel, water of gevels |
-| 4 | Transport-simulator | **Niet gebouwd** | bestaande treinen, metro's, trams, bussen, auto's, vliegtuigen en schepen ongewijzigd (behalve grip bij weer) |
-| 5 | Levende samenleving | **Niet gebouwd** | de reizigers-AI van 15 blijft; wachten op een volgende dienst bij een volle bus bestond al |
-| 6 | Transportnetwerk | **Gedeeltelijk** | gemeten vertraging, planner met voorkeuren en alternatieven; geen planner voor alle werelden |
-| 7 | Carrière en economie | **Gedeeltelijk** | ViridCoin overal, rijbewijzen, loon, uitdagingen, statistieken; geen nieuwe carrières of winkel |
-| 8 | World builder | **Niet gebouwd** | bouwmodus van 15 blijft; geen wereldeditor of eigen infrastructuur |
+| 1 | Engine 16 | **Gedeeltelijk** | profielen incl. Batterij en Adaptief, regelaar op frametijden, FPS-grens, geheugendiagnose, compact ongedaan maken; ondergronds niet-tekenen bestond al; geen nieuwe occlusion culling of streaming |
+| 2 | Wereldgeneratie | **Eerste versie** | Wildernis 8 × 8 km met zaadgetal, 12 biomen, rivieren, bergen, grotten, ertsen; geen dorpen |
+| 3 | Graphics | **Gedeeltelijk** | weer (sneeuwdek, mist, wind, grip) nieuw; hemel met maan/sterren en water met golven bestonden al; geen nieuwe materialen |
+| 4 | Transport-simulator | **Eerste versie** | blokseinen, remcurve, ATB, STS, waakinrichting voor metro/trein/tram; motor met versnellingen; geen seinpalen in de wereld |
+| 5 | Levende samenleving | **Eerste versie** | 12.000 bewoners met beroep, woning, werk en dagritme in Megatower City; reizigers zijn bewoners; alleen Megatower City |
+| 6 | Transportnetwerk | **Gedeeltelijk** | gemeten vertraging, planner met voorkeuren en alternatieven, planner over het geladen net voor OSM-steden; Nova Metropool heeft geen OV |
+| 7 | Carrière en economie | **Gedeeltelijk** | ViridCoin overal, rijbewijzen, loon, uitdagingen, statistieken, winkel (3 hoofddeksels), taxichauffeur, ATB/STS in de score |
+| 8 | World builder | **Eerste versie** | weg, spoor, voetpad, vlak maken, heuvel, beplanten, lege bouwwereld; verkeer rijdt niet over zelfgebouwde wegen |
 | 9 | Multiplayer | **Prototype** | server + client + Docker Compose, getest met twee browsers; Docker-image niet gebouwd (Docker Hub-limiet) |
-| 10 | Audio | **Niet gebouwd** | |
-| 11 | Interface | **Niet gebouwd** | alleen nieuwe knoppen en schermen voor de nieuwe functies |
+| 10 | Audio | **Eerste versie** | mixer, voetstappen, donder, vogels/krekels, gong, demping, banden, versnellingen; synthetisch |
+| 11 | Interface | **Eerste versie** | tabbladen in het pauzemenu, tabblad Toegankelijkheid (tekst, knoppen, contrast, beweging, kleurfilters, ondertitels) |
 | 12 | Stabiliteit, savegames | **Gedaan** (binnen deze omgeving) | compatibiliteitstest, crashherstel blijft, duurtest 60 min zonder lek (zie boven) |
-| 13 | Testsuite | **Uitgebreid** | 6 nieuwe browsertests, 5 nieuwe controles zonder browser, servertest |
+| 13 | Testsuite | **Uitgebreid** | 14 nieuwe browsertests, 7 nieuwe controles zonder browser, servertest |
 | 14 | Release | **Releasekandidaat op de branch** | niet gepubliceerd |
