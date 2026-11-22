@@ -994,7 +994,7 @@ export class AlpRail {
     this.waitAt = null;
     const { tr, c, dz } = best;
     // Greenisland: een kaartje in ViridCoin (eenmaal per rit)
-    if (g.wallet && g.wallet.ticket && tr.paidBy !== g) {
+    if (g.wallet && g.wallet.ticket && g.isGreen?.() && tr.paidBy !== g) { // kaartjes alleen in Greenisland (zoals voor TERRANOVA 16); elders blijft reizen gratis
       const pr = g.wallet.ticket(tr.sv);
       if (!g.wallet.pay(pr, `kaartje ${tr.sv.name}`)) { g.toast(`💰 Niet genoeg ViridCoin voor een kaartje (${pr} VC). Verdien VC met opdrachten.`); return true; }
       tr.paidBy = g; g.toast(`🎫 Kaartje ${tr.sv.name}: ${pr} VC (saldo ${Math.round(g.wallet.balance * 100) / 100} VC)`);

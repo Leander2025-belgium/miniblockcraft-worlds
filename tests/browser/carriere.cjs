@@ -71,17 +71,22 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
     out.treinDienst = C.p.history[0];
     g.alpRail = null; C.update(0.1); out.hudZonderDienst = document.getElementById('career-hud').hidden;
     out.profiel = { xp: C.p.xp, level: C.level, opdrachten: Object.keys(C.p.tasks), prestaties: C.p.achievements.map(a => a.name), geschiedenis: C.p.history.length };
+    out.eco = { rijbewijzen: C.p.licenses, stats: C.p.stats, saldo: g.wallet.balance, verrichtingen: g.wallet.history.slice(-6).map(h => h.what), html: /Uitdagingen van vandaag/.test(C.html()) && /Rijbewijzen/.test(C.html()) };
     C.save();
     return out;
   });
   await p.reload();
-  R.naHerladen = await p.evaluate(() => { const j = JSON.parse(localStorage.getItem('terranova-career') || '{}'); return { xp: j.xp, opdrachten: Object.keys(j.tasks || {}), geschiedenis: (j.history || []).length }; });
+  R.naHerladen = await p.evaluate(() => { const j = JSON.parse(localStorage.getItem('terranova-career') || '{}'); return { xp: j.xp, opdrachten: Object.keys(j.tasks || {}), geschiedenis: (j.history || []).length, rijbewijzen: Object.keys(j.licenses || {}) }; });
   console.log('carriere:', JSON.stringify(R, null, 1).slice(0, 5000));
   const bd = R.busDienst || {}, td = R.treinDienst || {};
   const ok = !R.leeg.ok && R.woning.ok && R.levelNaWoning >= 1 && !R.appartementTeVroeg.ok && !R.appartementLeeg.ok && R.appartement.ok
     && bd.resultaat === 'klaar' && bd.bediend === 4 && bd.straf.some(s => /rode licht/.test(s.wat)) && bd.straf.some(s => /buiten een halte/.test(s.wat)) && bd.teSnel_s >= 3 && bd.score < 100
     && td.resultaat === 'klaar' && td.bediend === 3 && td.straf.some(s => /noodrem/.test(s.wat)) && td.straf.some(s => /\+4 min/.test(s.wat))
-    && R.hudZonderDienst && R.naHerladen.xp === R.profiel.xp && R.naHerladen.opdrachten.length >= 2 && R.naHerladen.geschiedenis === 2;
+    && R.hudZonderDienst && R.naHerladen.xp === R.profiel.xp && R.naHerladen.opdrachten.length >= 2 && R.naHerladen.geschiedenis === 2
+    // economie (TERRANOVA 16): eerste dienst per soort = examen; rijbewijs alleen bij ≥ 60 punten; bouwopdrachten betalen VC
+    && bd.examen === true && td.examen === true && (!!R.eco.rijbewijzen.bus === bd.score >= 60) && (!!R.eco.rijbewijzen.trein === td.score >= 60)
+    && R.eco.stats.opdrachten >= 2 && R.eco.verrichtingen.some(w => /bouwopdracht/.test(w)) && R.eco.html
+    && R.naHerladen.rijbewijzen.length === Object.keys(R.eco.rijbewijzen).length;
   console.log('alles goed:', ok);
   console.log('fouten:', errs.length ? errs.slice(0, 5).join(' | ') : 'geen');
   await b.close(); process.exit(ok && !errs.length ? 0 : 1);

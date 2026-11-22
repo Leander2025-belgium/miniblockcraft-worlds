@@ -13,6 +13,8 @@
 // Opslag: localStorage 'terranova-career' (nieuwe sleutel; bestaande sleutels en savegames blijven onaangeroerd).
 import { B } from './blocks.js';
 
+import * as VC from './viridcoin.js';
+import { Economy, LICENSES, EXAM_PASS, wage, TASK_PAY } from './economy.js';
 const KEY = 'terranova-career', PLACED_KEY = 'terranova-career-placed';
 export const LEVELS = [0, 150, 400, 800, 1400, 2200, 3300, 4800, 6800, 9500];
 export const levelOf = (xp) => { let l = 0; while (l + 1 < LEVELS.length && xp >= LEVELS[l + 1]) l++; return l + 1; };
@@ -189,12 +191,15 @@ export class Career {
     try { this.p = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { this.p = null; }
     if (!this.p || typeof this.p !== 'object') this.p = { xp: 0, history: [], tasks: {}, achievements: [], v: 1 };
     try { for (const k of JSON.parse(localStorage.getItem(PLACED_KEY) || '[]')) this.placed.add(k); } catch { /* leeg */ }
+    // TERRANOVA 16: economie (js/economy.js) met de bestaande ViridCoin-portemonnee, in alle werelden
+    if (!game.wallet) { game.vc = VC; game.wallet = new VC.Wallet(); game.wallet.ticket = VC.ticketPrice; }
+    this.eco = new Economy(this.p, game.wallet, (t) => game.toast?.(t));
   }
   get level() { return levelOf(this.p.xp); }
   clock() { return (Date.now() / 1000 - new Date().getTimezoneOffset() * 60) % 86400; }
   save() { try { localStorage.setItem(KEY, JSON.stringify(this.p)); localStorage.setItem(PLACED_KEY, JSON.stringify([...this.placed].slice(-6000))); } catch { /* geen opslag */ } }
   // geplaatste en gebroken blokken (js/game.js)
-  onPlace(x, y, z) { this.placed.add(x + ',' + y + ',' + z); if (this.placed.size > 6500) { const it = this.placed.values(); for (let i = 0; i < 500; i++) this.placed.delete(it.next().value); } this.dirty = true; }
+  onPlace(x, y, z) { this.eco.placed(1); this.placed.add(x + ',' + y + ',' + z); if (this.placed.size > 6500) { const it = this.placed.values(); for (let i = 0; i < 500; i++) this.placed.delete(it.next().value); } this.dirty = true; }
   onBreak(x, y, z) { this.placed.delete(x + ',' + y + ',' + z); this.dirty = true; }
   award(xp, why) {
     const before = this.level; this.p.xp += xp;
@@ -223,6 +228,7 @@ export class Career {
     const rec = { ...s.summary(), resultaat: state, score, sterren: st, xp, datum: new Date().toISOString().slice(0, 16).replace('T', ' ') };
     this.p.history.unshift(rec); this.p.history.length = Math.min(this.p.history.length, 40);
     this.award(xp, 'dienst');
+    const eco = this.eco.shiftDone(s.kind, score, s.served.length, state === 'klaar'); rec.loon = eco.loon; rec.examen = eco.examen; rec.rijbewijs = eco.rijbewijs;
     if (state === 'klaar') { this.achieve('eerste-' + s.kind, `Eerste ${s.kind}dienst`); if (st === 5) this.achieve('vijfsterren', 'Vijf sterren'); if (!s.pen.some(p => /noodrem/.test(p.wat))) this.achieve('zachtjes-' + s.kind, `Dienst zonder noodrem (${s.kind})`); }
     this.save();
     this.g.toast?.(state === 'klaar' ? `✅ Dienst klaar: ${score}/100 · ${'★'.repeat(st)}${'☆'.repeat(5 - st)} · +${xp} XP` : `⏹ Dienst afgebroken · +${xp} XP`);
@@ -233,12 +239,15 @@ export class Career {
     const T = TASKS.find(t => t.id === id); if (!T) return null;
     if (this.level < T.level) return { id, ok: false, waarom: [`vrij vanaf level ${T.level}`] };
     const r = checkTask(this, id);
-    if (r.ok && !this.p.tasks[id]) { this.p.tasks[id] = { date: new Date().toISOString().slice(0, 10), xp: T.xp }; this.award(T.xp, id); this.achieve('bouw-' + id, T.name); if (TASKS.every(t => this.p.tasks[t.id])) this.achieve('bouwmeester', 'Bouwmeester: alle bouwopdrachten'); this.save(); }
+    if (r.ok && !this.p.tasks[id]) { this.p.tasks[id] = { date: new Date().toISOString().slice(0, 10), xp: T.xp }; this.award(T.xp, id); this.p.tasks[id].vc = this.eco.taskDone(id); this.achieve('bouw-' + id, T.name); if (TASKS.every(t => this.p.tasks[t.id])) this.achieve('bouwmeester', 'Bouwmeester: alle bouwopdrachten'); this.save(); }
     return r;
   }
   update(dt) {
     if (this.dirty && (this.saveT = (this.saveT || 0) + dt) > 5) { this.saveT = 0; this.dirty = false; this.save(); }
     if (this.shift) { const st = this.shift.update(dt); if (st) this.endShift(st); }
+    // meerijden als passagier telt voor de uitdagingen (echte afgelegde weg)
+    const d = this.g.drive, pp = this.g.player?.pos;
+    if (d && d.mode === 'passenger' && pp) { if (this.rideAt) { const m = Math.hypot(pp.x - this.rideAt.x, pp.z - this.rideAt.z); if (m < 200) { this.rideM = (this.rideM || 0) + m; if (this.rideM >= 100) { this.eco.ride(this.rideM); this.rideM = 0; this.dirty = true; } } } this.rideAt = { x: pp.x, z: pp.z }; } else this.rideAt = null;
     this.renderHud();
   }
   renderHud() {
@@ -253,11 +262,15 @@ export class Career {
     const p = this.p, L = this.level, next = LEVELS[L] ?? null, prev = LEVELS[L - 1] ?? 0, a = this.available();
     const bar = next ? Math.round(100 * (p.xp - prev) / (next - prev)) : 100, esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     return `<div><b>Level ${L}</b> · ${p.xp} XP${next ? ` · nog ${next - p.xp} XP tot level ${L + 1}` : ' · hoogste level'}<div class="cr-bar"><i style="width:${bar}%"></i></div></div>
+      <h4>💰 ${VC.fmt(this.g.wallet?.balance ?? 0)} <button class="btn small" data-cr="wallet">Portemonnee</button></h4>
+      <h4>🎯 Uitdagingen van vandaag</h4><div class="small">${this.eco.dailyView().map(c => `${c.done ? '✅' : '▫️'} ${esc(c.text)} <span class="muted">(${c.kind === 'ride' ? Math.round(c.prog) + '/' + c.need + ' m' : c.prog + '/' + c.need} · +${c.vc} VC)</span>`).join('<br>')}</div>
+      <h4>🪪 Rijbewijzen</h4><div class="small">${Object.entries(LICENSES).map(([k, n]) => p.licenses?.[k] ? `✅ ${esc(n)} <span class="muted">(${p.licenses[k].date}, ${p.licenses[k].score} punten)</span>` : `▫️ ${esc(n)} <span class="muted">— je eerste ${k}dienst is het examen (≥ ${EXAM_PASS} punten)</span>`).join('<br>')}<br><span class="muted">Met rijbewijs levert een dienst loon op (score × 0,6 + 6 VC per halte).</span></div>
       <h4>Diensten</h4><div class="small">${this.shift ? `Bezig: ${esc(this.shift.title)}` : a ? 'Je zit aan het stuur: je kunt een dienst starten.' : 'Ga in de cabine van een trein (Greenisland, Alpen) of bestuur een bus, metro of tram om een dienst te starten.'}</div>
       <div class="row">${a && !this.shift ? `<button class="btn primary" data-cr="start">${a.label}</button>` : ''}${this.shift ? '<button class="btn" data-cr="stop">⏹ Dienst stoppen</button>' : ''}</div>
       <h4>Bouwopdrachten <span class="small muted">(gecontroleerd op wat je zelf bouwt, binnen 24 m van je)</span></h4>
-      ${TASKS.map(t => `<div class="cr-task"><b>${p.tasks[t.id] ? '✅' : L < t.level ? '🔒' : '🔨'} ${esc(t.name)}</b> <span class="muted small">level ${t.level} · ${t.xp} XP</span><br><span class="small">${esc(t.desc)}</span>${L >= t.level && !p.tasks[t.id] ? ` <button class="btn small" data-cr="check:${t.id}">Controleer</button>` : ''}<div class="small cr-res" id="cr-res-${t.id}"></div></div>`).join('')}
+      ${TASKS.map(t => `<div class="cr-task"><b>${p.tasks[t.id] ? '✅' : L < t.level ? '🔒' : '🔨'} ${esc(t.name)}</b> <span class="muted small">level ${t.level} · ${t.xp} XP · ${TASK_PAY[t.id] || 60} VC</span><br><span class="small">${esc(t.desc)}</span>${L >= t.level && !p.tasks[t.id] ? ` <button class="btn small" data-cr="check:${t.id}">Controleer</button>` : ''}<div class="small cr-res" id="cr-res-${t.id}"></div></div>`).join('')}
+      <h4>Statistieken</h4><div class="small">${(s => `${s.diensten} diensten · ${s.haltes} haltes bediend · ${s.blokken} blokken geplaatst · ${s.opdrachten} bouwopdrachten · ${s.passagierKm} km meegereden · ${s.verdiend} VC verdiend`)(p.stats)}</div>
       <h4>Prestaties</h4><div class="small">${p.achievements.length ? p.achievements.map(x => `🏅 ${esc(x.name)}`).join(' · ') : 'Nog geen.'}</div>
-      <h4>Geschiedenis</h4><div class="small">${p.history.length ? p.history.slice(0, 8).map(h => `${esc(h.datum)} · ${esc(h.titel)} · ${h.resultaat === 'klaar' ? `${h.score}/100 ${'★'.repeat(h.sterren)}` : 'afgebroken'} · +${h.xp} XP`).join('<br>') : 'Nog geen diensten.'}</div>`;
+      <h4>Geschiedenis</h4><div class="small">${p.history.length ? p.history.slice(0, 8).map(h => `${esc(h.datum)} · ${esc(h.titel)} · ${h.resultaat === 'klaar' ? `${h.score}/100 ${'★'.repeat(h.sterren)}` : 'afgebroken'} · +${h.xp} XP${h.loon ? ` · +${h.loon} VC` : ''}${h.examen ? (h.rijbewijs ? ' · 🪪 geslaagd' : ' · examen') : ''}`).join('<br>') : 'Nog geen diensten.'}</div>`;
   }
 }

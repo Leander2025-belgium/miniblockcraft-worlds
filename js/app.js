@@ -1227,6 +1227,7 @@ $('#career-body')?.addEventListener('click', (e) => {
   const k = b.dataset.cr, C = game.career;
   if (k === 'start') { if (C.startShift()) game.resume(); else careerRender(); return; }
   if (k === 'stop') { C.endShift('afgebroken'); careerRender(); return; }
+  if (k === 'wallet') { game.showWallet(); return; }
   if (k.startsWith('check:')) { const id = k.slice(6), r = C.check(id); careerRender(); const el = document.getElementById('cr-res-' + id); if (el && r) el.textContent = r.ok ? '✅ Klopt! Opdracht voltooid.' : '❌ ' + r.waarom.join(' · '); }
 });
 $('#btn-megaplan')?.addEventListener('click', async () => {

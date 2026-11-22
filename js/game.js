@@ -1275,7 +1275,8 @@ export class Game {
   isGreen() { return !!(this.meta && (this.meta.greenisland || this.meta.id === 'greenisland')); }
   gnmiWeather() {
     if (!this.isGreen()) return null;
-    if (!this.wallet && !this.vcLoading) { this.vcLoading = true; import('./viridcoin.js').then(m => { this.vc = m; this.wallet = new m.Wallet(); this.wallet.ticket = m.ticketPrice; const b = this.wallet.dailyBonus(); if (b) this.toast(`💰 Dagbonus: +${b} ViridCoin (saldo ${Math.round(this.wallet.balance)} VC)`); }).catch(e => console.error(e)); }
+    // portemonnee: sinds TERRANOVA 16 gemaakt door de carrière (js/career.js, overal dezelfde ViridCoin); dagbonus alleen in Greenisland
+    if (this.wallet && !this.vcBonus) { this.vcBonus = true; const b = this.wallet.dailyBonus(); if (b) this.toast(`💰 Dagbonus: +${b} ViridCoin (saldo ${Math.round(this.wallet.balance)} VC)`); }
     if (!this.gnmi) { if (!this.gnmiLoading) { this.gnmiLoading = true; import('./gnmi.js').then(m => { this.gnmi = m; }).catch(e => console.error(e)); } return null; }
     const now = performance.now(), p = this.player.pos;
     if (!this.gnmiNow || now - this.gnmiT > 8000) {

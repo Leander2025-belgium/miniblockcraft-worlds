@@ -21,6 +21,7 @@ const checks = [
   ['Megatower City: gevels (alle soorten, niet meer driehoeken dan vroeger)', 'tools/check-gevels.mjs'],
   ['Dubbeldekker: beide verdiepingen bereikbaar via de trap, elke zitplaats bij een loopplek', 'tools/check-dubbeldekker.mjs'],
   ['Multiplayerserver (proef): aanmelden, posities, bouwvolgorde, weigeringen, ratelimiet, opslag', 'tools/check-multiplayer.mjs'],
+  ['Economie: uitdagingen, examen en rijbewijs, loon, bouwopdrachten (ViridCoin)', 'tools/check-economy.mjs'],
   ['Adaptieve kwaliteit: 60 of stabiele 30 FPS op nagebootste toestellen, vaste grens Batterijbesparing', 'tools/check-adaptive.mjs'],
 ];
 let fail = 0;
