@@ -11,7 +11,7 @@ import { META as BERG } from './alpen-meta.js';
 // de Reuzenberg ligt nu in het midden van de Alpenwereld (50 × 50 km); oude tegels worden met de oude code gemaakt.
 // Het landschap wordt pas geladen als er een tegel van die wereld gevraagd wordt.
 import { META as GREEN } from './greenisland-meta.js';
-const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile), [GREEN.id]: () => import('./greenisland.js').then(m => m.generateTile), megatower: () => import('./megacity.js').then(m => m.generateTile) };
+const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile), [GREEN.id]: () => import('./greenisland.js').then(m => m.generateTile), bouwwereld: () => import('./flatworld.js').then(m => m.generateTile), megatower: () => import('./megacity.js').then(m => m.generateTile) };
 const genCache = new Map();
 // TERRANOVA 16: Wildernis met zaadgetal in het ID ('wildernis' of 'wildernis-<getal>')
 function wildFor(id) { return import('./wildernis.js').then(m => { const seed = m.seedFromId(id); return (tx, tz) => m.generateTile(tx, tz, seed); }); }

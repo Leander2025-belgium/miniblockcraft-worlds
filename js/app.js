@@ -32,6 +32,7 @@ import { META as MEGA, PLACES as MEGA_PLACES, zoneName as megaZoneName, SPAWN as
 import { PLACES as TOWER_PLACES, shellInside as towerInside, shellFill as towerShell, TOWER_TX, TOWER_TZ } from './megatower.js';
 import { applyA11y } from './a11y.js';
 import * as WILD from './wildernis.js';
+import * as FLAT from './flatworld.js';
 // TERRANOVA 16: tekstgrootte, contrast, kleurfilter … ook al in het menu, vóór een wereld geladen is
 try { applyA11y(JSON.parse(localStorage.getItem('blokstad-settings') || '{}')); } catch { /* geen of kapotte instellingen */ }
 // zelfgegenereerde werelden
@@ -51,6 +52,8 @@ function wildProc(id) {
     spawn: { ...WILD.spawnFor(seed), fly: false }, info: `Natuurwereld · 8 × 8 km · zaadgetal ${seed} · zee, rivieren, bergen, 12 biomen, grotten en ertsen` });
 }
 wildProc('wildernis');
+// TERRANOVA 16 fase 8: lege bouwwereld (js/flatworld.js)
+PROC[FLAT.META.id] = { META: FLAT.META, PLACES: [], zoneName: FLAT.zoneName, groundAt: FLAT.groundAt, spawn: FLAT.SPAWN, info: 'Bouwwereld · 4 × 4 km vlak gras · bouwen met de bouwmodus (B) en de wereldbouwer' };
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -449,6 +452,7 @@ function drawWildMap() {
   x.putImageData(img, 0, 0); c.dataset.seed = String(seed);
 }
 $('#btn-wild')?.addEventListener('click', () => { phoneFullscreen(); playMap('wildernis'); });
+$('#btn-flat')?.addEventListener('click', () => { phoneFullscreen(); playMap('bouwwereld'); });
 $('#btn-wild-seed')?.addEventListener('click', () => { const id = WILD.idForSeed($('#wild-seed').value); wildProc(id); phoneFullscreen(); playMap(id); });
 $('#btn-wild-random')?.addEventListener('click', () => { $('#wild-seed').value = String(1 + Math.floor(Math.random() * 999999)); drawWildMap(); });
 $('#wild-seed')?.addEventListener('change', drawWildMap);

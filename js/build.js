@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { cacheGet, cachePut, cacheDelete } from './storage.js';
 import { BLOCKS } from './blocks.js';
+import * as WT from './worldtools.js';
 
 const MAXVOL = 220000; // max. blokken per bewerking (vlot op telefoons)
 const SLICE = 20000;    // blokken per frame bij grote bewerkingen (in stukjes, js/build.js update)
@@ -169,6 +170,26 @@ export class Builder {
     const lo = [Math.min(a[0], b[0]), 0, Math.min(a[2], b[2])], hi = [Math.max(a[0], b[0]), 0, Math.max(a[2], b[2])];
     this.run(cells(), blk, n + 1, [lo, hi], (k) => this.g.toast(`📏 Lijn: ${k} blokken ${BLOCKS[blk].name}`));
   }
+  // ── wereldbouwer (TERRANOVA 16 fase 8, js/worldtools.js): weg, spoor, voetpad, terrein vlak maken, heuvel, beplanten ──
+  world(kind) {
+    if (this.job) return this.g.toast('Even geduld: de vorige bewerking is nog bezig');
+    if (!this.a || !this.b) return this.g.toast('Kies eerst twee hoeken (① en ②)');
+    const get = (x, y, z) => this.g.world.get(x, y, z), a = this.a, b = this.b;
+    const lo = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])], hi = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
+    const surfaceY = (x, z, y) => { for (let k = 8; k >= -8; k--) { const v = get(x, y + k, z); if (v && !get(x, y + k + 1, z)) return y + k; } return y; };
+    let cells, label;
+    if (kind === 'road') { cells = WT.roadCells(a, b, get); label = '🛣 Weg aangelegd'; }
+    else if (kind === 'rail') { cells = WT.railCells(a, b, get); label = '🛤 Spoor gelegd'; }
+    else if (kind === 'path') { cells = WT.pathCells(a, b, get, surfaceY); label = '🥾 Voetpad gelegd'; }
+    else if (kind === 'flat') { cells = [...WT.flattenCells(lo, hi, get)]; label = '⛏ Terrein vlak gemaakt'; }
+    else if (kind === 'hill') { cells = [...WT.hillCells(lo, hi)]; label = '⛰ Heuvel gemaakt'; }
+    else if (kind === 'plant') { cells = WT.plantCells(lo, hi, get, this.undoStack.length + 1); label = '🌳 Beplant'; }
+    else return;
+    if (cells.length > MAXVOL * 2) return this.g.toast(`Te groot (${cells.length.toLocaleString('nl-BE')} blokken): kies een kleiner stuk`);
+    const pad = kind === 'road' ? 6 : kind === 'rail' ? 4 : 2, box = [[lo[0] - pad, lo[1], lo[2] - pad], [hi[0] + pad, hi[1], hi[2] + pad]];
+    this.lastWorld = { kind, cellen: cells.length };
+    this.run(cells[Symbol.iterator](), null, cells.length, box, (n) => this.g.toast(`${label}: ${n} blokken`));
+  }
   // spiegelen van wat je gekopieerd hebt: links-rechts (x) of voor-achter (z)
   mirror(axis = 'x') {
     const c = this.clip; if (!c) return this.g.toast('Eerst iets kopiëren of een blauwdruk kiezen');
@@ -284,6 +305,12 @@ export class Builder {
     if (c === 'KeyO') { this.saveBlueprint(); return true; }
     if (c === 'KeyL') { this.showList(); return true; }
     if (c === 'KeyX') { this.a = this.b = null; this.showSel(); this.g.toast('Selectie gewist'); return true; }
+    if (c === 'KeyF' && e.shiftKey) { this.world('flat'); return true; }
+    if (c === 'KeyU' && e.shiftKey) { this.world('hill'); return true; }
+    if (c === 'KeyI' && e.shiftKey) { this.world('plant'); return true; }
+    if (c === 'KeyN') { this.world('road'); return true; }
+    if (c === 'KeyG') { this.world('rail'); return true; }
+    if (c === 'KeyJ') { this.world('path'); return true; }
     if (c === 'KeyF') { this.floor(); return true; }
     if (c === 'KeyU') { this.room(); return true; }
     if (c === 'KeyI') { this.line(); return true; }
@@ -333,6 +360,7 @@ export class Builder {
     on('bb-copy', () => this.copy()); on('bb-paste', () => this.paste()); on('bb-rot', () => this.rotate());
     on('bb-floor', () => this.floor()); on('bb-room', () => this.room()); on('bb-line', () => this.line()); on('bb-mirror', () => this.mirror('x'));
     on('bb-save', () => this.saveBlueprint()); on('bb-list', () => this.showList());
+    for (const k of ['road', 'rail', 'path', 'flat', 'hill', 'plant']) on('bb-' + k, () => this.world(k));
     on('bb-undo', () => this.undo()); on('bb-redo', () => this.redo()); on('bb-exit', () => this.toggle(false));
     on('bp-close', () => document.getElementById('bp-list')?.setAttribute('hidden', ''));
   }
