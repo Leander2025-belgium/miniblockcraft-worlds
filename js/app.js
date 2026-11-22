@@ -1292,6 +1292,7 @@ const openOvMap = async () => { if (!game || !game.mega) return; const m = await
 $('#btn-ovmap')?.addEventListener('click', openOvMap);
 $('#btn-map-ov')?.addEventListener('click', openOvMap);
 $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
+$('#btn-memdiag')?.addEventListener('click', async () => { if (!game) return; const m = await import('./memdiag.js'); const r = m.memReport(game); window.__memReport = r; $('#diag-text').value = m.memText(r); game.showOverlay('diag'); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
 window.addEventListener('error', (e) => diag('fout', String(e.message || e).slice(0, 200)));

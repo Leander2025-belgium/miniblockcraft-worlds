@@ -50,7 +50,7 @@ const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_mo
     Bd.a = [BX, BY, BZ]; Bd.b = [BX + 59, BY + 19, BZ + 59];
     const tf = performance.now(); Bd.fill('fill'); const t1 = performance.now() - tf;
     let frames = 0, worst = 0; while (Bd.job && frames < 400) { const t0 = performance.now(); Bd.update(); worst = Math.max(worst, performance.now() - t0); frames++; }
-    out.grootDbg = { n: Bd.stats, eerste: w.get(BX, BY, BZ), H: w.H, G, BY, tile: !!w.tileAt?.(BX, BZ), undo: Bd.undoStack.length, laatste: Bd.undoStack[Bd.undoStack.length - 1]?.length };
+    out.grootDbg = { n: Bd.stats, eerste: w.get(BX, BY, BZ), H: w.H, G, BY, tile: !!w.tileAt?.(BX, BZ), undo: Bd.undoStack.length, laatste: Bd.undoStack[Bd.undoStack.length - 1]?.length / 5 };
     out.groot = { startMs: +t1.toFixed(1), frames, slechtsteFrameMs: +worst.toFixed(1), gevuld: count(BX, BY, BZ, BX + 59, BY + 19, BZ + 59, 1) };
     Bd.undo(); out.grootOngedaan = count(BX, BY, BZ, BX + 59, BY + 19, BZ + 59, 1);
     // bouwbibliotheek

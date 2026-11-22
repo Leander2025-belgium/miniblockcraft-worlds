@@ -15,6 +15,7 @@ const SLICE = 20000;    // blokken per frame bij grote bewerkingen (in stukjes, 
 const GHOST_MAX = 6000; // blokken in de voorvertoning van het plakken
 const BP_INDEX = 'blokstad-blueprints';
 
+const UNDO_MAX = 2_000_000; // blokken in de hele ongedaan-maak-geschiedenis (±40 MB)
 export class Builder {
   constructor(game) {
     this.g = game; this.on = false;
@@ -50,26 +51,32 @@ export class Builder {
   commit() {
     if (this.depth) { this.depth--; return; }
     const c = this.cur; this.cur = null;
-    const list = c ? [...c.values()].filter(e => e[3] !== e[4]) : [];
-    if (!list.length) return;
+    // TERRANOVA 16: compact bewaren (5 gehele getallen per blok in één Int32Array i.p.v. een los array per blok:
+    // ±20 i.p.v. ±100 bytes per blok) en de hele geschiedenis begrensd op UNDO_MAX blokken, niet alleen op 120 stappen
+    let n = 0; if (c) for (const e of c.values()) if (e[3] !== e[4]) n++;
+    if (!n) return;
+    const list = new Int32Array(n * 5); let i = 0;
+    for (const e of c.values()) if (e[3] !== e[4]) { list[i] = e[0]; list[i + 1] = e[1]; list[i + 2] = e[2]; list[i + 3] = e[3]; list[i + 4] = e[4]; i += 5; }
     this.undoStack.push(list);
-    if (this.undoStack.length > 120) this.undoStack.shift();
+    let tot = 0; for (const l of this.undoStack) tot += l.length / 5;
+    while (this.undoStack.length > 1 && (this.undoStack.length > 120 || tot > UNDO_MAX)) tot -= this.undoStack.shift().length / 5;
     this.redoStack.length = 0;
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   apply(list, useTo) {
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9;
-    for (const [x, y, z, from, to] of list) {
-      this.g.world.set(x, y, z, useTo ? to : from);
+    for (let i = 0; i < list.length; i += 5) {
+      const x = list[i], y = list[i + 1], z = list[i + 2];
+      this.g.world.set(x, y, z, list[i + (useTo ? 4 : 3)]);
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
     }
     this.g.editY = [y0, y1];
-    this.remesh(x0, z0, x1, z1, list.length > 4000);
+    this.remesh(x0, z0, x1, z1, list.length / 5 > 4000);
     this.g.editY = null;
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
-  undo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length} blokken)`); }
-  redo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length} blokken)`); }
+  undo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length / 5} blokken)`); }
+  redo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length / 5} blokken)`); }
   remesh(x0, z0, x1, z1, queued = false) {
     const done = new Set(), hadY = this.g.editY;
     if (!hadY) this.g.editY = [0, 4000]; // onbekende hoogte: in een toren alle gevelsecties bijwerken
