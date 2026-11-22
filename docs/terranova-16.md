@@ -275,6 +275,18 @@ niet met een telefoon of pc.
   hij drie keer na elkaar in ± 2,5 minuut. De oorzaak van het hangen heb ik **niet gevonden**; bij een losse meting
   verliep elke stap normaal. Dit blijft een open punt.
 
+**Regressie ronde 2** (versie 2026-11-25b; `run-all` + alle browsertests, in twee delen):
+- Deel A: `run-all` (nu ook `check-atb` en `check-localplan`) en 28 browsertests, waaronder de 8 nieuwe
+  (geluid16, interface16, wildernis, bewoners, atb16, wereldbouwer, planner-overal, carriere16): alles geslaagd.
+- Deel B: 29 bestaande browsertests; 27 meteen geslaagd (ook `prestatietest`, die deze keer niet bleef hangen).
+- `graphics` faalde door een **echte fout uit 16**: de gemeten vertraging (fase 6) bewaarde het voertuig in de rit,
+  waardoor een rit niet meer naar JSON kon (circulaire verwijzing). Opgelost: het voertuig wordt apart bijgehouden
+  (`js/traffic.js`). Daarna slaagden `graphics`, `vertraging` en `run-all` opnieuw.
+- `megatower` werd opnieuw door de tijdslimiet (25 min) onderbroken; met meer tijd slaagde hij (23,5 min, geen fouten).
+  Deze test is in deze omgeving gewoon heel traag, net als in ronde 1.
+- `reizen` draait met bewoners uit (`bewoners: false`): met de samenleving aan kiest de test een ander reisdoel en
+  klopte zijn momentopname niet meer. De bewoners zelf worden getest in `bewoners`.
+
 **Benchmark 15 tegenover 16** (`tests/browser/bench.cjs`, zelfde profiel, zelfde machine, na elkaar;
 [`bench16/`](bench16/)):
 
