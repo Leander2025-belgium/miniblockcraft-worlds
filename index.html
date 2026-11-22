@@ -698,8 +698,9 @@
     <div class="card map-card">
       <h2>🧭 Reisplanner Megatower City</h2>
       <p class="help" style="margin-top:0">Metro M1 (Westpoort – Megatower – Luchthaven), trams T1–T4, de trein Megatower Centraal – Luchthaven en wandelen (ook om over te stappen), volgens de dienstregeling van het speluur (spits, daluren, avond, nacht). Bussen B1–B38 rijden op vaste lijnen langs de buslanen.</p>
-      <div class="row"><label>Van <select id="mp-from"></select></label><label>Naar <select id="mp-to"></select></label><label>Vertrek <select id="mp-hour"></select></label></div>
+      <div class="row"><label>Van <select id="mp-from"></select></label><label>Naar <select id="mp-to"></select></label><label>Vertrek <select id="mp-hour"></select></label><label>Voorkeur <select id="mp-pref"></select></label></div>
       <div id="mp-result" class="mp-result"></div>
+      <div id="mp-alts" class="small"></div>
       <div class="row"><button class="btn primary" id="mp-nav">🧭 Begeleid mij</button><button class="btn" id="mp-close">Terug naar het spel</button></div>
     </div>
   </div>
@@ -727,16 +728,16 @@
       <h2>👥 Samen spelen (proef)</h2>
       <p class="help" style="margin-top:0">Optioneel. Speel samen in de wereld die je nu open hebt, via een eigen TERRANOVA-server (map <code>server/</code>, zie docs/terranova-16.md). Zonder server werkt alles zoals altijd, offline en zonder account. Wie dezelfde wereld opent op dezelfde server, ziet elkaar, kan samen bouwen en chatten.</p>
       <div class="row" style="gap:6px;flex-wrap:wrap">
-        <input id="mp-url" placeholder="ws://localhost:8787" style="min-width:200px">
-        <input id="mp-name" placeholder="Jouw naam" maxlength="16" style="width:130px">
-        <input id="mp-token" placeholder="Wachtwoord (als de server er een heeft)" type="password" style="width:200px">
-        <button class="btn primary" id="mp-connect">Verbinden</button><button class="btn" id="mp-leave" hidden>Stoppen</button>
+        <input id="sp-url" placeholder="ws://localhost:8787" style="min-width:200px">
+        <input id="sp-name" placeholder="Jouw naam" maxlength="16" style="width:130px">
+        <input id="sp-token" placeholder="Wachtwoord (als de server er een heeft)" type="password" style="width:200px">
+        <button class="btn primary" id="sp-connect">Verbinden</button><button class="btn" id="sp-leave" hidden>Stoppen</button>
       </div>
-      <p class="small" id="mp-status">Niet verbonden.</p>
-      <div id="mp-players" class="small"></div>
-      <div id="mp-chat" class="small" style="max-height:22vh;overflow:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:6px;margin:6px 0"></div>
-      <div class="row" style="gap:6px"><input id="mp-say" placeholder="Bericht…" maxlength="200" style="flex:1"><button class="btn" id="mp-send">Stuur</button><button class="btn" id="mp-share" title="Laat de anderen zien welk voertuig je bekijkt">👀 Deel voertuig</button></div>
-      <div class="row"><button class="btn" id="mp-close">Terug naar het spel</button></div>
+      <p class="small" id="sp-status">Niet verbonden.</p>
+      <div id="sp-players" class="small"></div>
+      <div id="sp-chat" class="small" style="max-height:22vh;overflow:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:6px;margin:6px 0"></div>
+      <div class="row" style="gap:6px"><input id="sp-say" placeholder="Bericht…" maxlength="200" style="flex:1"><button class="btn" id="sp-send">Stuur</button><button class="btn" id="sp-share" title="Laat de anderen zien welk voertuig je bekijkt">👀 Deel voertuig</button></div>
+      <div class="row"><button class="btn" id="sp-close">Terug naar het spel</button></div>
     </div>
   </div>
   <div class="ov" id="ov-diag" hidden>

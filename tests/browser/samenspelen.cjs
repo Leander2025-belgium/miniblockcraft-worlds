@@ -30,14 +30,14 @@ const PORT = 18787, DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'tn-mp-b-'));
   // zonder server: netjes mislukken, de game draait door
   R.zonderServer = await A.evaluate(async () => {
     const g = window.blokGame(); document.getElementById('btn-mp').click();
-    document.getElementById('mp-url').value = 'ws://127.0.0.1:1'; document.getElementById('mp-name').value = 'Anna';
-    document.getElementById('mp-connect').click(); await new Promise(r => setTimeout(r, 2500));
+    document.getElementById('sp-url').value = 'ws://127.0.0.1:1'; document.getElementById('sp-name').value = 'Anna';
+    document.getElementById('sp-connect').click(); await new Promise(r => setTimeout(r, 2500));
     return { status: g.mp && g.mp.status, draait: g.running };
   });
   const connect = (p, name) => p.evaluate(async ({ name, port }) => {
     const g = window.blokGame(); document.getElementById('btn-mp').click();
-    document.getElementById('mp-url').value = `ws://127.0.0.1:${port}`; document.getElementById('mp-name').value = name;
-    document.getElementById('mp-connect').click();
+    document.getElementById('sp-url').value = `ws://127.0.0.1:${port}`; document.getElementById('sp-name').value = name;
+    document.getElementById('sp-connect').click();
     for (let i = 0; i < 40 && !(g.mp && g.mp.status === 'verbonden'); i++) await new Promise(r => setTimeout(r, 250));
     g.resume?.(); return { status: g.mp.status, room: g.mp.room };
   }, { name, port: PORT });
@@ -60,11 +60,11 @@ const PORT = 18787, DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'tn-mp-b-'));
   // B probeert iets ver weg te bouwen (rechtstreeks een bericht sturen): geweigerd
   R.weigering = await B.evaluate(async () => { const g = window.blokGame(); g.mp.send({ t: 'build', x: 9999, y: 50, z: 9999, b: 4 }); await new Promise(r => setTimeout(r, 800)); return g.mp.lastReject; });
   // chat en voertuig delen
-  await A.evaluate(() => { document.getElementById('mp-say').value = 'hallo Bram'; document.getElementById('mp-send').click(); });
+  await A.evaluate(() => { document.getElementById('sp-say').value = 'hallo Bram'; document.getElementById('sp-send').click(); });
   await B.waitForTimeout(1000);
   R.chat = await B.evaluate(() => window.blokGame().mp.chat.map(c => c.text));
   // stoppen: A verdwijnt bij B
-  await A.evaluate(() => document.getElementById('mp-leave').click());
+  await A.evaluate(() => document.getElementById('sp-leave').click());
   await B.waitForTimeout(1200);
   R.naStoppen = await B.evaluate(() => window.blokGame().mp.others.size);
   console.log('samenspelen:', JSON.stringify(R));

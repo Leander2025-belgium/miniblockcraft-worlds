@@ -1232,23 +1232,30 @@ $('#career-body')?.addEventListener('click', (e) => {
 });
 $('#btn-megaplan')?.addEventListener('click', async () => {
   if (!game || !game.mega) return;
-  const m = await import('./megaplan.js'), from = $('#mp-from'), to = $('#mp-to'), hr = $('#mp-hour');
+  const m = await import('./megaplan.js'), from = $('#mp-from'), to = $('#mp-to'), hr = $('#mp-hour'), pf = $('#mp-pref');
   if (!from.options.length) {
     from.innerHTML = `<option value="me">📍 Mijn positie</option>` + m.PLACES.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     to.innerHTML = m.PLACES.map(p => `<option value="${p.id}">${p.name}</option>`).join(''); to.value = 'P:luchthaven';
     hr.innerHTML = `<option value="now">nu</option>` + Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+    pf.innerHTML = Object.entries(m.PREFS).map(([k, v]) => `<option value="${k}">${v.naam}</option>`).join('');
     const run = () => {
       const P = Object.fromEntries(m.PLACES.map(p => [p.id, p])), pp = game.player.pos;
       const a = from.value === 'me' ? { id: 'me', name: 'je positie', x: pp.x, z: pp.z } : P[from.value], b = P[to.value];
       const h = hr.value === 'now' ? (game.settings.hour ?? 12) : +hr.value;
-      const r = m.plan(a, b, h); game.mega.lastPlan = r;
+      const r = m.plan(a, b, h, pf.value); game.mega.lastPlan = r; game.mega.lastPref = pf.value;
       $('#mp-result').innerHTML = m.planHtml(r);
+      // alternatieve verbindingen (andere voorkeuren die een andere route geven)
+      const sig = (x) => x.legs.map(l => l.mode === 'wandelen' ? 'w' : l.line).join('>'), mins = (s) => Math.max(1, Math.round(s / 60));
+      const alts = m.alternatives(a, b, h).filter(x => sig(x) !== sig(r));
+      game.mega.alts = alts;
+      $('#mp-alts').innerHTML = alts.length ? '<b>Andere verbindingen</b><br>' + alts.map((x, i) => `<div>${x.voorkeuren.join(' / ')}: aankomst ${m.fmtTime(x.arr)} · ${mins(x.arr - x.dep)} min · ${x.overstappen} overstap${x.overstappen === 1 ? '' : 'pen'} · ${x.wandelen} m wandelen · ${x.legs.filter(l => l.mode !== 'wandelen').map(l => l.line).join(' → ')} <button class="btn small" data-alt="${i}">Kies</button></div>`).join('') : '<span class="muted">Geen andere verbinding: elke voorkeur geeft dezelfde route.</span>';
     };
-    for (const el of [from, to, hr]) el.addEventListener('change', run);
+    for (const el of [from, to, hr, pf]) el.addEventListener('change', run);
+    $('#mp-alts').addEventListener('click', (e) => { const bt = e.target.closest('[data-alt]'); if (!bt) return; const x = game.mega.alts[+bt.dataset.alt]; if (!x) return; game.mega.lastPlan = x; $('#mp-result').innerHTML = m.planHtml(x); });
     $('#mp-close').addEventListener('click', () => game.resume());
     // routebegeleiding stap voor stap (js/routeguide.js): lopen, wachten, instappen, overstappen, aankomen
     $('#mp-nav').addEventListener('click', async () => { const r = game.mega.lastPlan; if (r && r.legs.length) { const G = await import('./routeguide.js'), P = Object.fromEntries(m.PLACES.map(p => [p.id, p])), b = P[to.value];
-      game.mega.navTo = null; game.mega.guide = new G.RouteGuide(game, r, b, (f) => m.plan(f, b, game.settings.hour ?? 12)); game.toast(`🧭 Begeleiding naar ${b.name} · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · aankomst volgens dienstregeling`); game.resume(); return; }
+      game.mega.navTo = null; game.mega.guide = new G.RouteGuide(game, r, b, (f) => m.plan(f, b, game.settings.hour ?? 12, game.mega.lastPref || 'snelste')); game.toast(`🧭 Begeleiding naar ${b.name} · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · aankomst volgens dienstregeling`); game.resume(); return; }
       const r0 = r; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
       if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (${ride.perron ? `perron ${ride.perron}, ` : ''}vertrek ${hm(ride.dep)})` : `Je bent er al`);
       else { game.mega.navTo = { name: first.name, x: first.x, z: first.z }; game.toast(`🧭 Navigatie naar ${first.name}${ride ? ` · daar de ${ride.line} richting ${ride.dir} (${hm(ride.dep)})` : ''}`); } } game.resume(); });
@@ -1297,33 +1304,33 @@ $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('
 const mpRoom = () => 'w:' + String(game?.meta?.id || 'wereld').replace(/[^\w:.-]/g, '_').slice(0, 44);
 function mpRender() {
   const M = game?.mp, on = M && M.status === 'verbonden';
-  $('#mp-status').textContent = M ? `${M.status}${on ? ` als ${M.myName} · wereld ${M.room}` : ''}` : 'Niet verbonden.';
-  $('#mp-connect').hidden = !!on; $('#mp-leave').hidden = !on;
-  $('#mp-players').textContent = on ? `Andere spelers: ${[...M.others.values()].map(o => o.name).join(', ') || 'nog niemand'}` : '';
-  $('#mp-chat').innerHTML = (M?.chat || []).slice(-30).map(c => `<div>${c.text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</div>`).join('');
+  $('#sp-status').textContent = M ? `${M.status}${on ? ` als ${M.myName} · wereld ${M.room}` : ''}` : 'Niet verbonden.';
+  $('#sp-connect').hidden = !!on; $('#sp-leave').hidden = !on;
+  $('#sp-players').textContent = on ? `Andere spelers: ${[...M.others.values()].map(o => o.name).join(', ') || 'nog niemand'}` : '';
+  $('#sp-chat').innerHTML = (M?.chat || []).slice(-30).map(c => `<div>${c.text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</div>`).join('');
 }
 $('#btn-mp')?.addEventListener('click', () => {
   if (!game) return;
   let st = {}; try { st = JSON.parse(localStorage.getItem('terranova-mp') || '{}') || {}; } catch { /* */ }
-  $('#mp-url').value = st.url || 'ws://localhost:8787'; $('#mp-name').value = st.name || '';
+  $('#sp-url').value = st.url || 'ws://localhost:8787'; $('#sp-name').value = st.name || '';
   mpRender(); game.showOverlay('mp');
   clearInterval(game.mpTimer); game.mpTimer = setInterval(() => { if ($('#ov-mp').hidden) return clearInterval(game.mpTimer); mpRender(); }, 1000);
 });
-$('#mp-connect')?.addEventListener('click', async () => {
-  const url = $('#mp-url').value.trim(), name = $('#mp-name').value.trim();
+$('#sp-connect')?.addEventListener('click', async () => {
+  const url = $('#sp-url').value.trim(), name = $('#sp-name').value.trim();
   if (!/^wss?:\/\//.test(url)) return flash('Adres moet beginnen met ws:// of wss://');
   if (name.length < 2) return flash('Kies een naam (minstens 2 tekens)');
   try { localStorage.setItem('terranova-mp', JSON.stringify({ url, name })); } catch { /* */ }
   game.mp?.close();
   const m = await import('./multiplayer.js');
-  game.mp = new m.Multiplayer(game, { url, name, token: $('#mp-token').value, room: mpRoom() });
+  game.mp = new m.Multiplayer(game, { url, name, token: $('#sp-token').value, room: mpRoom() });
   mpRender(); await game.mp.connect(); mpRender();
 });
-$('#mp-leave')?.addEventListener('click', () => { game?.mp?.close(); if (game) game.mp = null; mpRender(); });
-const mpSend = () => { const t = $('#mp-say').value.trim(); if (!t || !game?.mp) return; game.mp.sendChat(t); $('#mp-say').value = ''; };
-$('#mp-send')?.addEventListener('click', mpSend);
-$('#mp-say')?.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') mpSend(); });
-$('#mp-share')?.addEventListener('click', () => {
+$('#sp-leave')?.addEventListener('click', () => { game?.mp?.close(); if (game) game.mp = null; mpRender(); });
+const mpSend = () => { const t = $('#sp-say').value.trim(); if (!t || !game?.mp) return; game.mp.sendChat(t); $('#sp-say').value = ''; };
+$('#sp-send')?.addEventListener('click', mpSend);
+$('#sp-say')?.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') mpSend(); });
+$('#sp-share')?.addEventListener('click', () => {
   const M = game?.mp; if (!M) return;
   const p = game.player.pos; let best = game.drive?.a || null, bd = 80;
   if (!best) for (const a of game.traffic?.agents || []) { if (a.dead || a.kind === 'walk') continue; const h = game.traffic.behind(a, 0, {}); const d = Math.hypot(h.x - p.x, h.z - p.z); if (d < bd) { bd = d; best = a; } }
@@ -1331,7 +1338,7 @@ $('#mp-share')?.addEventListener('click', () => {
   const h = game.traffic.behind(best, 0, {});
   M.shareLook(`${{ bus: 'bus', tram: 'tram', metro: 'metro', train: 'trein', car: 'auto' }[best.kind] || best.kind}${best.line ? ' ' + best.line : ''}`, h.x, h.z); flash('Gedeeld ✓');
 });
-$('#mp-close')?.addEventListener('click', () => game && game.resume());
+$('#sp-close')?.addEventListener('click', () => game && game.resume());
 $('#btn-memdiag')?.addEventListener('click', async () => { if (!game) return; const m = await import('./memdiag.js'); const r = m.memReport(game); window.__memReport = r; $('#diag-text').value = m.memText(r); game.showOverlay('diag'); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
