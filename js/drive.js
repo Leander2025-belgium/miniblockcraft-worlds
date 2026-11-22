@@ -5,6 +5,7 @@
 // - Meerijden: als passagier in elk voertuig dat in de buurt rijdt.
 import * as THREE from 'three';
 import { RailSound, bus, audioCtx } from './sound.js';
+import { Safety } from './atb.js';
 import { SEAT_SPOTS } from './vehicles.js';
 
 const KMH = 3.6;
@@ -17,6 +18,11 @@ export function gearOf(speed, isBus = false) {
 }
 // één gedeelde AudioContext (js/sound.js): zo lopen alle geluiden via dezelfde mixer
 function ctx() { return audioCtx(); }
+// ATB- en waakbel: korte heldere dubbele toon
+function bell() {
+  const a = ctx(); if (!a) return;
+  for (const w of [0, 0.18]) { const o = a.createOscillator(), gn = a.createGain(); o.type = 'square'; o.frequency.value = 1320; gn.gain.setValueAtTime(0, a.currentTime + w); gn.gain.linearRampToValueAtTime(0.06, a.currentTime + w + 0.01); gn.gain.exponentialRampToValueAtTime(0.001, a.currentTime + w + 0.15); o.connect(gn).connect(bus('effecten')); o.start(a.currentTime + w); o.stop(a.currentTime + w + 0.2); }
+}
 function chime() {
   const a = ctx(); if (!a) return;
   [659, 523].forEach((f, i) => {
@@ -239,6 +245,18 @@ export class Drive {
       c.throttle = up && !c.doors ? Math.min(1, c.throttle + dt * 0.8) : Math.max(0, c.throttle - dt * 1.5);
       c.brake = down ? Math.min(1, c.brake + dt * 1.2) : Math.max(0, c.brake - dt * 2);
       c.emergency = k.has('Space') || g.padStop;
+      // treinbeveiliging (TERRANOVA 16, js/atb.js): seinen, snelheidsbeperking, ATB en waakinrichting
+      if (a.kind === 'train' || a.kind === 'metro' || a.kind === 'tram') {
+        const sf = this.safety || (this.safety = new Safety(a.kind)), ns0 = a.nextStop;
+        // !!: de knoppen op het scherm (padUp …) zijn undefined als ze nooit gebruikt zijn
+        const act = !!up !== !!this.upWas || !!down !== !!this.downWas || !!left !== !!this.leftWas || !!right !== !!this.rightWas || !!this.ackPress || !!this.ctlPress;
+        this.upWas = !!up; this.downWas = !!down;
+        const st = sf.step({ dt, v: a.v, odo: a.odo || 0, gap: a.gapAhead ?? Infinity, stopDist: ns0 ? ns0.dist - a.L / 2 : null, endOfLine: !!a.endOfLine, brake: c.brake, activity: act, ack: !!this.ackPress });
+        this.ackPress = false; this.ctlPress = false;
+        c.atb = st.brakeCmd;
+        if (st.event) this.safetyEvent(st.event);
+        if (st.warn || st.sifaWarn) { this.bellT = (this.bellT || 0) - dt; if (this.bellT <= 0) { this.bellT = 0.8; bell(); } } else this.bellT = 0;
+      }
       if (left !== this.leftWas && left) this.setSwitch(this.sw === 'right' ? 'straight' : 'left');
       if (right !== this.rightWas && right) this.setSwitch(this.sw === 'left' ? 'straight' : 'right');
       this.leftWas = left; this.rightWas = right;
@@ -249,7 +267,7 @@ export class Drive {
       if (ns && Math.abs(ns.dist - a.L / 2) < 25 && a.v < 0.3 && this.arrived !== ns.key) { this.arrived = ns.key; this.atStop = ns; chime(); setTimeout(() => speak(`${ns.name}. Uitstappen aan de rechterkant.`), 900); }
       if (this.atStop && a.v > 2) this.atStop = null;
       const bar = (v) => '▮'.repeat(Math.round(v * 8)).padEnd(8, '▯');
-      info = `<div class="dh-row"><b>${{ train: '🚆 Trein', tram: '🚋 Tram', ship: '🚢 Schip', metro: '🚇 Metro' }[a.kind]}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>
+      info = `<div class="dh-row"><b>${{ train: '🚆 Trein', tram: '🚋 Tram', ship: '🚢 Schip', metro: '🚇 Metro' }[a.kind]}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>${this.safety && this.safety.state ? this.safetyRow(this.safety.state) : ''}
         <div class="dh-row">Wissel: <b>${{ left: '⬅ links', straight: '⬆ rechtdoor', right: 'rechts ➡' }[this.sw]}</b> · deuren: <b>${c.doors ? 'open' : 'dicht'}</b>${a.endOfLine ? ' · <b class="warn">einde spoor — R om te keren</b>' : ''}</div>
         <div class="dh-row">${ns ? `Volgende halte: <b>${ns.name}</b> · ${Math.max(0, Math.round(ns.dist - a.L / 2))} m` : 'Geen halte in zicht'}${this.atStop ? ' · <b class="ok">aan het perron — Q deuren</b>' : ''}</div>`;
     } else if (this.car) {
@@ -420,6 +438,8 @@ export class Drive {
     if (this.bus) return this.busKey(code);
     if (!this.rail) return false;
     const a = this.a, c = a.player;
+    this.ctlPress = true; // elke bediening telt voor de waakinrichting
+    if (code === 'KeyB') { this.ackPress = true; this.g.toast(this.safety && this.safety.forced ? '✔ Bevestigd' : '✔ Waakknop'); return true; }
     if (code === 'KeyQ') {
       if (a.v > 0.3) { this.g.toast('Deuren openen kan alleen stilstaand'); return true; }
       c.doors = !c.doors; chime();
@@ -434,6 +454,18 @@ export class Drive {
       return true;
     }
     return false;
+  }
+  // beeld van de beveiliging in het dashboard
+  safetyRow(st) {
+    const lamp = { groen: '#22e06a', geel: '#ffd23a', rood: '#ff3a2a' }[st.aspect];
+    const f = { atb: '<b class="warn">ATB REMT</b>', sts: '<b class="warn">STS — NOODREMMING · stilstaan en B</b>', waak: '<b class="warn">WAAKREMMING · stilstaan en B</b>' }[st.forced] || '';
+    return `<div class="dh-row"><span class="sig-dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${lamp};vertical-align:middle;box-shadow:0 0 6px ${lamp}" title="Volgend sein: ${st.aspect}"></span> sein ${st.aspect} over ${st.sigDist} m · toegestaan <b>${st.allowedKmh}</b> km/h${st.warn ? ' · <b class="warn">🔔 TE SNEL — REMMEN</b>' : ''}${st.sifaWarn ? ' · <b class="warn">🔔 WAAKKNOP (B)</b>' : ''} ${f}</div>`;
+  }
+  safetyEvent(ev) {
+    const g = this.g, msg = { waarschuwing: '🔔 ATB: te snel, remmen!', ingreep: '⚠ ATB remt de trein af', sts: '⛔ Rood sein voorbijgereden: noodremming', waak: '🔔 Waakinrichting: druk op B', waakremming: '⚠ Waakinrichting remt de trein' }[ev];
+    if (msg) g.toast(msg);
+    try { g.captionHook?.(msg); } catch { /* geen ondertitels */ }
+    if (ev === 'sts' || ev === 'ingreep') { const c = g.career; if (c && c.safetyEvent) c.safetyEvent(ev); }
   }
   exit() {
     const g = this.g, p = g.player;

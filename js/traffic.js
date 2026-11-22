@@ -836,7 +836,9 @@ export class Traffic {
       if (a.player) {
         // bestuurd door de speler: tractie en rem (en noodstop vlak achter een ander voertuig)
         const c = a.player, vmax = a.kind === 'train' ? 44 : a.kind === 'ship' ? a.vmax * 1.6 : a.kind === 'metro' ? 25 : 19;
-        const acc = (a.kind === 'train' ? 1.0 : 1.3) * c.throttle - (a.kind === 'train' ? 1.2 : 1.6) * c.brake - 0.004 * a.v - (c.emergency ? 2.5 : 0);
+        // treinbeveiliging (js/atb.js via js/drive.js): ATB en waakremming = volle rem zonder tractie, STS = noodremming
+        const forced = c.atb === 'nood' ? 2 : c.atb ? 1 : 0, thr = forced ? 0 : c.throttle, brk = forced ? 1 : c.brake;
+        const acc = (a.kind === 'train' ? 1.0 : 1.3) * thr - (a.kind === 'train' ? 1.2 : 1.6) * brk - 0.004 * a.v - (c.emergency || forced === 2 ? 2.5 : 0);
         a.v = Math.max(0, Math.min(vmax, a.v + acc * dt));
         if (c.doors || a.endOfLine && c.throttle === 0) a.v = 0;
         if ((a.gapAhead ?? 1e9) < 4) a.v = 0; // niet op een ander voertuig botsen

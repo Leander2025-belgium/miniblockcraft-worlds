@@ -2106,6 +2106,7 @@ export class Game {
     // interface en toegankelijkheid (TERRANOVA 16 fase 11, js/a11y.js): tabbladen in het pauzemenu en het tabblad Toegankelijkheid
     bindTabs('pause-tabs'); bindA11yControls(this.settings, () => saveSettings(this.settings)); applyA11y(this.settings);
     setSpeakHook((t) => caption(this.settings, t, '📢'));
+    this.captionHook = (t) => caption(this.settings, t, '🔔');
     // mixer (TERRANOVA 16): volume per categorie, meteen hoorbaar en bewaard
     for (const k of ['master', 'omgeving', 'voertuigen', 'effecten']) {
       const el = document.getElementById('mix-' + k); if (!el) continue;
