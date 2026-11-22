@@ -525,6 +525,23 @@
     <div class="city-card">
       <div class="city-top">
         <div>
+          <div class="city-name">🌲 Wildernis <span class="badge-new">NIEUW</span></div>
+          <div class="small muted">Natuurwereld · 8 × 8 km · 12 biomen, rivieren, bergen, grotten en ertsen</div>
+        </div>
+        <button class="btn primary" id="btn-wild">▶ Spelen</button>
+      </div>
+      <canvas id="wild-map" width="128" height="128" title="Biomenkaart van de Wildernis" aria-label="Biomenkaart van de Wildernis" style="width:100%;max-width:320px;aspect-ratio:1;border-radius:8px;margin-top:8px;display:block;image-rendering:pixelated"></canvas>
+      <div class="row" style="margin-top:6px;align-items:center;gap:6px">
+        <label class="small" for="wild-seed">Zaadgetal</label>
+        <input id="wild-seed" type="number" min="0" max="999999999" step="1" value="1616" style="width:120px">
+        <button class="btn" id="btn-wild-random" type="button">🎲 Willekeurig</button>
+        <button class="btn" id="btn-wild-seed" type="button">▶ Deze wereld spelen</button>
+      </div>
+      <p class="help">Zee en stranden, rivieren, heuvels en bergketens met besneeuwde toppen. Woestijn, steppe, grasland, loofbos, naaldbos, moeras en toendra, elk met eigen bodem en planten. Onder de grond lagen steen met kolen, ijzer, goud en diamant, en slingerende grotten. Hetzelfde zaadgetal geeft altijd dezelfde wereld; elk zaadgetal is een aparte wereld met eigen opslag.</p>
+    </div>
+    <div class="city-card">
+      <div class="city-top">
+        <div>
           <div class="city-name">Nova Metropool</div>
           <div class="small muted">Fantasiewereld · 25 × 30 km · wolkenkrabbers tot 800 m</div>
         </div>

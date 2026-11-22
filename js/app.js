@@ -31,6 +31,7 @@ async function loadGreen() {
 import { META as MEGA, PLACES as MEGA_PLACES, zoneName as megaZoneName, SPAWN as MEGA_SPAWN, groundAt as megaGround } from './megacity.js';
 import { PLACES as TOWER_PLACES, shellInside as towerInside, shellFill as towerShell, TOWER_TX, TOWER_TZ } from './megatower.js';
 import { applyA11y } from './a11y.js';
+import * as WILD from './wildernis.js';
 // TERRANOVA 16: tekstgrootte, contrast, kleurfilter … ook al in het menu, vóór een wereld geladen is
 try { applyA11y(JSON.parse(localStorage.getItem('blokstad-settings') || '{}')); } catch { /* geen of kapotte instellingen */ }
 // zelfgegenereerde werelden
@@ -41,6 +42,15 @@ const PROC = {
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
   [BERG.id]: { META: BERG, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
 };
+
+// TERRANOVA 16 fase 2: Wildernis (js/wildernis.js), ook met een eigen zaadgetal ('wildernis-<getal>')
+function wildProc(id) {
+  if (PROC[id] || !/^wildernis(-\d+)?$/.test(String(id))) return PROC[id];
+  const seed = WILD.seedFromId(id), meta = { ...WILD.META, id, name: seed === WILD.DEFAULT_SEED ? 'Wildernis' : `Wildernis · zaad ${seed}` };
+  return (PROC[id] = { META: meta, PLACES: [], seed, zoneName: (x, z) => WILD.zoneName(x, z, seed), groundAt: (x, z) => WILD.groundAt(x, z, seed),
+    spawn: { ...WILD.spawnFor(seed), fly: false }, info: `Natuurwereld · 8 × 8 km · zaadgetal ${seed} · zee, rivieren, bergen, 12 biomen, grotten en ertsen` });
+}
+wildProc('wildernis');
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -136,6 +146,7 @@ const regionMeters = (r) => Math.round(r.size / ((r.real && r.real.scale) || 1))
 function fmtBytes(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' kB'; }
 async function refreshList() {
   try { state.regions = await store.listRegions(); } catch { state.regions = []; }
+  for (const r of state.regions) wildProc(r.id); // eigen Wildernis-werelden herkennen
   drawSavedOnMap();
   updateResume();
   const list = $('#regions');
@@ -338,7 +349,7 @@ async function playMap(id, at) {
   if (location.hash === '#debug') window.blokGame = () => game;
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
-  const P = PROC[id];
+  const P = wildProc(id);
   if (!meta && P) { meta = { id, kind: 'map', name: P.META.name, map: { ...P.META }, size: P.META.tilesX * P.META.tile, ground: P.META.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   if (id === BERG.id && !meta.alps) meta = await migrateToAlps(meta);
@@ -431,6 +442,17 @@ $('#btn-city-dl')?.addEventListener('click', async () => {
 });
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
+// Wildernis (TERRANOVA 16): standaardwereld of een eigen zaadgetal; de biomenkaart volgt het gekozen getal
+function drawWildMap() {
+  const c = $('#wild-map'); if (!c) return; const seed = Math.abs(Math.floor(+$('#wild-seed').value || 0)) % 1e9, x = c.getContext('2d'), n = c.width, img = x.createImageData(n, n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const col = WILD.overviewColor((i + 0.5) / n * WILD.SIZE, (j + 0.5) / n * WILD.SIZE, seed), k = (j * n + i) * 4; img.data[k] = col[0]; img.data[k + 1] = col[1]; img.data[k + 2] = col[2]; img.data[k + 3] = 255; }
+  x.putImageData(img, 0, 0); c.dataset.seed = String(seed);
+}
+$('#btn-wild')?.addEventListener('click', () => { phoneFullscreen(); playMap('wildernis'); });
+$('#btn-wild-seed')?.addEventListener('click', () => { const id = WILD.idForSeed($('#wild-seed').value); wildProc(id); phoneFullscreen(); playMap(id); });
+$('#btn-wild-random')?.addEventListener('click', () => { $('#wild-seed').value = String(1 + Math.floor(Math.random() * 999999)); drawWildMap(); });
+$('#wild-seed')?.addEventListener('change', drawWildMap);
+setTimeout(drawWildMap, 300);
 $('#btn-mega')?.addEventListener('click', () => { phoneFullscreen(); playMap(MEGA.id); });
 // voorbeeld van Megatower City in het menu: stadskaart links, silhouet van de toren rechts (met hoogteschaal)
 function drawMegaPreview() {
