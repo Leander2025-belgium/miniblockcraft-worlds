@@ -785,6 +785,15 @@
     </div>
   </div>
   <div id="perf-hud" hidden style="position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(16,20,28,.85);color:#9fe0ff;padding:6px 14px;border-radius:10px;font-size:14px;z-index:40"></div>
+  <div class="ov" id="ov-localplan" hidden>
+    <div class="card map-card">
+      <div class="row" style="align-items:center"><h2 style="margin:0">🧭 Reisplanner (in de buurt)</h2><span class="sp"></span><button class="btn" id="lp-close">✕</button></div>
+      <p class="help" style="margin-top:4px">Plant over het OV-net dat rond je geladen is: metro, trein, tram en bus, met lopen en overstappen. Zonder dienstregeling: de wachttijd is het gemiddelde interval.</p>
+      <label>Naar <select id="lp-to"></select></label>
+      <div class="row"><button class="btn primary" id="lp-go">Plannen</button></div>
+      <pre id="lp-out" class="small" style="white-space:pre-wrap;margin-top:8px"></pre>
+    </div>
+  </div>
   <div class="ov" id="ov-society" hidden>
     <div class="card map-card">
       <div class="row" style="align-items:center"><h2 style="margin:0">👪 Bewoners</h2><span class="sp"></span>
@@ -862,6 +871,7 @@
         <button class="btn" id="btn-memdiag" title="Wat houdt de game nu in het geheugen vast, en wat lijkt ongebruikt?">🧠 Geheugen</button>
         <button class="btn" id="btn-megaplan" hidden>🧭 Reisplanner</button>
         <button class="btn" id="btn-ovmap" hidden>🗺 Live OV-kaart</button>
+        <button class="btn" id="btn-localplan" hidden title="Reisplanner over het geladen OV-net rond jou (metro, trein, tram, bus, lopen)">🧭 Reisplanner (in de buurt)</button>
         <button class="btn" id="btn-society" hidden title="Wie woont hier, wat doen ze vandaag, wie is er onderweg?">👪 Bewoners</button>
         <button class="btn" id="btn-career">📋 Carrière</button>
       </div>
@@ -882,7 +892,7 @@
         <label class="mini">Huid <input type="color" id="look-skin"></label>
         <label class="mini">Haar <input type="color" id="look-hair"></label>
         <label class="mini">Schoenen <input type="color" id="look-shoes"></label>
-        <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option></select></label>
+        <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option><option value="helm" disabled>bouwhelm (winkel)</option><option value="ovpet" disabled>OV-pet (winkel)</option><option value="tophoed" disabled>hoge hoed (winkel)</option></select></label>
         <label class="check mini"><input type="checkbox" id="look-backpack"> Rugzak</label>
       </div>
       </section>

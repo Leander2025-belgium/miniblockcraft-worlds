@@ -11,10 +11,10 @@
 //     (dienst afgerond, blokken geplaatst, bouwopdracht, haltes bediend, meegereden als passagier).
 //   - Statistieken.
 // Sandbox: niets in de game is afgesloten achter VC (de Zenvo-showroom in Greenisland bestond al).
-export const LICENSES = { bus: 'Rijbewijs D (bus)', tram: 'Trambrevet', metro: 'Metrobrevet', trein: 'Treinbestuurderslicentie' };
+export const LICENSES = { bus: 'Rijbewijs D (bus)', tram: 'Trambrevet', metro: 'Metrobrevet', trein: 'Treinbestuurderslicentie', taxi: 'Taxivergunning' };
 export const EXAM_PASS = 60;
 export const wage = (score, served) => Math.round(score * 0.6 + served * 6);
-export const TASK_PAY = { woning: 120, bushalte: 80, park: 100, appartement: 120, plein: 180, station: 250 };
+export const TASK_PAY = { woning: 120, bushalte: 80, park: 100, appartement: 120, plein: 180, station: 250, weg: 140, spoorlijn: 200 };
 
 const POOL = [
   { id: 'dienst70', text: 'Rond een dienst af met minstens 70 punten', kind: 'shift', min: 70, need: 1, vc: 60, xp: 40 },

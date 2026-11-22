@@ -14,6 +14,7 @@
 import { B } from './blocks.js';
 
 import * as VC from './viridcoin.js';
+import { Shop, SHOP } from './shop.js';
 import { Economy, LICENSES, EXAM_PASS, wage, TASK_PAY } from './economy.js';
 const KEY = 'terranova-career', PLACED_KEY = 'terranova-career-placed';
 export const LEVELS = [0, 150, 400, 800, 1400, 2200, 3300, 4800, 6800, 9500];
@@ -34,6 +35,9 @@ export const TASKS = [
   { id: 'park', name: 'Maak een park', level: 2, xp: 100, desc: 'Minstens 30 groene blokken (gras, haag, bloemen, bladeren), 2 bomen (stam met bladeren) en een bank.' },
   { id: 'appartement', name: 'Richt een appartement in', level: 2, xp: 120, desc: 'In een dichte ruimte: een bed, een tafel, een stoel of bank en een lamp.' },
   { id: 'plein', name: 'Werk een stadsplein af', level: 3, xp: 160, desc: 'Minstens 80 m² bestrating, een fontein (water), 2 banken, 2 lampen en 2 bomen.' },
+  // TERRANOVA 16: opdrachten voor de wereldbouwer (js/worldtools.js: N = weg, G = spoor)
+  { id: 'weg', name: 'Leg een weg aan', level: 2, xp: 140, desc: 'Minstens 150 blokken asfalt met een middenstreep, stoepen aan beide kanten en 2 lantaarns.' },
+  { id: 'spoorlijn', name: 'Leg een spoorlijn aan', level: 3, xp: 200, desc: 'Minstens 120 blokken ballast en 80 blokken spoorstaaf (metaal) op de ballast.' },
   { id: 'station', name: 'Bouw een station', level: 4, xp: 220, desc: 'Een overdekt perron van minstens 30 m² met een ticketautomaat, een bord en 2 banken.' },
 ];
 // zoekgebied rond de speler, alleen blokken die de speler zelf zette
@@ -105,6 +109,12 @@ export function checkTask(career, id) {
   } else if (id === 'plein') {
     need(n(PAVE) >= 80, `${n(PAVE)} van 80 m² bestrating`); need(P.some(q => q.b === B.WATER), 'geen fontein (water)'); need(n(BENCH) >= 2, 'minder dan 2 banken');
     need(n(new Set([B.LAMP])) >= 2, 'minder dan 2 lampen'); need(trees >= 2, `${trees} van 2 bomen`);
+  } else if (id === 'weg') {
+    need(n(new Set([B.ASPHALT])) >= 150, `${n(new Set([B.ASPHALT]))} van 150 blokken asfalt`); need(has([B.LINE_WHITE]), 'geen middenstreep');
+    need(n(new Set([B.SIDEWALK])) >= 40, `${n(new Set([B.SIDEWALK]))} van 40 stoeptegels`); need(n(new Set([B.LAMP])) >= 2, 'minder dan 2 lantaarns');
+  } else if (id === 'spoorlijn') {
+    const rails = P.filter(q => q.b === B.METAL && get(q.x, q.y - 1, q.z) === B.BALLAST).length;
+    need(n(new Set([B.BALLAST])) >= 120, `${n(new Set([B.BALLAST]))} van 120 blokken ballast`); need(rails >= 80, `${rails} van 80 spoorstaven op ballast`);
   } else if (id === 'station') {
     const floor = P.filter(q => PAVE.has(q.b) || q.b === B.CONCRETE || q.b === B.LINE_YELLOW), covered = floor.filter(q => [3, 4, 5, 6].some(dy => solid(q.x, q.y + dy, q.z)));
     need(covered.length >= 30, `${covered.length} van 30 m² overdekt perron`); need(has([B.TICKET]), 'geen ticketautomaat'); need(has([B.SIGN]), 'geen bord'); need(n(BENCH) >= 2, 'minder dan 2 banken');
@@ -185,6 +195,29 @@ class RoadShift extends Shift {
   }
 }
 
+// TERRANOVA 16: taxidienst — een klant naar een bestemming 0,5–1,5 km verder brengen (rijden met een auto)
+class TaxiShift extends Shift {
+  constructor(career, drive) {
+    super(career, 'taxi', 'Taxichauffeur'); this.d = drive; this.reds0 = drive.reds || 0; this.limit = 50 / 3.6;
+    const g = career.g, p = g.player.pos, rnd = Math.random;
+    let dest = null;
+    const roads = g.traffic && g.traffic.net ? [...g.traffic.net.edges.values()].filter(e => e.net === 'road') : [];
+    for (let k = 0; k < 60 && !dest; k++) { const e = roads[Math.floor(rnd() * roads.length)]; if (!e) break; const i = 3 * Math.floor(rnd() * (e.pts.length / 3)), x = e.pts[i], z = e.pts[i + 2], d = Math.hypot(x - p.x, z - p.z); if (d > 500 && d < 1500) dest = { x, z, d }; }
+    if (!dest) { const a = rnd() * 6.283; dest = { x: p.x + Math.cos(a) * 700, z: p.z + Math.sin(a) * 700, d: 700 }; }
+    this.dest = dest; this.expect = dest.d * 1.4 / 8 + 30; // omrijden en verkeer: ± 29 km/h gemiddeld
+    this.title += ` · klant naar ${Math.round(dest.d)} m verder`;
+  }
+  update(dt) {
+    const d = this.g.drive; if (!d || d !== this.d || !d.car) return 'afgebroken';
+    this.t += dt; const v = Math.abs(d.car.speed), p = this.g.player.pos;
+    this.comfort(v, dt, 2.2); if (v > this.limit * 1.08) this.overT += dt;
+    if ((d.reds || 0) > this.reds0) { this.reds0 = d.reds; this.penalty('door het rode licht', 15); }
+    this.left = Math.round(Math.hypot(this.dest.x - p.x, this.dest.z - p.z));
+    if (this.left < 20 && v < 1) { if (this.t > this.expect + 60) this.penalty(`${Math.round((this.t - this.expect) / 60)} min trager dan verwacht`, Math.min(20, Math.round((this.t - this.expect) / 30))); this.served.push({ halte: 'bestemming', rijtijd_s: Math.round(this.t), verwacht_s: Math.round(this.expect) }); return 'klaar'; }
+    return null;
+  }
+}
+
 export class Career {
   constructor(game) {
     this.g = game; this.shift = null; this.placed = new Set(); this.hudEl = null;
@@ -194,6 +227,7 @@ export class Career {
     // TERRANOVA 16: economie (js/economy.js) met de bestaande ViridCoin-portemonnee, in alle werelden
     if (!game.wallet) { game.vc = VC; game.wallet = new VC.Wallet(); game.wallet.ticket = VC.ticketPrice; }
     this.eco = new Economy(this.p, game.wallet, (t) => game.toast?.(t));
+    this.shop = new Shop(game.wallet, this);
   }
   get level() { return levelOf(this.p.xp); }
   clock() { return (Date.now() / 1000 - new Date().getTimezoneOffset() * 60) % 86400; }
@@ -206,18 +240,32 @@ export class Career {
     if (this.level > before) { this.g.toast?.(`⭐ Level ${this.level}! Nieuwe opdrachten vrijgespeeld.`); this.achieve('level' + this.level, `Level ${this.level}`); }
     this.save(); return xp;
   }
+  buyItem(id) {
+    const r = this.shop.buy(id), it = SHOP.find(x => x.id === id);
+    this.g.toast?.({ ok: `🛍 ${it ? it.naam : id} gekocht`, al: 'Dat heb je al', geld: 'Niet genoeg ViridCoin', brevet: 'Haal eerst een rijbewijs of brevet (een dienst met bus, tram, metro of trein)', onbekend: 'Onbekend artikel' }[r]);
+    if (r === 'ok') this.wearItem(id); return r;
+  }
+  wearItem(id) {
+    const it = SHOP.find(x => x.id === id); if (!it || !this.shop.owns(id)) return false;
+    const g = this.g; g.settings.look = { ...(g.settings.look || {}), ...it.look }; g.avatar?.setLook?.(g.settings.look); try { localStorage.setItem('blokstad-settings', JSON.stringify(g.settings)); } catch { /* geen opslag */ }
+    const sel = document.getElementById('look-hat'); if (sel) sel.value = it.look.hat; return true;
+  }
+  // TERRANOVA 16: treinbeveiliging (js/atb.js via js/drive.js) telt mee in de dienst
+  safetyEvent(ev) { const s = this.shift; if (!s || !s.penalty) return; if (ev === 'sts') s.penalty('rood sein voorbijgereden (STS)', 40); else if (ev === 'ingreep') s.penalty('ATB moest ingrijpen (te snel)', 10); }
   achieve(id, name) { if (this.p.achievements.some(a => a.id === id)) return; this.p.achievements.push({ id, name, date: new Date().toISOString().slice(0, 10) }); this.g.toast?.(`🏅 Prestatie: ${name}`); }
   // welke dienst kan er nu? (bestuurder van een trein, bus, metro of tram)
   available() {
     const g = this.g, rail = g.alpRail, d = g.drive;
     if (rail && rail.player) return { kind: 'trein', label: '🚆 Start treindienst (volgende 3 stations)' };
     if (d && d.mode === 'drive' && d.bus) return { kind: 'bus', label: '🚌 Start busdienst (4 haltes)' };
+    if (d && d.mode === 'drive' && d.car && !d.bus) return { kind: 'taxi', label: '🚕 Start taxidienst (klant naar een bestemming)' };
     if (d && d.mode === 'drive' && d.rail && d.a) return { kind: d.a.kind === 'metro' ? 'metro' : 'tram', label: d.a.kind === 'metro' ? '🚇 Start metrodienst (4 haltes)' : '🚊 Start tramdienst (4 haltes)' };
     return null;
   }
   startShift() {
     const a = this.available(); if (!a || this.shift) return null;
     if (a.kind === 'trein') { const s = new TrainShift(this, this.g.alpRail); if (!s.targets.length) { this.g.toast?.('Geen stations meer voor je op deze lijn'); return null; } this.shift = s; }
+    else if (a.kind === 'taxi') this.shift = new TaxiShift(this, this.g.drive);
     else this.shift = new RoadShift(this, this.g.drive, a.kind);
     this.g.toast?.(`📋 Dienst gestart: ${this.shift.title}`); return this.shift;
   }
@@ -255,7 +303,7 @@ export class Career {
     const s = this.shift;
     if (!s) { if (!el.hidden) el.hidden = true; return; }
     const n = s.targets ? s.targets.length : s.n, next = s.targets ? s.targets[s.served.length]?.name : null;
-    const txt = `📋 ${s.title} · ${s.served.length}/${n} bediend${next ? ` · volgende: ${next}` : ''} · score nu ${s.score()}`;
+    const txt = s.kind === 'taxi' ? `📋 ${s.title} · nog ${s.left ?? '…'} m (stop binnen 20 m) · score nu ${s.score()}` : `📋 ${s.title} · ${s.served.length}/${n} bediend${next ? ` · volgende: ${next}` : ''} · score nu ${s.score()}`;
     if (el.textContent !== txt) el.textContent = txt; el.hidden = false;
   }
   html() {
@@ -263,6 +311,7 @@ export class Career {
     const bar = next ? Math.round(100 * (p.xp - prev) / (next - prev)) : 100, esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     return `<div><b>Level ${L}</b> · ${p.xp} XP${next ? ` · nog ${next - p.xp} XP tot level ${L + 1}` : ' · hoogste level'}<div class="cr-bar"><i style="width:${bar}%"></i></div></div>
       <h4>💰 ${VC.fmt(this.g.wallet?.balance ?? 0)} <button class="btn small" data-cr="wallet">Portemonnee</button></h4>
+      <h4>🛍 Winkel</h4><div class="small">${SHOP.map(it => { const own = this.shop.owns(it.id); return `<div class="cr-task"><b>${esc(it.naam)}</b> <span class="muted">${VC.fmt(it.prijs)}${it.vereist === 'brevet' ? ' · brevet nodig' : ''}</span> ${own ? `<button class="btn small" data-cr="wear:${it.id}">${(this.g.settings.look || {}).hat === it.look.hat ? '✔ gedragen' : 'Opzetten'}</button>` : `<button class="btn small" data-cr="buy:${it.id}">Kopen</button>`}<br><span class="muted">${esc(it.uitleg)}</span></div>`; }).join('')}</div>
       <h4>🎯 Uitdagingen van vandaag</h4><div class="small">${this.eco.dailyView().map(c => `${c.done ? '✅' : '▫️'} ${esc(c.text)} <span class="muted">(${c.kind === 'ride' ? Math.round(c.prog) + '/' + c.need + ' m' : c.prog + '/' + c.need} · +${c.vc} VC)</span>`).join('<br>')}</div>
       <h4>🪪 Rijbewijzen</h4><div class="small">${Object.entries(LICENSES).map(([k, n]) => p.licenses?.[k] ? `✅ ${esc(n)} <span class="muted">(${p.licenses[k].date}, ${p.licenses[k].score} punten)</span>` : `▫️ ${esc(n)} <span class="muted">— je eerste ${k}dienst is het examen (≥ ${EXAM_PASS} punten)</span>`).join('<br>')}<br><span class="muted">Met rijbewijs levert een dienst loon op (score × 0,6 + 6 VC per halte).</span></div>
       <h4>Diensten</h4><div class="small">${this.shift ? `Bezig: ${esc(this.shift.title)}` : a ? 'Je zit aan het stuur: je kunt een dienst starten.' : 'Ga in de cabine van een trein (Greenisland, Alpen) of bestuur een bus, metro of tram om een dienst te starten.'}</div>

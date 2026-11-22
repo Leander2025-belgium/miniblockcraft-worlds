@@ -2010,7 +2010,7 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const sob = document.getElementById('btn-society'); if (sob) sob.hidden = !this.mega; const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const sob = document.getElementById('btn-society'); if (sob) sob.hidden = !this.mega; const lpb = document.getElementById('btn-localplan'); if (lpb) lpb.hidden = !(this.traffic && !this.mega && !this.isGreen() && this.traffic.net && this.traffic.net.stops && this.traffic.net.stops.length); const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
   }
   // de bevolking van Megatower City (één keer opgebouwd, ± 0,1 s); dag van de week: instelling 'dag' (scherm Bewoners), anders een gewone werkdag (dinsdag)
@@ -2092,6 +2092,7 @@ export class Game {
     const look = { ...DEFAULT_LOOK, ...(this.settings.look || {}) };
     for (const k of ['shirt', 'pants', 'skin', 'hair', 'shoes', 'hat', 'backpack']) {
       const el = document.getElementById('look-' + k); if (!el) continue;
+      if (k === 'hat' && this.career && this.career.shop) for (const o of el.options) if (['helm', 'ovpet', 'tophoed'].includes(o.value)) o.disabled = !this.career.shop.allowedHat(o.value); // gekocht in de winkel
       if (el.type === 'checkbox') el.checked = !!look[k]; else el.value = look[k];
       if (!el.dataset.bound) {
         el.dataset.bound = '1';

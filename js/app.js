@@ -260,7 +260,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), society: $('#ov-society'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
+      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), society: $('#ov-society'), localplan: $('#ov-localplan'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -1257,6 +1257,8 @@ $('#career-body')?.addEventListener('click', (e) => {
   if (k === 'start') { if (C.startShift()) game.resume(); else careerRender(); return; }
   if (k === 'stop') { C.endShift('afgebroken'); careerRender(); return; }
   if (k === 'wallet') { game.showWallet(); return; }
+  if (k.startsWith('buy:')) { C.buyItem(k.slice(4)); careerRender(); return; } // TERRANOVA 16: winkel
+  if (k.startsWith('wear:')) { C.wearItem(k.slice(5)); careerRender(); return; }
   if (k.startsWith('check:')) { const id = k.slice(6), r = C.check(id); careerRender(); const el = document.getElementById('cr-res-' + id); if (el && r) el.textContent = r.ok ? '✅ Klopt! Opdracht voltooid.' : '❌ ' + r.waarom.join(' · '); }
 });
 $('#btn-megaplan')?.addEventListener('click', async () => {
@@ -1368,6 +1370,14 @@ $('#sp-share')?.addEventListener('click', () => {
   M.shareLook(`${{ bus: 'bus', tram: 'tram', metro: 'metro', train: 'trein', car: 'auto' }[best.kind] || best.kind}${best.line ? ' ' + best.line : ''}`, h.x, h.z); flash('Gedeeld ✓');
 });
 $('#sp-close')?.addEventListener('click', () => game && game.resume());
+// TERRANOVA 16 fase 6: reisplanner over het geladen OV-net (werelden zonder eigen planner)
+$('#btn-localplan')?.addEventListener('click', async () => {
+  if (!game || !game.traffic) return; const m = await import('./localplan.js'), G = m.buildGraph(game.traffic.net); game.localGraph = G;
+  $('#lp-to').innerHTML = G.names.map(n => `<option>${n.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))}</option>`).join('') || '<option value="">(geen haltes in de buurt)</option>';
+  $('#lp-out').textContent = G.names.length ? `${G.stops.length} haltes geladen.` : 'Geen OV-haltes in het geladen gebied.'; game.showOverlay('localplan');
+});
+$('#lp-go')?.addEventListener('click', async () => { if (!game || !game.localGraph) return; const m = await import('./localplan.js'), r = m.planLocal(game.traffic.net, { x: game.player.pos.x, z: game.player.pos.z }, $('#lp-to').value, game.localGraph); window.__localPlan = r; $('#lp-out').textContent = m.planText(r); });
+$('#lp-close')?.addEventListener('click', () => game && game.showOverlay('pause'));
 // TERRANOVA 16 fase 5: scherm Bewoners
 async function showSociety() { if (!game) return; const m = await import('./societyview.js'); $('#soc-dow').value = Number.isInteger(game.settings.dag) ? String(game.settings.dag) : ''; window.__society = await m.renderSociety(game, $('#soc-body')); }
 $('#btn-society')?.addEventListener('click', async () => { if (!game) return; game.showOverlay('society'); await showSociety(); });
