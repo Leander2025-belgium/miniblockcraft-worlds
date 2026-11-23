@@ -30,6 +30,11 @@ async function loadGreen() {
 // Megatower City (stad + toren van 1.000 m)
 import { META as MEGA, PLACES as MEGA_PLACES, zoneName as megaZoneName, SPAWN as MEGA_SPAWN, groundAt as megaGround } from './megacity.js';
 import { PLACES as TOWER_PLACES, shellInside as towerInside, shellFill as towerShell, TOWER_TX, TOWER_TZ } from './megatower.js';
+import { applyA11y } from './a11y.js';
+import * as WILD from './wildernis.js';
+import * as FLAT from './flatworld.js';
+// TERRANOVA 16: tekstgrootte, contrast, kleurfilter … ook al in het menu, vóór een wereld geladen is
+try { applyA11y(JSON.parse(localStorage.getItem('blokstad-settings') || '{}')); } catch { /* geen of kapotte instellingen */ }
 // zelfgegenereerde werelden
 const PROC = {
   [MEGA.id]: { META: MEGA, PLACES: [...TOWER_PLACES.map(([n, x, z, y]) => [n, x, z, y]), ...MEGA_PLACES.slice(1)], zoneName: megaZoneName, groundAt: megaGround,
@@ -38,6 +43,17 @@ const PROC = {
   [METRO.id]: { META: METRO, PLACES: METRO_PLACES, zoneName: metroZoneName, spawn: { x: 12500, y: METRO.ground + 160, z: 15200, yaw: 0, pitch: 0.12, fly: true }, info: 'Fantasiewereld · 25 × 30 km' },
   [BERG.id]: { META: BERG, PLACES: [], zoneName: null, groundAt: null, spawn: null, info: 'Alpenwereld · 50 × 50 km · Reuzenberg, Zugspitze, Matterhorn, Mont Blanc en de Hemelhoorn (5000 m)' },
 };
+
+// TERRANOVA 16 fase 2: Wildernis (js/wildernis.js), ook met een eigen zaadgetal ('wildernis-<getal>')
+function wildProc(id) {
+  if (PROC[id] || !/^wildernis(-\d+)?$/.test(String(id))) return PROC[id];
+  const seed = WILD.seedFromId(id), meta = { ...WILD.META, id, name: seed === WILD.DEFAULT_SEED ? 'Wildernis' : `Wildernis · zaad ${seed}` };
+  return (PROC[id] = { META: meta, PLACES: [], seed, zoneName: (x, z) => WILD.zoneName(x, z, seed), groundAt: (x, z) => WILD.groundAt(x, z, seed),
+    spawn: { ...WILD.spawnFor(seed), fly: false }, info: `Natuurwereld · 8 × 8 km · zaadgetal ${seed} · zee, rivieren, bergen, 12 biomen, grotten en ertsen` });
+}
+wildProc('wildernis');
+// TERRANOVA 16 fase 8: lege bouwwereld (js/flatworld.js)
+PROC[FLAT.META.id] = { META: FLAT.META, PLACES: [], zoneName: FLAT.zoneName, groundAt: FLAT.groundAt, spawn: FLAT.SPAWN, info: 'Bouwwereld · 4 × 4 km vlak gras · bouwen met de bouwmodus (B) en de wereldbouwer' };
 
 const $ = (s) => document.querySelector(s);
 const MAP_SCALE = 5; // meter per pixel op de overzichtskaart
@@ -133,6 +149,7 @@ const regionMeters = (r) => Math.round(r.size / ((r.real && r.real.scale) || 1))
 function fmtBytes(n) { return n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' kB'; }
 async function refreshList() {
   try { state.regions = await store.listRegions(); } catch { state.regions = []; }
+  for (const r of state.regions) wildProc(r.id); // eigen Wildernis-werelden herkennen
   drawSavedOnMap();
   updateResume();
   const list = $('#regions');
@@ -243,7 +260,7 @@ async function ensureGame() {
     game = new Game({
       root: $('#game'), canvas: $('#game-canvas'), coords: $('#hud-coords'), place: $('#hud-place'),
       hotbar: $('#hotbar'), blockName: $('#block-name'), loading: $('#loading'), invGrid: $('#inv-grid'),
-      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
+      overlays: { career: $('#ov-career'), start: $('#ov-start'), pause: $('#ov-pause'), inv: $('#ov-inv'), map: $('#ov-map'), rail: $('#ov-rail'), gnmi: $('#ov-gnmi'), vc: $('#ov-vc'), diag: $('#ov-diag'), mp: $('#ov-mp'), society: $('#ov-society'), localplan: $('#ov-localplan'), megaplan: $('#ov-megaplan'), ovmap: $('#ov-ovmap'), perf: $('#ov-perf') },
       minimap: $('#minimap'), bigmap: $('#bigmap'), btnMapClose: $('#btn-map-close'),
       btnResume: $('#btn-resume'), btnInvClose: $('#btn-inv-close'),
       viewRange: $('#set-view'), viewLabel: $('#set-view-label'), sens: $('#set-sens'),
@@ -335,7 +352,7 @@ async function playMap(id, at) {
   if (location.hash === '#debug') window.blokGame = () => game;
   let meta = await store.getRegionMeta(id);
   if (!meta && id === CITY.id) { meta = mapMeta(CITY); await store.saveMeta(meta); }
-  const P = PROC[id];
+  const P = wildProc(id);
   if (!meta && P) { meta = { id, kind: 'map', name: P.META.name, map: { ...P.META }, size: P.META.tilesX * P.META.tile, ground: P.META.ground, proc: true, created: Date.now() }; await store.saveMeta(meta); }
   if (!meta) return notify('Deze kaart bestaat niet meer.');
   if (id === BERG.id && !meta.alps) meta = await migrateToAlps(meta);
@@ -428,6 +445,18 @@ $('#btn-city-dl')?.addEventListener('click', async () => {
 });
 $('#btn-metro').addEventListener('click', () => { phoneFullscreen(); playMap(METRO.id); });
 $('#btn-berg').addEventListener('click', () => { phoneFullscreen(); playMap(BERG.id); });
+// Wildernis (TERRANOVA 16): standaardwereld of een eigen zaadgetal; de biomenkaart volgt het gekozen getal
+function drawWildMap() {
+  const c = $('#wild-map'); if (!c) return; const seed = Math.abs(Math.floor(+$('#wild-seed').value || 0)) % 1e9, x = c.getContext('2d'), n = c.width, img = x.createImageData(n, n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const col = WILD.overviewColor((i + 0.5) / n * WILD.SIZE, (j + 0.5) / n * WILD.SIZE, seed), k = (j * n + i) * 4; img.data[k] = col[0]; img.data[k + 1] = col[1]; img.data[k + 2] = col[2]; img.data[k + 3] = 255; }
+  x.putImageData(img, 0, 0); c.dataset.seed = String(seed);
+}
+$('#btn-wild')?.addEventListener('click', () => { phoneFullscreen(); playMap('wildernis'); });
+$('#btn-flat')?.addEventListener('click', () => { phoneFullscreen(); playMap('bouwwereld'); });
+$('#btn-wild-seed')?.addEventListener('click', () => { const id = WILD.idForSeed($('#wild-seed').value); wildProc(id); phoneFullscreen(); playMap(id); });
+$('#btn-wild-random')?.addEventListener('click', () => { $('#wild-seed').value = String(1 + Math.floor(Math.random() * 999999)); drawWildMap(); });
+$('#wild-seed')?.addEventListener('change', drawWildMap);
+setTimeout(drawWildMap, 300);
 $('#btn-mega')?.addEventListener('click', () => { phoneFullscreen(); playMap(MEGA.id); });
 // voorbeeld van Megatower City in het menu: stadskaart links, silhouet van de toren rechts (met hoogteschaal)
 function drawMegaPreview() {
@@ -1167,7 +1196,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-24a';
+const APP_VERSION = '2026-11-25b';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
@@ -1227,27 +1256,37 @@ $('#career-body')?.addEventListener('click', (e) => {
   const k = b.dataset.cr, C = game.career;
   if (k === 'start') { if (C.startShift()) game.resume(); else careerRender(); return; }
   if (k === 'stop') { C.endShift('afgebroken'); careerRender(); return; }
+  if (k === 'wallet') { game.showWallet(); return; }
+  if (k.startsWith('buy:')) { C.buyItem(k.slice(4)); careerRender(); return; } // TERRANOVA 16: winkel
+  if (k.startsWith('wear:')) { C.wearItem(k.slice(5)); careerRender(); return; }
   if (k.startsWith('check:')) { const id = k.slice(6), r = C.check(id); careerRender(); const el = document.getElementById('cr-res-' + id); if (el && r) el.textContent = r.ok ? '✅ Klopt! Opdracht voltooid.' : '❌ ' + r.waarom.join(' · '); }
 });
 $('#btn-megaplan')?.addEventListener('click', async () => {
   if (!game || !game.mega) return;
-  const m = await import('./megaplan.js'), from = $('#mp-from'), to = $('#mp-to'), hr = $('#mp-hour');
+  const m = await import('./megaplan.js'), from = $('#mp-from'), to = $('#mp-to'), hr = $('#mp-hour'), pf = $('#mp-pref');
   if (!from.options.length) {
     from.innerHTML = `<option value="me">📍 Mijn positie</option>` + m.PLACES.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     to.innerHTML = m.PLACES.map(p => `<option value="${p.id}">${p.name}</option>`).join(''); to.value = 'P:luchthaven';
     hr.innerHTML = `<option value="now">nu</option>` + Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+    pf.innerHTML = Object.entries(m.PREFS).map(([k, v]) => `<option value="${k}">${v.naam}</option>`).join('');
     const run = () => {
       const P = Object.fromEntries(m.PLACES.map(p => [p.id, p])), pp = game.player.pos;
       const a = from.value === 'me' ? { id: 'me', name: 'je positie', x: pp.x, z: pp.z } : P[from.value], b = P[to.value];
       const h = hr.value === 'now' ? (game.settings.hour ?? 12) : +hr.value;
-      const r = m.plan(a, b, h); game.mega.lastPlan = r;
+      const r = m.plan(a, b, h, pf.value); game.mega.lastPlan = r; game.mega.lastPref = pf.value;
       $('#mp-result').innerHTML = m.planHtml(r);
+      // alternatieve verbindingen (andere voorkeuren die een andere route geven)
+      const sig = (x) => x.legs.map(l => l.mode === 'wandelen' ? 'w' : l.line).join('>'), mins = (s) => Math.max(1, Math.round(s / 60));
+      const alts = m.alternatives(a, b, h).filter(x => sig(x) !== sig(r));
+      game.mega.alts = alts;
+      $('#mp-alts').innerHTML = alts.length ? '<b>Andere verbindingen</b><br>' + alts.map((x, i) => `<div>${x.voorkeuren.join(' / ')}: aankomst ${m.fmtTime(x.arr)} · ${mins(x.arr - x.dep)} min · ${x.overstappen} overstap${x.overstappen === 1 ? '' : 'pen'} · ${x.wandelen} m wandelen · ${x.legs.filter(l => l.mode !== 'wandelen').map(l => l.line).join(' → ')} <button class="btn small" data-alt="${i}">Kies</button></div>`).join('') : '<span class="muted">Geen andere verbinding: elke voorkeur geeft dezelfde route.</span>';
     };
-    for (const el of [from, to, hr]) el.addEventListener('change', run);
+    for (const el of [from, to, hr, pf]) el.addEventListener('change', run);
+    $('#mp-alts').addEventListener('click', (e) => { const bt = e.target.closest('[data-alt]'); if (!bt) return; const x = game.mega.alts[+bt.dataset.alt]; if (!x) return; game.mega.lastPlan = x; $('#mp-result').innerHTML = m.planHtml(x); });
     $('#mp-close').addEventListener('click', () => game.resume());
     // routebegeleiding stap voor stap (js/routeguide.js): lopen, wachten, instappen, overstappen, aankomen
     $('#mp-nav').addEventListener('click', async () => { const r = game.mega.lastPlan; if (r && r.legs.length) { const G = await import('./routeguide.js'), P = Object.fromEntries(m.PLACES.map(p => [p.id, p])), b = P[to.value];
-      game.mega.navTo = null; game.mega.guide = new G.RouteGuide(game, r, b, (f) => m.plan(f, b, game.settings.hour ?? 12)); game.toast(`🧭 Begeleiding naar ${b.name} · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · aankomst volgens dienstregeling`); game.resume(); return; }
+      game.mega.navTo = null; game.mega.guide = new G.RouteGuide(game, r, b, (f) => m.plan(f, b, game.settings.hour ?? 12, game.mega.lastPref || 'snelste')); game.toast(`🧭 Begeleiding naar ${b.name} · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · aankomst volgens dienstregeling`); game.resume(); return; }
       const r0 = r; const first = r && (r.legs.find(l => l.mode !== 'wandelen')?.from || r.legs[r.legs.length - 1].to); if (first) { const ride = r.legs.find(l => l.mode !== 'wandelen'), pp = game.player.pos, hm = (t) => `${String(Math.floor(t / 3600) % 24).padStart(2, '0')}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}`;
       if (Math.hypot(first.x - pp.x, first.z - pp.z) < 25) game.toast(ride ? `🚉 Je staat al bij ${first.name}: neem de ${ride.line} richting ${ride.dir} (${ride.perron ? `perron ${ride.perron}, ` : ''}vertrek ${hm(ride.dep)})` : `Je bent er al`);
       else { game.mega.navTo = { name: first.name, x: first.x, z: first.z }; game.toast(`🧭 Navigatie naar ${first.name}${ride ? ` · daar de ${ride.line} richting ${ride.dir} (${hm(ride.dep)})` : ''}`); } } game.resume(); });
@@ -1292,6 +1331,59 @@ const openOvMap = async () => { if (!game || !game.mega) return; const m = await
 $('#btn-ovmap')?.addEventListener('click', openOvMap);
 $('#btn-map-ov')?.addEventListener('click', openOvMap);
 $('#btn-ovdiag')?.addEventListener('click', async () => { if (!game) return; $('#diag-text').value = 'OV-diagnose loopt…'; game.showOverlay('diag'); const m = await import('./ovdiag.js'); const r = await m.runOvDiag(game); $('#diag-text').value = m.ovDiagText(r); });
+// ---------- samen spelen (proef, js/multiplayer.js + server/mp-server.mjs) ----------
+const mpRoom = () => 'w:' + String(game?.meta?.id || 'wereld').replace(/[^\w:.-]/g, '_').slice(0, 44);
+function mpRender() {
+  const M = game?.mp, on = M && M.status === 'verbonden';
+  $('#sp-status').textContent = M ? `${M.status}${on ? ` als ${M.myName} · wereld ${M.room}` : ''}` : 'Niet verbonden.';
+  $('#sp-connect').hidden = !!on; $('#sp-leave').hidden = !on;
+  $('#sp-players').textContent = on ? `Andere spelers: ${[...M.others.values()].map(o => o.name).join(', ') || 'nog niemand'}` : '';
+  $('#sp-chat').innerHTML = (M?.chat || []).slice(-30).map(c => `<div>${c.text.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</div>`).join('');
+}
+$('#btn-mp')?.addEventListener('click', () => {
+  if (!game) return;
+  let st = {}; try { st = JSON.parse(localStorage.getItem('terranova-mp') || '{}') || {}; } catch { /* */ }
+  $('#sp-url').value = st.url || 'ws://localhost:8787'; $('#sp-name').value = st.name || '';
+  mpRender(); game.showOverlay('mp');
+  clearInterval(game.mpTimer); game.mpTimer = setInterval(() => { if ($('#ov-mp').hidden) return clearInterval(game.mpTimer); mpRender(); }, 1000);
+});
+$('#sp-connect')?.addEventListener('click', async () => {
+  const url = $('#sp-url').value.trim(), name = $('#sp-name').value.trim();
+  if (!/^wss?:\/\//.test(url)) return flash('Adres moet beginnen met ws:// of wss://');
+  if (name.length < 2) return flash('Kies een naam (minstens 2 tekens)');
+  try { localStorage.setItem('terranova-mp', JSON.stringify({ url, name })); } catch { /* */ }
+  game.mp?.close();
+  const m = await import('./multiplayer.js');
+  game.mp = new m.Multiplayer(game, { url, name, token: $('#sp-token').value, room: mpRoom() });
+  mpRender(); await game.mp.connect(); mpRender();
+});
+$('#sp-leave')?.addEventListener('click', () => { game?.mp?.close(); if (game) game.mp = null; mpRender(); });
+const mpSend = () => { const t = $('#sp-say').value.trim(); if (!t || !game?.mp) return; game.mp.sendChat(t); $('#sp-say').value = ''; };
+$('#sp-send')?.addEventListener('click', mpSend);
+$('#sp-say')?.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') mpSend(); });
+$('#sp-share')?.addEventListener('click', () => {
+  const M = game?.mp; if (!M) return;
+  const p = game.player.pos; let best = game.drive?.a || null, bd = 80;
+  if (!best) for (const a of game.traffic?.agents || []) { if (a.dead || a.kind === 'walk') continue; const h = game.traffic.behind(a, 0, {}); const d = Math.hypot(h.x - p.x, h.z - p.z); if (d < bd) { bd = d; best = a; } }
+  if (!best) return flash('Geen voertuig in de buurt');
+  const h = game.traffic.behind(best, 0, {});
+  M.shareLook(`${{ bus: 'bus', tram: 'tram', metro: 'metro', train: 'trein', car: 'auto' }[best.kind] || best.kind}${best.line ? ' ' + best.line : ''}`, h.x, h.z); flash('Gedeeld ✓');
+});
+$('#sp-close')?.addEventListener('click', () => game && game.resume());
+// TERRANOVA 16 fase 6: reisplanner over het geladen OV-net (werelden zonder eigen planner)
+$('#btn-localplan')?.addEventListener('click', async () => {
+  if (!game || !game.traffic) return; const m = await import('./localplan.js'), G = m.buildGraph(game.traffic.net); game.localGraph = G;
+  $('#lp-to').innerHTML = G.names.map(n => `<option>${n.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))}</option>`).join('') || '<option value="">(geen haltes in de buurt)</option>';
+  $('#lp-out').textContent = G.names.length ? `${G.stops.length} haltes geladen.` : 'Geen OV-haltes in het geladen gebied.'; game.showOverlay('localplan');
+});
+$('#lp-go')?.addEventListener('click', async () => { if (!game || !game.localGraph) return; const m = await import('./localplan.js'), r = m.planLocal(game.traffic.net, { x: game.player.pos.x, z: game.player.pos.z }, $('#lp-to').value, game.localGraph); window.__localPlan = r; $('#lp-out').textContent = m.planText(r); });
+$('#lp-close')?.addEventListener('click', () => game && game.showOverlay('pause'));
+// TERRANOVA 16 fase 5: scherm Bewoners
+async function showSociety() { if (!game) return; const m = await import('./societyview.js'); $('#soc-dow').value = Number.isInteger(game.settings.dag) ? String(game.settings.dag) : ''; window.__society = await m.renderSociety(game, $('#soc-body')); }
+$('#btn-society')?.addEventListener('click', async () => { if (!game) return; game.showOverlay('society'); await showSociety(); });
+$('#soc-dow')?.addEventListener('change', () => { if (game) { const d = $('#soc-dow').value; if (d === '') delete game.settings.dag; else game.settings.dag = +d; try { localStorage.setItem('blokstad-settings', JSON.stringify(game.settings)); } catch { /* geen opslag */ } } showSociety(); }); // de stad volgt de gekozen dag
+$('#soc-close')?.addEventListener('click', () => game && game.showOverlay('pause'));
+$('#btn-memdiag')?.addEventListener('click', async () => { if (!game) return; const m = await import('./memdiag.js'); const r = m.memReport(game); window.__memReport = r; $('#diag-text').value = m.memText(r); game.showOverlay('diag'); });
 $('#diag-copy')?.addEventListener('click', async () => { const t = $('#diag-text'); t.select(); try { await navigator.clipboard.writeText(t.value); flash('Gekopieerd ✓'); } catch { document.execCommand && document.execCommand('copy'); flash('Gekopieerd ✓'); } });
 $('#diag-close')?.addEventListener('click', () => game && game.resume());
 window.addEventListener('error', (e) => diag('fout', String(e.message || e).slice(0, 200)));

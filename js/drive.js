@@ -4,15 +4,24 @@
 // - Auto en bus: vrij rijden met gas, rem/achteruit en sturen; het voertuig volgt de grond en botst tegen muren.
 // - Meerijden: als passagier in elk voertuig dat in de buurt rijdt.
 import * as THREE from 'three';
-import { RailSound } from './sound.js';
+import { RailSound, bus, audioCtx } from './sound.js';
+import { Safety } from './atb.js';
 import { SEAT_SPOTS } from './vehicles.js';
 
 const KMH = 3.6;
-let audio = null;
-function ctx() {
-  if (audio) return audio;
-  try { const A = window.AudioContext || window.webkitAudioContext; audio = new A(); } catch { audio = null; }
-  return audio;
+// TERRANOVA 16: versnelling en toerental (0..1) bij een snelheid in m/s, voor het motorgeluid
+export function gearOf(speed, isBus = false) {
+  const G = isBus ? [0, 4, 8, 13, 18, 30] : [0, 5, 10, 16, 23, 31, 60], s = Math.abs(speed);
+  let gi = G.findIndex((v, i) => i > 0 && s < v); if (gi === -1) gi = G.length - 1;
+  const lo = G[gi - 1], hi = G[gi];
+  return { gear: gi, rpm: 0.25 + 0.75 * Math.min(1, (s - lo) / Math.max(1, hi - lo)) };
+}
+// één gedeelde AudioContext (js/sound.js): zo lopen alle geluiden via dezelfde mixer
+function ctx() { return audioCtx(); }
+// ATB- en waakbel: korte heldere dubbele toon
+function bell() {
+  const a = ctx(); if (!a) return;
+  for (const w of [0, 0.18]) { const o = a.createOscillator(), gn = a.createGain(); o.type = 'square'; o.frequency.value = 1320; gn.gain.setValueAtTime(0, a.currentTime + w); gn.gain.linearRampToValueAtTime(0.06, a.currentTime + w + 0.01); gn.gain.exponentialRampToValueAtTime(0.001, a.currentTime + w + 0.15); o.connect(gn).connect(bus('effecten')); o.start(a.currentTime + w); o.stop(a.currentTime + w + 0.2); }
 }
 function chime() {
   const a = ctx(); if (!a) return;
@@ -20,10 +29,14 @@ function chime() {
     const o = a.createOscillator(), g = a.createGain(); o.type = 'sine'; o.frequency.value = f;
     g.gain.setValueAtTime(0, a.currentTime + i * 0.45); g.gain.linearRampToValueAtTime(0.18, a.currentTime + i * 0.45 + 0.03);
     g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + i * 0.45 + 0.9);
-    o.connect(g).connect(a.destination); o.start(a.currentTime + i * 0.45); o.stop(a.currentTime + i * 0.45 + 1);
+    o.connect(g).connect(bus('effecten')); o.start(a.currentTime + i * 0.45); o.stop(a.currentTime + i * 0.45 + 1);
   });
 }
+// TERRANOVA 16: omroepteksten ook als tekst tonen (ondertitels, js/a11y.js)
+let speakHook = null;
+export function setSpeakHook(f) { speakHook = f; }
 function speak(text) {
+  try { speakHook?.(text); } catch { /* ondertitel mag de omroep niet stoppen */ }
   try {
     const u = new SpeechSynthesisUtterance(text); u.lang = 'nl-BE'; u.rate = 0.95;
     const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('nl')); if (v) u.voice = v;
@@ -110,7 +123,7 @@ export class Drive {
       this.osc = a.createOscillator(); this.osc.type = 'sawtooth'; this.osc.frequency.value = 40;
       const f = a.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 380;
       this.gain = a.createGain(); this.gain.gain.value = 0;
-      this.osc.connect(f).connect(this.gain).connect(a.destination); this.osc.start();
+      this.osc.connect(f).connect(this.gain).connect(bus('voertuigen')); this.osc.start();
       if (a.state === 'suspended') a.resume();
     } catch { this.osc = null; }
   }
@@ -232,6 +245,18 @@ export class Drive {
       c.throttle = up && !c.doors ? Math.min(1, c.throttle + dt * 0.8) : Math.max(0, c.throttle - dt * 1.5);
       c.brake = down ? Math.min(1, c.brake + dt * 1.2) : Math.max(0, c.brake - dt * 2);
       c.emergency = k.has('Space') || g.padStop;
+      // treinbeveiliging (TERRANOVA 16, js/atb.js): seinen, snelheidsbeperking, ATB en waakinrichting
+      if (a.kind === 'train' || a.kind === 'metro' || a.kind === 'tram') {
+        const sf = this.safety || (this.safety = new Safety(a.kind)), ns0 = a.nextStop;
+        // !!: de knoppen op het scherm (padUp …) zijn undefined als ze nooit gebruikt zijn
+        const act = !!up !== !!this.upWas || !!down !== !!this.downWas || !!left !== !!this.leftWas || !!right !== !!this.rightWas || !!this.ackPress || !!this.ctlPress;
+        this.upWas = !!up; this.downWas = !!down;
+        const st = sf.step({ dt, v: a.v, odo: a.odo || 0, gap: a.gapAhead ?? Infinity, stopDist: ns0 ? ns0.dist - a.L / 2 : null, endOfLine: !!a.endOfLine, brake: c.brake, activity: act, ack: !!this.ackPress });
+        this.ackPress = false; this.ctlPress = false;
+        c.atb = st.brakeCmd;
+        if (st.event) this.safetyEvent(st.event);
+        if (st.warn || st.sifaWarn) { this.bellT = (this.bellT || 0) - dt; if (this.bellT <= 0) { this.bellT = 0.8; bell(); } } else this.bellT = 0;
+      }
       if (left !== this.leftWas && left) this.setSwitch(this.sw === 'right' ? 'straight' : 'left');
       if (right !== this.rightWas && right) this.setSwitch(this.sw === 'left' ? 'straight' : 'right');
       this.leftWas = left; this.rightWas = right;
@@ -242,21 +267,25 @@ export class Drive {
       if (ns && Math.abs(ns.dist - a.L / 2) < 25 && a.v < 0.3 && this.arrived !== ns.key) { this.arrived = ns.key; this.atStop = ns; chime(); setTimeout(() => speak(`${ns.name}. Uitstappen aan de rechterkant.`), 900); }
       if (this.atStop && a.v > 2) this.atStop = null;
       const bar = (v) => '▮'.repeat(Math.round(v * 8)).padEnd(8, '▯');
-      info = `<div class="dh-row"><b>${{ train: '🚆 Trein', tram: '🚋 Tram', ship: '🚢 Schip', metro: '🚇 Metro' }[a.kind]}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>
+      info = `<div class="dh-row"><b>${{ train: '🚆 Trein', tram: '🚋 Tram', ship: '🚢 Schip', metro: '🚇 Metro' }[a.kind]}</b> · tractie ${bar(c.throttle)} · rem ${bar(c.brake)}${c.emergency ? ' · <b class="warn">NOODREM</b>' : ''}</div>${this.safety && this.safety.state ? this.safetyRow(this.safety.state) : ''}
         <div class="dh-row">Wissel: <b>${{ left: '⬅ links', straight: '⬆ rechtdoor', right: 'rechts ➡' }[this.sw]}</b> · deuren: <b>${c.doors ? 'open' : 'dicht'}</b>${a.endOfLine ? ' · <b class="warn">einde spoor — R om te keren</b>' : ''}</div>
         <div class="dh-row">${ns ? `Volgende halte: <b>${ns.name}</b> · ${Math.max(0, Math.round(ns.dist - a.L / 2))} m` : 'Geen halte in zicht'}${this.atStop ? ' · <b class="ok">aan het perron — Q deuren</b>' : ''}</div>`;
     } else if (this.car) {
       const c = this.car, S = this.spec;
       const hand = k.has('Space') || g.padStop || (this.bus && c.doorsOpen);
-      if (up && !(this.bus && c.doorsOpen)) c.speed += (c.speed < 0 ? 9 : S.acc * Math.max(0.1, 1 - c.speed / S.vmax)) * dt;
-      else if (down) c.speed -= (c.speed > 0.5 ? 9 : 2.5) * dt;
+      // grip van de weg (TERRANOVA 16, js/weather.js): nat, sneeuw of ijzel = trager optrekken en langer remmen
+      const grip = g.grip ?? 1; this.grip = grip;
+      if (up && !(this.bus && c.doorsOpen)) c.speed += (c.speed < 0 ? 9 : S.acc * Math.max(0.1, 1 - c.speed / S.vmax)) * (0.45 + 0.55 * grip) * dt;
+      else if (down) c.speed -= (c.speed > 0.5 ? 9 * grip : 2.5) * dt;
       else c.speed *= Math.pow(0.6, dt);
+      this.braking = !!(down && c.speed > 0.5) || !!(hand && Math.abs(c.speed) > 0.5);
       if (hand) c.speed *= Math.pow(0.05, dt);
       c.speed = Math.max(-6, Math.min(S.vmax, c.speed));
       const target = (left ? 1 : 0) - (right ? 1 : 0);
       this.steer += (target - this.steer) * Math.min(1, dt * 5);
       const maxSteer = 0.55 / (1 + Math.abs(c.speed) / 10);
-      c.yaw += c.speed * Math.tan(this.steer * maxSteer) / S.wb * dt;
+      // weinig grip: de auto stuurt minder in bij snelheid (onderstuur)
+      c.yaw += c.speed * Math.tan(this.steer * maxSteer) / S.wb * dt * (Math.abs(c.speed) > 8 ? 0.55 + 0.45 * grip : 1);
       this.moveCar(c, dt);
       speed = c.speed;
       if (this.bus) { this.busHud(dt, up, down, hand); speed = c.speed; info = null; }
@@ -280,7 +309,16 @@ export class Drive {
         <div class="dh-row muted">V camera · H uitstappen${this.cam === 'walk' ? ' · WASD lopen' : ''}</div>`;
     }
     if (this.rs) { const c = this.a.player; const dv = speed - (this.rsV ?? speed); this.rsV = speed; this.rs.update(dt, speed, c ? c.throttle : dv > 0.002 ? 0.7 : 0.05, c ? (c.emergency ? 1 : c.brake) : dv < -0.004 ? 0.8 : 0, !['chase', 'side'].includes(this.cam)); }
-    if (this.gain) { const s = Math.abs(speed); this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * (this.rail ? 4 : 7); }
+    if (this.gain) {
+      // TERRANOVA 16: toerental met versnellingen (auto en bus): het toerental stijgt per versnelling en zakt bij het schakelen
+      const s = Math.abs(speed), up = !!(this.g.keys && (this.g.keys.has('KeyW') || this.g.keys.has('ArrowUp'))) || !!this.g.padUp;
+      if (this.rail) { this.gain.gain.value = Math.min(0.05, 0.012 + s * 0.0016); this.osc.frequency.value = 38 + s * 4; }
+      else {
+        const { gear, rpm } = gearOf(s, this.bus); this.gear = gear; this.rpm = +(800 + rpm * (this.bus ? 1600 : 4200)).toFixed(0);
+        this.osc.frequency.value = (this.bus ? 22 : 30) + rpm * (this.bus ? 38 : 75);
+        this.gain.gain.value = Math.min(0.06, 0.014 + rpm * 0.02 + (up ? 0.012 : 0));
+      }
+    }
     if (this.hud && info !== null && this.t - (this.hudT || 0) > 0.15) {
       this.hudT = this.t;
       this.hud.innerHTML = `<div class="dh-speed">${Math.round(Math.abs(speed) * KMH)}<small> km/h</small></div><div class="dh-info">${info}</div>`;
@@ -400,6 +438,8 @@ export class Drive {
     if (this.bus) return this.busKey(code);
     if (!this.rail) return false;
     const a = this.a, c = a.player;
+    this.ctlPress = true; // elke bediening telt voor de waakinrichting
+    if (code === 'KeyB') { this.ackPress = true; this.g.toast(this.safety && this.safety.forced ? '✔ Bevestigd' : '✔ Waakknop'); return true; }
     if (code === 'KeyQ') {
       if (a.v > 0.3) { this.g.toast('Deuren openen kan alleen stilstaand'); return true; }
       c.doors = !c.doors; chime();
@@ -414,6 +454,18 @@ export class Drive {
       return true;
     }
     return false;
+  }
+  // beeld van de beveiliging in het dashboard
+  safetyRow(st) {
+    const lamp = { groen: '#22e06a', geel: '#ffd23a', rood: '#ff3a2a' }[st.aspect];
+    const f = { atb: '<b class="warn">ATB REMT</b>', sts: '<b class="warn">STS — NOODREMMING · stilstaan en B</b>', waak: '<b class="warn">WAAKREMMING · stilstaan en B</b>' }[st.forced] || '';
+    return `<div class="dh-row"><span class="sig-dot" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${lamp};vertical-align:middle;box-shadow:0 0 6px ${lamp}" title="Volgend sein: ${st.aspect}"></span> sein ${st.aspect} over ${st.sigDist} m · toegestaan <b>${st.allowedKmh}</b> km/h${st.warn ? ' · <b class="warn">🔔 TE SNEL — REMMEN</b>' : ''}${st.sifaWarn ? ' · <b class="warn">🔔 WAAKKNOP (B)</b>' : ''} ${f}</div>`;
+  }
+  safetyEvent(ev) {
+    const g = this.g, msg = { waarschuwing: '🔔 ATB: te snel, remmen!', ingreep: '⚠ ATB remt de trein af', sts: '⛔ Rood sein voorbijgereden: noodremming', waak: '🔔 Waakinrichting: druk op B', waakremming: '⚠ Waakinrichting remt de trein' }[ev];
+    if (msg) g.toast(msg);
+    try { g.captionHook?.(msg); } catch { /* geen ondertitels */ }
+    if (ev === 'sts' || ev === 'ingreep') { const c = g.career; if (c && c.safetyEvent) c.safetyEvent(ev); }
   }
   exit() {
     const g = this.g, p = g.player;

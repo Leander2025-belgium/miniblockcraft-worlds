@@ -154,10 +154,12 @@ export class Travelers {
     // drukte: spits meer dan nacht, en meer rond grote stations (trein of metro in de buurt)
     const near = [...(this.tr.served?.values() || [])].filter(q => Math.hypot(q.x - player.x, q.z - player.z) < 160);
     const busy = near.some(q => q.kind === 'train' || q.kind === 'metro') ? 1.6 : 1;
-    const want = Math.round((AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand' && t.towerF === undefined).length;
+    // met bewoners (js/society.js): drukte volgt hoeveel mensen nu echt onderweg zijn (spits, nacht, weekend)
+    const bf = this.society ? this.society.soc.busyFactor(this.journey ? this.journey.hour() : 12, this.society.dow()) : null;
+    const want = Math.round((bf !== null ? AUTO_WANT.dal * bf : AUTO_WANT[period] ?? 6) * busy), have = this.list.filter(t => t.auto && t.state !== 'op afstand' && t.towerF === undefined).length;
     if (have >= want) return;
     // hele reizen met de planner (van deur tot deur, met overstappen)
-    if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; const t0 = performance.now(), ok = this.spawnJourney(player); this.msMax('spawn', performance.now() - t0); if (ok) return; }
+    if (this.journey && (this.jT = (this.jT || 0) + AUTO_EVERY) >= JOURNEY_EVERY / (bf ?? 1) && this.list.filter(t => t.journey).length < JOURNEY_MAX) { this.jT = 0; const t0 = performance.now(), ok = this.spawnJourney(player); this.msMax('spawn', performance.now() - t0); if (ok) return; }
     // alleen haltes waar het verkeer de laatste 10 minuten echt gestopt is (soort voertuig en plek bekend)
     const clock = this.tr.clock || 0, served = [...(this.tr.served?.values() || [])].filter(q => clock - q.t < 600 && q.name && Math.hypot(q.x - player.x, q.z - player.z) < AUTO_NEAR);
     if (!served.length) return;
@@ -211,7 +213,37 @@ export class Travelers {
   }
   spawnJourney(player) {
     const near = [...(this.tr.served?.values() || [])].filter(q => Math.hypot(q.x - player.x, q.z - player.z) < 300);
-    const type = this.pickType(near), prof = PROFILES[type];
+    let type = this.pickType(near), prof = PROFILES[type];
+    // TERRANOVA 16 (js/society.js): een echte bewoner die nu een verplaatsing heeft die hier begint of eindigt
+    if (this.society) {
+      const S = this.society, h = this.journey.hour(), ex = new Set(this.list.filter(t => t.who).map(t => t.who.id));
+      // tot 4 kandidaten proberen: niet elke woning of werkplek heeft een bereikbare deur in de geladen wereld
+      let trip = null, o = null;
+      for (let k = 0; k < 4 && !o; k++) {
+        trip = S.soc.pickTrip(player, h, S.dow(), () => this.rr(), { exclude: ex }); if (!trip) break;
+        const at = trip.inbound ? trip.dest : trip.from, q = this.nav.snap(at.x, (this.ground ?? player.y) + 1, at.z, 6);
+        o = q && (doorNear(this.nav, this.get, q.x, q.z, q.y, 30, () => this.rr()) || facadeNear(this.nav, this.solid, q.x, q.z, q.y, () => this.rr()));
+        if (!o) { ex.add(trip.who.id); S.stats.geenDeur = (S.stats.geenDeur || 0) + 1; }
+      }
+      if (trip && o) {
+        {
+          const job = trip.who.job;
+          type = job === 'student' ? 'student' : job === 'gepensioneerd' ? (trip.who.leeftijd > 80 ? 'beperkt' : 'toerist') : job === 'luchthaven' ? 'luchthaven' : job === 'kantoor' && trip.who.r < 0.3 ? 'zakenreiziger' : (h >= 22 || h < 5) ? 'nacht' : 'pendelaar';
+          prof = PROFILES[type];
+          const from = trip.inbound ? trip.from : { x: o.x, z: o.z, name: 'Vertrek' }, dest = trip.inbound ? { x: o.x, z: o.z, name: 'Bestemming' } : trip.dest;
+          const who = { id: trip.who.id, naam: trip.who.naam, leeftijd: trip.who.leeftijd, beroep: trip.who.beroep, doel: trip.doel };
+          const done = (r2) => { const t = r2 && !r2.error ? this.finishJourney(r2, { type, prof, o, src: 'deur', inbound: trip.inbound, from, dest }) : null; if (t) { t.who = who; S.stats.reizen++; } return t; };
+          if (this.journey.planAsync) {
+            if (this.planBusy) return null;
+            this.planBusy = true;
+            this.journey.planAsync(from, dest, h).then((r2) => { this.planBusy = false; if (!this.gone) done(r2); }, () => { this.planBusy = false; });
+            return 'bezig';
+          }
+          return done(this.journey.plan(from, dest, h));
+        }
+      }
+      S.stats.geenBewoner++;
+    }
     const a = this.rr() * 6.283, r = 60 + this.rr() * 160;
     const q = this.nav.snap(player.x + Math.cos(a) * r, (this.ground ?? player.y) + 1, player.z + Math.sin(a) * r, 4);
     if (!q) return null;

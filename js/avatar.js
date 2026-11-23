@@ -24,6 +24,10 @@ export class Avatar {
     this.hair = mesh(part(P => { P.box('paint', 0.26, 0.09, 0.27, 0, 0.29, -0.005); P.box('paint', 0.26, 0.16, 0.06, 0, 0.2, -0.11); }), 'hair'); this.neck.add(this.hair);
     this.cap = mesh(part(P => { P.box('paint', 0.27, 0.1, 0.27, 0, 0.32, 0); P.box('paint', 0.24, 0.03, 0.14, 0, 0.28, 0.18); }), 'hat'); this.neck.add(this.cap);
     this.beanie = mesh(part(P => { P.box('paint', 0.27, 0.16, 0.27, 0, 0.32, 0); P.box('paint', 0.08, 0.06, 0.08, 0, 0.42, 0); }), 'hat'); this.neck.add(this.beanie);
+    // TERRANOVA 16 (winkel, js/shop.js): bouwhelm, OV-pet en hoge hoed
+    this.helm = mesh(part(P => { P.box('paint', 0.3, 0.12, 0.3, 0, 0.33, 0); P.box('paint', 0.22, 0.05, 0.22, 0, 0.41, 0); P.box('paint', 0.34, 0.02, 0.34, 0, 0.27, 0.02); }), 'hat'); this.neck.add(this.helm);
+    this.ovpet = mesh(part(P => { P.box('paint', 0.29, 0.12, 0.29, 0, 0.33, 0); P.box('paint', 0.26, 0.04, 0.16, 0, 0.28, 0.19); P.box('paint', 0.3, 0.03, 0.3, 0, 0.3, 0); }), 'hat'); this.neck.add(this.ovpet);
+    this.tophoed = mesh(part(P => { P.box('paint', 0.36, 0.03, 0.36, 0, 0.28, 0); P.box('paint', 0.24, 0.3, 0.24, 0, 0.44, 0); }), 'hat'); this.neck.add(this.tophoed);
     this.pack = mesh(part(P => { P.box('paint', 0.36, 0.44, 0.16, 0, 0.36, -0.2); P.box('paint', 0.3, 0.1, 0.12, 0, 0.12, -0.2); }), 'pack'); this.body.add(this.pack);
     const limb = (x, y, w, h, d, k, shoe) => {
       const g = new THREE.Group(); g.position.set(x, y, 0);
@@ -44,8 +48,8 @@ export class Avatar {
   setLook(look) {
     this.look = { ...DEFAULT_LOOK, ...(look || {}) };
     const L = this.look;
-    this.base = { shirt: L.shirt, pants: L.pants, skin: L.skin, hair: L.hair, shoes: L.shoes, hat: L.hat === 'cap' ? '#c8102e' : '#2f4f6f', pack: '#4b5d3a', eyes: '#1b1b1b' };
-    this.cap.visible = L.hat === 'cap'; this.beanie.visible = L.hat === 'beanie'; this.hair.visible = L.hat !== 'beanie';
+    this.base = { shirt: L.shirt, pants: L.pants, skin: L.skin, hair: L.hair, shoes: L.shoes, hat: ({ cap: '#c8102e', helm: '#f2c014', ovpet: '#1d2f57', tophoed: '#141414' })[L.hat] || '#2f4f6f', pack: '#4b5d3a', eyes: '#1b1b1b' };
+    this.cap.visible = L.hat === 'cap'; this.beanie.visible = L.hat === 'beanie'; this.helm.visible = L.hat === 'helm'; this.ovpet.visible = L.hat === 'ovpet'; this.tophoed.visible = L.hat === 'tophoed'; this.hair.visible = !['beanie', 'helm', 'tophoed'].includes(L.hat);
     this.pack.visible = !!L.backpack;
     this.light = -1;
   }

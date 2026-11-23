@@ -104,31 +104,41 @@ function graphFor(per) {
   }
   G = { nodes, idx, nb }; GRAPH.set(per, G); return G;
 }
-export function plan(from, to, hour) {
+// voorkeuren (TERRANOVA 16): de zoektocht minimaliseert 'kosten' = reistijd + straf voor wandelen en overstappen;
+// de tijden blijven de echte tijden volgens de dienstregeling. 'snelste' = zuiver de reistijd (zoals voorheen).
+export const PREFS = {
+  snelste: { naam: 'Snelste', walk: 1, transfer: 0, maxWalk: Infinity },
+  overstappen: { naam: 'Minste overstappen', walk: 1, transfer: 600, maxWalk: Infinity },
+  wandelen: { naam: 'Minst wandelen', walk: 3, transfer: 60, maxWalk: Infinity },
+  toegankelijk: { naam: 'Toegankelijk (weinig lopen en overstappen)', walk: 2.5, transfer: 480, maxWalk: 700 },
+};
+export function plan(from, to, hour, pref = 'snelste') {
+  const P = PREFS[pref] || PREFS.snelste;
   const per = periodOfHour(hour), t0 = Math.round(hour * 3600);
   const { nodes: base, idx, nb } = graphFor(per);
   const nodes = base.slice(); nodes[0] = { key: 'O', p: from }; nodes[1] = { key: 'D', p: to };
-  const n = nodes.length, best = new Float64Array(n).fill(Infinity), done = new Uint8Array(n);
+  const n = nodes.length, best = new Float64Array(n).fill(Infinity), cost = new Float64Array(n).fill(Infinity), done = new Uint8Array(n);
   // vorige knoop en soort stap zonder objecten per verbetering: pU = vorige, pK = 0 wandel / 1 rit, pM = meters, pD = vertrek
   const pU = new Int32Array(n).fill(-1), pK = new Uint8Array(n), pM = new Float64Array(n), pD = new Float64Array(n);
   let hT = new Float64Array(4096), hV = new Int32Array(4096), hn = 0;
   const push = (t, v) => { if (hn === hT.length) { const a = new Float64Array(hn * 2), b = new Int32Array(hn * 2); a.set(hT); b.set(hV); hT = a; hV = b; } let i = hn++; while (i > 0) { const p = (i - 1) >> 1; if (hT[p] <= t) break; hT[i] = hT[p]; hV[i] = hV[p]; i = p; } hT[i] = t; hV[i] = v; };
   const pop = () => { const v = hV[0]; hn--; if (hn) { const t = hT[hn], w = hV[hn]; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i, mt = t; if (l < hn && hT[l] < mt) { m = l; mt = hT[l]; } if (r < hn && hT[r] < mt) m = r; if (m === i) break; hT[i] = hT[m]; hV[i] = hV[m]; i = m; } hT[i] = t; hV[i] = w; } return v; };
-  const relax = (u, v, tv, k, m, dep) => { if (tv < best[v]) { best[v] = tv; pU[v] = u; pK[v] = k; pM[v] = m; pD[v] = dep; push(tv, v); } };
-  best[0] = t0; push(t0, 0);
+  // best = aankomsttijd, cost = kosten volgens de voorkeur (bij 'snelste' gelijk aan de tijd)
+  const relax = (u, v, tv, cv, k, m, dep) => { if (cv < cost[v]) { cost[v] = cv; best[v] = tv; pU[v] = u; pK[v] = k; pM[v] = m; pD[v] = dep; push(cv, v); } };
+  best[0] = t0; cost[0] = t0; push(t0, 0);
   while (hn) {
     const u = pop(); if (done[u]) continue;
     if (u === 1) break;
-    done[u] = 1; const N = nodes[u], t = best[u];
+    done[u] = 1; const N = nodes[u], t = best[u], c = cost[u];
     // rijden naar de volgende halte (zelfde richting)
     if (N.q && N.i < N.q.pr.st.length - 1) {
       const pr = N.q.pr, dep = nextDep(t, pr.h, pr.off + pr.cum[N.i]);
-      relax(u, u + 1, dep + pr.run(N.i), 1, 0, dep); // de volgende halte van dezelfde lijn en richting is de volgende knoop
+      const tv = dep + pr.run(N.i); relax(u, u + 1, tv, c + (tv - t), 1, 0, dep); // de volgende halte van dezelfde lijn en richting is de volgende knoop
     }
     // wandelen: vanuit het vertrek naar elke halte, van elke halte naar de bestemming, tussen haltes tot 1,6 km (+1 min overstap)
-    if (u === 0) { for (let v = 1; v < n; v++) { const d = dist(N.p, nodes[v].p); relax(u, v, t + d / WALK, 0, d, 0); } continue; }
-    { const d = dist(N.p, nodes[1].p); relax(u, 1, t + d / WALK, 0, d, 0); }
-    const L = nb[u]; for (let k = 0; k < L.length; k += 2) { const v = L[k]; if (!done[v]) relax(u, v, t + L[k + 1] / WALK + TRANSFER, 0, L[k + 1], 0); }
+    if (u === 0) { for (let v = 1; v < n; v++) { const d = dist(N.p, nodes[v].p); if (v > 1 && d > P.maxWalk) continue; relax(u, v, t + d / WALK, c + d / WALK * P.walk, 0, d, 0); } continue; }
+    { const d = dist(N.p, nodes[1].p); relax(u, 1, t + d / WALK, c + d / WALK * P.walk + (d > P.maxWalk ? 3600 : 0), 0, d, 0); }
+    const L = nb[u]; for (let k = 0; k < L.length; k += 2) { const v = L[k]; if (!done[v] && L[k + 1] <= P.maxWalk) relax(u, v, t + L[k + 1] / WALK + TRANSFER, c + L[k + 1] / WALK * P.walk + TRANSFER + P.transfer, 0, L[k + 1], 0); }
   }
   const prev = new Array(n).fill(null);
   for (let v = 0; v < n; v++) if (pU[v] >= 0) prev[v] = { u: pU[v], edge: pK[v] ? { ride: true, dep: pD[v], q: nodes[pU[v]].q, i: nodes[pU[v]].i } : { walk: true, m: Math.round(pM[v]) } };
@@ -142,7 +152,7 @@ export function plan(from, to, hour) {
     if (last && last.q === s.e.q && Math.abs(last.arr + s.e.q.pr.dw * (L.mode === 'trein' ? 0 : 1) - s.e.dep) < 1) { last.to = s.to.p; last.arr = s.arr; last.stops++; continue; }
     legs.push({ mode: L.mode, line: L.line, q: s.e.q, from: s.from.p, to: s.to.p, dep: s.e.dep, arr: s.arr, stops: 1, dir: dirName(L, s.e.q.d), perron: perronOf(L, s.e.q.d), color: L.color });
   }
-  const r = { legs: legs.filter(l => l.mode !== 'wandelen' || l.m > 15), arr: best[1], dep: t0, per };
+  const r = { legs: legs.filter(l => l.mode !== 'wandelen' || l.m > 15), arr: best[1], dep: t0, per, voorkeur: pref };
   for (const l of r.legs) delete l.q;
   r.ritten = r.legs.filter(l => l.mode !== 'wandelen').length;
   r.overstappen = Math.max(0, r.ritten - 1);
@@ -153,12 +163,22 @@ export function plan(from, to, hour) {
   for (const l of r.legs) { if (l.mode !== 'wandelen') { l.wait = Math.max(0, l.dep - tPrev); r.wachten += l.wait; } tPrev = l.arr; }
   return r;
 }
+// alternatieve verbindingen: dezelfde reis met elke voorkeur; dubbele (zelfde lijnen) worden samengevoegd
+export function alternatives(from, to, hour) {
+  const out = [], seen = new Map();
+  for (const k of Object.keys(PREFS)) {
+    const r = plan(from, to, hour, k), sig = r.legs.map(l => l.mode === 'wandelen' ? 'w' : l.line).join('>');
+    if (seen.has(sig)) { seen.get(sig).voorkeuren.push(PREFS[k].naam); continue; }
+    r.voorkeuren = [PREFS[k].naam]; seen.set(sig, r); out.push(r);
+  }
+  return out;
+}
 const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', bus: '🚌', wandelen: '🚶' };
 export function planHtml(r) {
   const min = (s) => Math.max(1, Math.round(s / 60));
   return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, bus om de ${BUS_HEADWAY[r.per] / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
     <div><b>Aankomst ${fmt(r.arr)}</b> · reistijd ${min(r.arr - r.dep)} min · ${r.overstappen} overstap${r.overstappen === 1 ? '' : 'pen'} · ${r.wandelen} m wandelen</div>
-    <div class="small muted">Vertrek ${fmt(r.dep)} · ${r.ritten} rit${r.ritten === 1 ? '' : 'ten'} · totale wachttijd ${min(r.wachten || 0)} min · vertraging: niet gemeten in Megatower City (de voertuigen rond je volgen deze dienstregeling niet op de minuut)</div>
+    <div class="small muted">Vertrek ${fmt(r.dep)} · ${r.ritten} rit${r.ritten === 1 ? '' : 'ten'} · totale wachttijd ${min(r.wachten || 0)} min · vertraging: de planner rekent met de dienstregeling; de gemeten vertraging per voertuig staat op de live OV-kaart</div>
     <ol class="plan-legs">${r.legs.map(l => l.mode === 'wandelen'
       ? `<li>${ICON.wandelen} ${fmt(l.dep)} wandel ${l.m} m naar <b>${l.to.name}</b> (${min(l.arr - l.dep)} min)</li>`
       : `<li>${ICON[l.mode]} ${fmt(l.dep)} <b>${l.line}</b> richting ${l.dir}${l.perron ? `, perron ${l.perron}` : ''}, van ${l.from.name} naar <b>${l.to.name}</b> · aankomst ${fmt(l.arr)} (${l.stops} halte${l.stops === 1 ? '' : 's'}${l.wait > 30 ? ` · ${min(l.wait)} min wachten` : ''})</li>`).join('')}</ol>`;

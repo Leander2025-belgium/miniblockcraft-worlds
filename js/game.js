@@ -19,8 +19,14 @@ import { diag } from './diag.js';
 import { Builder } from './build.js';
 import { Underground } from './underground.js';
 import { Ambient } from './ambient.js';
+import { Soundscape } from './soundscape.js';
+import { setMix, mixState } from './sound.js';
+import { applyA11y, bindA11yControls, bindTabs, caption } from './a11y.js';
+import { setSpeakHook } from './drive.js';
 import { BusPax } from './buspax.js';
 import { Travelers } from './travelers.js';
+import { Adaptive, PROFILES } from './adaptive.js';
+import { weatherOf, snowStep, roadGrip, windAt } from './weather.js';
 // reisplanner in een Web Worker voor reizigers (js/planworker.js); zonder worker: geen async (de reiziger plant dan zelf)
 let PLAN_WORKER = null, PLAN_SEQ = 0; const PLAN_WAIT = new Map();
 function planAsyncOf() {
@@ -72,6 +78,7 @@ uniform mat4 shadowMatrix;
 uniform float shadowOn;
 uniform float isUnder;
 uniform float wet;
+uniform float snowCover;
 uniform float flashOn;
 uniform vec3 flashPos;
 uniform vec3 flashDir;
@@ -234,6 +241,12 @@ void main() {
         col *= 1.0 - 0.2 * wet * (0.55 + 0.45 * streak);
       }
     }
+    // sneeuwdek (TERRANOVA 16, js/weather.js): bovenkanten worden wit, eerst vlekkerig, dan dicht; niet binnen of onder de grond
+    if (snowCover > 0.01 && isUnder < 0.5 && indoor < 0.5 && n.y > 0.6 && !emissive) {
+      float spot = h3(floor(vWorld));
+      float k = smoothstep(spot - 0.15, spot + 0.15, snowCover * 1.3 - 0.1);
+      col = mix(col, vec3(0.92, 0.94, 0.98) * (0.22 + 0.78 * day) * (0.65 + 0.35 * sh), k * 0.92);
+    }
   }
   // atmosfeer: verre dingen nemen de luchtkleur aan, warmer in de richting van de zon
   float fog = smoothstep(fogNear, fogFar, vDist);
@@ -386,7 +399,7 @@ export class Game {
       day: { value: 1 }, sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, time: { value: 0 }, isTrans: { value: 0 },
       matTex: { value: matTex }, atlasCols: { value: ATLAS_COLS }, sunColor: { value: new THREE.Vector3(1, 0.97, 0.9) }, skyTop: { value: new THREE.Vector3(0.3, 0.5, 0.85) },
       shadowMap: { value: this.dummyDepth }, shadowMatrix: { value: this.shadow.matrix }, shadowOn: { value: 0 },
-      wet: { value: 0 }, isUnder: { value: 0 }, streetY: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
+      wet: { value: 0 }, snowCover: { value: 0 }, isUnder: { value: 0 }, streetY: { value: 0 }, flashOn: { value: 0 }, flashPos: { value: new THREE.Vector3() }, flashDir: { value: new THREE.Vector3(0, 0, -1) },
       lampTile: { value: new THREE.Vector2(TILE_INDEX.lamp % ATLAS_COLS, Math.floor(TILE_INDEX.lamp / ATLAS_COLS)) },
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
       fillTile: { value: new THREE.Vector2(TILE_INDEX.room_fill % ATLAS_COLS, Math.floor(TILE_INDEX.room_fill / ATLAS_COLS)) },
@@ -772,7 +785,7 @@ export class Game {
     if (this.queue.length > 1) this.sortQueue(); // bij snel vliegen: eerst wat dichtbij is
     const W = this.world, T = W.T, p = this.player.pos;
     const ptx = Math.floor(p.x / T), ptz = Math.floor(p.z / T);
-    const R = Math.max(1, Math.ceil((this.settings.view + 48) / T));
+    const R = Math.max(1, Math.ceil((this.viewNow() + 48) / T));
     // vliegrichting en snelheid: waar ben je over een paar seconden?
     const v = this.extVel || this.player.vel, sp = Math.hypot(v.x, v.z);
     const lookT = sp > 60 ? 5 : sp > 25 ? 4 : 2.5;
@@ -990,6 +1003,12 @@ export class Game {
     this.last = performance.now();
     const loop = (t) => {
       if (!this.running) return;
+      // prestatietest (js/perftest.js): het eigen ritme van de browser meten zonder iets te tekenen
+      if (this.idleFrame) { this.last = t; this.raf = requestAnimationFrame(loop); return; }
+      // vaste grens (profiel Batterijbesparing): frames overslaan tot het volgende moment (minder rekenen = minder stroom)
+      const cap = this.settings.fpsCap || 0;
+      if (cap && this.lastDraw && t - this.lastDraw < 1000 / cap - 4) { this.raf = requestAnimationFrame(loop); return; }
+      this.rawFt = this.lastDraw ? t - this.lastDraw : 0; this.lastDraw = t; // echte frametijd (niet afgekapt) voor de adaptieve kwaliteit
       const dt = Math.min(0.05, (t - this.last) / 1000);
       this.last = t;
       if (this.tiled) this.updateTiles();
@@ -1067,7 +1086,7 @@ export class Game {
   render() {
     const p = this.player;
     this.placeCamera();
-    const far = this.settings.view;
+    const far = this.viewNow();
     // dag en nacht
     const now = performance.now();
     const dt = Math.min(0.1, (now - (this.lastRender || now)) / 1000);
@@ -1091,6 +1110,7 @@ export class Game {
       u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
       u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
       if (ug) { u.fogColor.value.set(0.01, 0.01, 0.015); u.fogNear.value = 8; u.fogFar.value = 64; }
+      else if (this.curWeather === 'mist') { u.fogNear.value = 8; u.fogFar.value = Math.min(u.fogFar.value, 120); }
       else if (this.curWeather === 'rain' || this.curWeather === 'storm' || this.curWeather === 'snow') { u.fogNear.value = Math.min(u.fogNear.value, 60); u.fogFar.value = Math.min(u.fogFar.value, this.curWeather === 'storm' ? 380 : 650); }
     }
     this.clouds.position.x = p.pos.x; this.clouds.position.z = p.pos.z;
@@ -1115,6 +1135,12 @@ export class Game {
         this.ambient.update(0.5, { vehicles: Math.min(n, 60), height: p.pos.y - (this.meta && this.meta.ground || 0), weather: this.curWeather, under: ug, muted: this.paused || document.hidden });
       }
     } else if (this.ambient) { this.ambient.stop(); this.ambient = null; }
+    // geluidslandschap (TERRANOVA 16, js/soundscape.js): voetstappen, donder, vogels/krekels, gong, banden, demping
+    if (this.settings.ambient !== false) {
+      if (!this.sounds) { this.sounds = new Soundscape(this); setMix(this.settings.mix); }
+      if (this.traffic && !this.traffic.onArrive) this.traffic.onArrive = (a, pos) => this.sounds?.arrive(a, pos);
+      this.sounds.update(dt, { weather: this.curWeather, under: ug, hour: this.settings.hour, snowCover: this.snowCover || 0, vehicles: this.ambient?.levels ? Math.round((this.ambient.levels.stad || 0) / 0.0012) : 0, height: p.pos.y - (this.meta && this.meta.ground || 0), muted: this.paused || document.hidden });
+    } else if (this.sounds) { this.sounds.stop(); this.sounds = null; if (this.traffic) this.traffic.onArrive = null; }
     if (this.ships) this.ships.update(dt);
     if (this.airports) this.airports.update(dt, env.day);
     if (this.alpRail) this.alpRail.update(dt, env.day);
@@ -1125,6 +1151,8 @@ export class Game {
       this.avatar.update(dt, pl, { speed: Math.hypot(pl.vel.x, pl.vel.z), onGround: pl.onGround, inWater: pl.inWater, fly: pl.fly, vy: pl.vel.y, visOff: this.visOff || 0 },
         0.2 + 0.8 * env.day, (mode !== 'first' || this.photo === true && this.settings.cam !== 'first') && !this.drive && !this.ride);
     }
+    // samen spelen (proef): eigen positie sturen, anderen vloeiend tonen; andere wereld geopend = verbinding stoppen
+    if (this.mp) { if (this.mp.room !== 'w:' + String(this.meta?.id || 'wereld').replace(/[^\w:.-]/g, '_').slice(0, 44)) { this.mp.close(); this.mp = null; } else this.mp.update(dt, 0.2 + 0.8 * env.day); }
     if (this.far) {
       this.far.gondolas.update(dt, env.day);
       this.far.lifts.update(dt, env.day);
@@ -1266,7 +1294,8 @@ export class Game {
   isGreen() { return !!(this.meta && (this.meta.greenisland || this.meta.id === 'greenisland')); }
   gnmiWeather() {
     if (!this.isGreen()) return null;
-    if (!this.wallet && !this.vcLoading) { this.vcLoading = true; import('./viridcoin.js').then(m => { this.vc = m; this.wallet = new m.Wallet(); this.wallet.ticket = m.ticketPrice; const b = this.wallet.dailyBonus(); if (b) this.toast(`💰 Dagbonus: +${b} ViridCoin (saldo ${Math.round(this.wallet.balance)} VC)`); }).catch(e => console.error(e)); }
+    // portemonnee: sinds TERRANOVA 16 gemaakt door de carrière (js/career.js, overal dezelfde ViridCoin); dagbonus alleen in Greenisland
+    if (this.wallet && !this.vcBonus) { this.vcBonus = true; const b = this.wallet.dailyBonus(); if (b) this.toast(`💰 Dagbonus: +${b} ViridCoin (saldo ${Math.round(this.wallet.balance)} VC)`); }
     if (!this.gnmi) { if (!this.gnmiLoading) { this.gnmiLoading = true; import('./gnmi.js').then(m => { this.gnmi = m; }).catch(e => console.error(e)); } return null; }
     const now = performance.now(), p = this.player.pos;
     if (!this.gnmiNow || now - this.gnmiT > 8000) {
@@ -1330,8 +1359,14 @@ export class Game {
     if (w === 'gnmi') w = this.gnmiWeather() || 'clear';
     if (w === 'auto') { const t = Math.floor(this.clock / 240) % 5; w = ['clear', 'cloudy', 'rain', 'clear', 'storm'][t]; }
     this.curWeather = w;
-    const grey = { clear: 0, cloudy: 0.35, rain: 0.55, storm: 0.75, snow: 0.45 }[w] || 0;
-    if (this.sky) this.sky.cover = { clear: 0.38, cloudy: 0.7, rain: 0.85, storm: 0.95, snow: 0.8 }[w] ?? 0.45; // wolken aan de hemel
+    const W = weatherOf(w), grey = W.grey;
+    if (this.sky) this.sky.cover = W.cover; // wolken aan de hemel
+    // TERRANOVA 16: wind, sneeuwdek en grip van de weg (js/weather.js)
+    this.wind = windAt(w, this.clock || 0);
+    this.snowCover = snowStep(this.snowCover || 0, w, dt);
+    for (const m of this.mats) m.uniforms.snowCover.value = this.snowCover;
+    this.grip = roadGrip(w, this.wet || 0, this.snowCover);
+    if (this.traffic) this.traffic.weatherSpeed = Math.min(W.speed, 1 - 0.3 * this.snowCover);
     if (grey) {
       const g = 0.62 * env.day + 0.05;
       env.sky = env.sky.map(v => v * (1 - grey) + g * grey);
@@ -1339,14 +1374,14 @@ export class Game {
       env.sunColor = env.sunColor.map(v => v * (1 - grey * 0.75));
     }
     // natheid neemt langzaam toe en droogt weer op
-    const wantWet = w === 'rain' ? 0.8 : w === 'storm' ? 1 : 0;
+    const wantWet = W.wet;
     this.wet = (this.wet || 0) + (wantWet - (this.wet || 0)) * Math.min(1, dt * (wantWet > (this.wet || 0) ? 0.08 : 0.03));
     for (const m of this.mats) m.uniforms.wet.value = this.wet;
     // bliksem
     if (w === 'storm' && Math.random() < dt * 0.06) this.flashT = 0.25;
     if (this.flashT > 0) { this.flashT -= dt; env.sky = env.sky.map(v => Math.min(1, v + 0.5)); }
     // neerslag rond de camera
-    const want = (w === 'rain' || w === 'storm') ? 'rain' : w === 'snow' ? 'snow' : null;
+    const want = W.precip;
     if (!this.precip || this.precip.kind !== want) {
       if (this.precip) { this.scene.remove(this.precip.obj); this.precip.obj.geometry.dispose(); }
       this.precip = null;
@@ -1368,6 +1403,10 @@ export class Game {
         if (!rain) { P.pos[o] += Math.sin(this.clock + i) * dt * 0.4; }
         if (y < 0) { y += 40; }
         P.pos[o + 1] = y; if (rain) P.pos[o + 4] = y - 0.7;
+        // wind: neerslag drijft mee en valt schuin (binnen het vak van 60 m rond de camera)
+        const wx = this.wind.x * dt * (rain ? 0.5 : 0.9), wz = this.wind.z * dt * (rain ? 0.5 : 0.9);
+        let nx = P.pos[o] + wx, nz = P.pos[o + 2] + wz; if (nx > 30) nx -= 60; else if (nx < -30) nx += 60; if (nz > 30) nz -= 60; else if (nz < -30) nz += 60;
+        P.pos[o] = nx; P.pos[o + 2] = nz; if (rain) { P.pos[o + 3] = nx - this.wind.x * 0.03; P.pos[o + 5] = nz - this.wind.z * 0.03; }
       }
       P.obj.position.set(Math.floor(c.x / 60) * 0 + c.x, c.y - 20, c.z);
       P.obj.geometry.attributes.position.needsUpdate = true;
@@ -1417,6 +1456,8 @@ export class Game {
       // Megatower City: hele reizen van deur tot deur met de reisplanner (TERRANOVA 15, js/journeys.js)
       if (this.tiled && this.tiled.spec.megatower) import('./megatower.js').then((M) => { const T = this.travelers; if (!T) return; T.tower = { at: (p) => { if (!M.inTowerBox(p.x, p.z)) return null; const f = M.floorAt(Math.floor(p.y)); return { f, zone: M.zoneOf(f), y: M.floorY(f) }; } }; }).catch((e) => console.error(e));
       if (this.tiled && this.tiled.spec.megatower) { const T = this.travelers; import('./megaplan.js').then((m) => { if (this.travelers === T) T.journey = { plan: m.plan, planAsync: planAsyncOf(), places: m.PLACES, hour: () => this.settings.hour ?? 12 }; }).catch((e) => console.error(e)); }
+      // bewoners met een dagritme (TERRANOVA 16 fase 5, js/society.js): de reizigers zijn bewoners die nu echt onderweg zijn
+      if (this.tiled && this.tiled.spec.megatower && this.settings.bewoners !== false) { const T = this.travelers; this.societyOn().then((S) => { if (S && this.travelers === T) T.society = S; }).catch((e) => console.error(e)); }
     }
     return this.travelers;
   }
@@ -1459,24 +1500,23 @@ export class Game {
     el.hidden = false;
     const inf = this.renderer.info.render, mem = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) + ' MB' : 'n.v.t.';
     const col = fps >= 50 ? '#4ade80' : fps >= 28 ? '#fbbf24' : '#ff5a4a';
-    el.innerHTML = `<b style="color:${col}">${fps.toFixed(0)} FPS</b> · traagste ${(worst * 1000).toFixed(0)} ms<br>${inf.calls} tekenopdr. · ${(inf.triangles / 1000).toFixed(0)}k driehoeken<br>geheugen ${mem} · resolutie ${Math.round((this.tune?.scale ?? 1) * 100)}%${this.autoLow ? ' (laag)' : ''}<br>laadtijd ${P.loaded ? (P.loaded / 1000).toFixed(1) + ' s' : '…'} · wachtrij ${this.queue ? this.queue.length : 0}`;
+    el.innerHTML = `<b style="color:${col}">${fps.toFixed(0)} FPS</b> · traagste ${(worst * 1000).toFixed(0)} ms<br>${inf.calls} tekenopdr. · ${(inf.triangles / 1000).toFixed(0)}k driehoeken<br>geheugen ${mem} · resolutie ${Math.round((this.tune?.scale ?? 1) * 100)}%${this.adaptive ? ` · doel ${this.adaptive.state.target} FPS` : ''}${this.viewCut ? ` · kijkafstand −${this.viewCut} m` : ''}${this.autoLow ? ' (laag)' : ''}<br>laadtijd ${P.loaded ? (P.loaded / 1000).toFixed(1) + ' s' : '…'} · wachtrij ${this.queue ? this.queue.length : 0}`;
   }
-  // automatische kwaliteit: bij te weinig beelden per seconde de resolutie en schaduwen terugschroeven
-  autoTune(dt) {
+  // automatische kwaliteit (TERRANOVA 16, js/adaptive.js): stuurt op gemeten frametijden naar 60 of een stabiele 30 FPS
+  autoTune() {
     if (this.settings.auto === false || this.photo) return;
-    const a = this.tune || (this.tune = { t: 0, n: 0, scale: 1, good: 0 });
-    a.t += dt; a.n++;
-    if (a.t < 2.5) return;
-    const fps = a.n / a.t; a.t = 0; a.n = 0;
-    this.fps = fps;
-    let changed = false;
-    if (fps < 27 && a.scale > 0.55) { a.scale = Math.max(0.55, a.scale - 0.15); a.good = 0; changed = true; }
-    else if (fps < 24 && !this.autoLow) { this.autoLow = true; changed = true; }
-    else if (fps > 52) { if (++a.good >= 3) { a.good = 0; if (this.autoLow) { this.autoLow = false; changed = true; } else if (a.scale < 1) { a.scale = Math.min(1, a.scale + 0.1); changed = true; } } }
-    else a.good = 0;
-    if (a.scale < 0.75 && !this.autoLow) { this.autoLow = true; changed = true; }
-    if (changed) this.applyQuality();
+    const cap = this.settings.fpsCap || 0, av = !!this.settings.adaptView;
+    if (!this.adaptive || this.adaptive.cap !== cap || this.adaptive.av !== av) { this.adaptive = new Adaptive({ cap, adaptView: av }); this.adaptive.av = av; }
+    const st = this.adaptive.frame(this.rawFt || 0);
+    if (!st) return;
+    const lowWas = this.autoLow, cutWas = this.viewCut || 0;
+    this.tune = { scale: st.scale }; this.autoLow = st.low; this.viewCut = st.cut;
+    this.applyQuality();
+    if (cutWas !== st.cut && this.tiled) { this.tiled.aheadKey = null; this.updateTiles(true); }
+    if (lowWas !== st.low) diag('kwaliteit', this.adaptive.state);
   }
+  // kijkafstand die nu geldt: de instelling, min wat de adaptieve kwaliteit tijdelijk inlevert
+  viewNow() { return Math.max(48, this.settings.view - (this.settings.auto === false ? 0 : this.viewCut || 0)); }
 
   // ---------- minikaart ----------
   ensureMini() {
@@ -1970,8 +2010,16 @@ export class Game {
   }
   setPaused(p) {
     this.paused = p;
-    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
+    if (p) { this.missions.render(document.getElementById('missions')); const gb = document.getElementById('btn-gnmi'); if (gb) gb.hidden = !this.isGreen(); const vb = document.getElementById('btn-vc'); if (vb) vb.hidden = !this.isGreen(); const mpb = document.getElementById('btn-megaplan'); if (mpb) mpb.hidden = !this.mega; const sob = document.getElementById('btn-society'); if (sob) sob.hidden = !this.mega; const lpb = document.getElementById('btn-localplan'); if (lpb) lpb.hidden = !(this.traffic && !this.mega && !this.isGreen() && this.traffic.net && this.traffic.net.stops && this.traffic.net.stops.length); const omb = document.getElementById('btn-ovmap'); if (omb) omb.hidden = !this.mega; this.showOverlay('pause'); this.ui.onSave?.(false); }
     else this.showOverlay(null);
+  }
+  // de bevolking van Megatower City (één keer opgebouwd, ± 0,1 s); dag van de week: instelling 'dag' (scherm Bewoners), anders een gewone werkdag (dinsdag)
+  societyOn() {
+    if (this.societyP) return this.societyP;
+    return (this.societyP = Promise.all([import('./society.js'), import('./megacity.js')]).then(([S, M]) => {
+      const soc = new S.Society(S.megaPlaces(M), { n: 12000, zoneName: M.zoneName });
+      return (this.society = { soc, dow: () => (Number.isInteger(this.settings.dag) ? this.settings.dag : 2), stats: { reizen: 0, geenBewoner: 0 } });
+    }));
   }
   resume() {
     if (this.touch) { this.setPaused(false); return; }
@@ -2020,10 +2068,10 @@ export class Game {
     if (prof) {
       prof.value = this.settings.profile || '';
       if (!prof.dataset.bound) { prof.dataset.bound = '1'; prof.addEventListener('change', () => {
-        const P = { laag: { quality: 'fast', shadows: false, view: 96, lod: 800 }, gemiddeld: { quality: 'normal', shadows: false, view: 160, lod: 1600 },
-          hoog: { quality: 'normal', shadows: true, view: 224, lod: 2600 }, ultra: { quality: 'ultra', shadows: true, view: 320, lod: 4000 } }[prof.value];
+        const P = PROFILES[prof.value];
         this.settings.profile = prof.value;
-        if (P) Object.assign(this.settings, P);
+        if (P) Object.assign(this.settings, P); else Object.assign(this.settings, { fpsCap: 0, adaptView: false });
+        this.adaptive = null; this.tune = null; this.autoLow = false; this.viewCut = 0;
         saveSettings(this.settings); this.applySettings(); this.applyQuality(); this.updateTiles?.(true);
       }); }
     }
@@ -2044,6 +2092,7 @@ export class Game {
     const look = { ...DEFAULT_LOOK, ...(this.settings.look || {}) };
     for (const k of ['shirt', 'pants', 'skin', 'hair', 'shoes', 'hat', 'backpack']) {
       const el = document.getElementById('look-' + k); if (!el) continue;
+      if (k === 'hat' && this.career && this.career.shop) for (const o of el.options) if (['helm', 'ovpet', 'tophoed'].includes(o.value)) o.disabled = !this.career.shop.allowedHat(o.value); // gekocht in de winkel
       if (el.type === 'checkbox') el.checked = !!look[k]; else el.value = look[k];
       if (!el.dataset.bound) {
         el.dataset.bound = '1';
@@ -2055,12 +2104,23 @@ export class Game {
     }
     const ambEl = document.getElementById('set-ambient');
     if (ambEl) { ambEl.checked = this.settings.ambient !== false; if (!ambEl.dataset.bound) { ambEl.dataset.bound = '1'; ambEl.addEventListener('change', () => { this.settings.ambient = ambEl.checked; saveSettings(this.settings); if (ambEl.checked) this.ambient?.start(); }); } }
+    // interface en toegankelijkheid (TERRANOVA 16 fase 11, js/a11y.js): tabbladen in het pauzemenu en het tabblad Toegankelijkheid
+    bindTabs('pause-tabs'); bindA11yControls(this.settings, () => saveSettings(this.settings)); applyA11y(this.settings);
+    setSpeakHook((t) => caption(this.settings, t, '📢'));
+    this.captionHook = (t) => caption(this.settings, t, '🔔');
+    // mixer (TERRANOVA 16): volume per categorie, meteen hoorbaar en bewaard
+    for (const k of ['master', 'omgeving', 'voertuigen', 'effecten']) {
+      const el = document.getElementById('mix-' + k); if (!el) continue;
+      const cur = { master: 0.8, omgeving: 0.8, voertuigen: 0.9, effecten: 0.8, ...(this.settings.mix || {}) };
+      el.value = Math.round(cur[k] * 100);
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('input', () => { this.settings.mix = { ...cur, ...(this.settings.mix || {}), [k]: +el.value / 100 }; setMix(this.settings.mix); saveSettings(this.settings); }); }
+    }
     const fpsEl = document.getElementById('set-fps');
     if (fpsEl) { fpsEl.checked = !!this.settings.fps; if (!fpsEl.dataset.bound) { fpsEl.dataset.bound = '1'; fpsEl.addEventListener('change', () => { this.settings.fps = fpsEl.checked; saveSettings(this.settings); }); } }
-    for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto']]) {
+    for (const [id, key] of [['set-shadows', 'shadows'], ['set-auto', 'auto'], ['set-bewoners', 'bewoners']]) {
       const el = document.getElementById(id); if (!el) continue;
       el.checked = this.settings[key] !== false;
-      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.applyQuality(); } saveSettings(this.settings); }); }
+      if (!el.dataset.bound) { el.dataset.bound = '1'; el.addEventListener('change', () => { this.settings[key] = el.checked; if (key === 'auto' && !el.checked) { this.tune = null; this.autoLow = false; this.adaptive = null; this.viewCut = 0; this.applyQuality(); } saveSettings(this.settings); if (key === 'bewoners' && this.travelers) { if (el.checked) this.societyOn().then((S) => { if (this.travelers) this.travelers.society = this.mega ? S : null; }); else this.travelers.society = null; } }); }
     }
     const lodR = document.getElementById('set-lod');
     if (lodR) {

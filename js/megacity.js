@@ -1202,4 +1202,4 @@ export const PLACES = [
   ['Rivier en jachthaven', RIVER_TX * T + 64, 61 * T],
   ['Winkelcentrum Noord', 36 * T + 64, 42 * T + 4],
 ];
-export { floorY };
+export { floorY, lotDesc };

@@ -9,6 +9,37 @@ export function audioCtx() {
   try { const A = window.AudioContext || window.webkitAudioContext; ctx = new A(); } catch { ctx = null; }
   return ctx;
 }
+// TERRANOVA 16 — mixer: elk geluid loopt via een categorie (omgeving, voertuigen, effecten) naar één hoofdvolume.
+// Een laagdoorlaatfilter op het hoofdvolume dempt alles (sneeuw, onder water). Volumes staan in de instellingen (mix).
+export const MIX_DEFAULT = { master: 0.8, omgeving: 0.8, voertuigen: 0.9, effecten: 0.8 };
+let mixNodes = null, mixVals = { ...MIX_DEFAULT }, muffleHz = 20000;
+function mixGraph() {
+  if (mixNodes) return mixNodes;
+  const a = audioCtx(); if (!a) return null;
+  try {
+    const master = a.createGain(), muffle = a.createBiquadFilter();
+    muffle.type = 'lowpass'; muffle.frequency.value = muffleHz; muffle.Q.value = 0.5;
+    muffle.connect(master).connect(a.destination);
+    mixNodes = { master, muffle, bus: {} };
+    for (const k of ['omgeving', 'voertuigen', 'effecten']) { const g = a.createGain(); g.connect(muffle); mixNodes.bus[k] = g; }
+    applyMix();
+  } catch { mixNodes = null; }
+  return mixNodes;
+}
+function applyMix() {
+  if (!mixNodes) return;
+  const cl = (v) => Math.max(0, Math.min(1, +v || 0));
+  mixNodes.master.gain.value = cl(mixVals.master);
+  for (const k in mixNodes.bus) mixNodes.bus[k].gain.value = cl(mixVals[k]);
+}
+// uitgang voor een categorie; zonder WebAudio-ondersteuning null (de aanroeper valt dan terug op niets)
+export function bus(name) { const m = mixGraph(); if (!m) return audioCtx()?.destination || null; return m.bus[name] || m.bus.effecten; }
+export function setMix(v) { mixVals = { ...MIX_DEFAULT, ...(v || {}) }; applyMix(); }
+export function setMuffle(hz) {
+  muffleHz = Math.max(300, Math.min(20000, hz));
+  const m = mixGraph(), a = audioCtx(); if (m && a) m.muffle.frequency.setTargetAtTime(muffleHz, a.currentTime, 0.6);
+}
+export function mixState() { return { ...mixVals, muffleHz: Math.round(muffleHz), actief: !!mixNodes, gain: mixNodes ? Object.fromEntries(Object.entries(mixNodes.bus).map(([k, g]) => [k, g.gain.value])) : null }; }
 function noise(a) {
   if (noiseBuf) return noiseBuf;
   noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
@@ -21,7 +52,7 @@ export class RailSound {
     const a = audioCtx(); if (!a) return;
     try {
       if (a.state === 'suspended') a.resume();
-      this.out = a.createGain(); this.out.gain.value = 0.9; this.out.connect(a.destination);
+      this.out = a.createGain(); this.out.gain.value = 0.9; this.out.connect(bus('voertuigen'));
       // motor
       this.mot = a.createOscillator(); this.mot.type = 'sawtooth'; this.mot.frequency.value = 60;
       this.mot2 = a.createOscillator(); this.mot2.type = 'triangle'; this.mot2.frequency.value = 120;

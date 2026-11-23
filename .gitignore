@@ -1,3 +1,5 @@
 .osm-cache/
 tools/node_modules/
 *.bak
+server/node_modules/
+server/data/

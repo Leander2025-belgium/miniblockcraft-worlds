@@ -213,6 +213,10 @@
   }
   .look { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px 10px; }
   .look .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
+  .mixer { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 4px 0 8px; }
+  .mixer .small { grid-column: 1 / -1; }
+  .mixer .mini { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; margin: 0; }
+  .mixer input[type=range] { width: 55%; }
   .look input[type=color] { width: 40px; height: 26px; border: 0; background: none; padding: 0; }
   #t-cam { top: calc(10px + var(--st)); right: calc(212px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
   #t-flash { top: calc(10px + var(--st)); right: calc(312px + var(--sr)); width: 44px; height: 44px; font-size: 17px; }
@@ -341,6 +345,31 @@
     .is-touch #t-move { width: 50%; }
     .is-touch #t-look { width: 50%; }
   }
+  /* TERRANOVA 16 fase 11: tabbladen in het pauzemenu en toegankelijkheid */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 10px; border-bottom: 1px solid rgba(255,255,255,.15); padding-bottom: 6px; }
+  .tab { background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: .9em; cursor: pointer; }
+  .tab[aria-selected="true"] { background: #2f6fd6; border-color: #6ea0ff; color: #fff; }
+  .tab:focus-visible { outline: 3px solid #ffd54a; outline-offset: 2px; }
+  .tabpane[hidden] { display: none !important; }
+  body.a11y-big .btn, body.a11y-big .tab { min-height: 48px; padding: 10px 16px; font-size: 1.05em; }
+  body.a11y-big input[type=range] { height: 32px; }
+  body.a11y-big input[type=checkbox] { width: 22px; height: 22px; }
+  body.a11y-contrast .card, body.a11y-contrast .hud, body.a11y-contrast .ov .card { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+  body.a11y-contrast .btn, body.a11y-contrast .tab { background: #000 !important; color: #fff !important; border: 2px solid #fff !important; }
+  body.a11y-contrast .btn.primary, body.a11y-contrast .tab[aria-selected="true"] { background: #ffd54a !important; color: #000 !important; }
+  body.a11y-contrast .help, body.a11y-contrast .muted, body.a11y-contrast .small { color: #fff !important; opacity: 1 !important; }
+  body.a11y-calm *, body.a11y-calm *::before, body.a11y-calm *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  #captions { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; max-width: 90vw; }
+  #captions .cap { background: rgba(0,0,0,.78); color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 1.05em; text-align: center; }
+  .soc-bars { display: grid; gap: 3px; }
+  .soc-bar { display: grid; grid-template-columns: 130px 1fr 48px; align-items: center; gap: 6px; font-size: .9em; }
+  .soc-bar i { display: block; height: 12px; border-radius: 3px; min-width: 1px; }
+  .soc-bar b { text-align: right; }
+  .soc-list { margin: 0; padding-left: 16px; font-size: .9em; }
+  .soc-person { margin: 6px 0; padding: 6px 8px; background: rgba(255,255,255,.05); border-radius: 6px; font-size: .9em; }
+  .soc-day { position: relative; height: 12px; margin: 4px 0; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+  .soc-day i { position: absolute; top: 0; bottom: 0; }
+  .soc-day u { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
 </style>
 </head>
 <body>
@@ -505,6 +534,33 @@
     <div class="city-card">
       <div class="city-top">
         <div>
+          <div class="city-name">🌲 Wildernis <span class="badge-new">NIEUW</span></div>
+          <div class="small muted">Natuurwereld · 8 × 8 km · 12 biomen, rivieren, bergen, grotten en ertsen</div>
+        </div>
+        <button class="btn primary" id="btn-wild">▶ Spelen</button>
+      </div>
+      <canvas id="wild-map" width="128" height="128" title="Biomenkaart van de Wildernis" aria-label="Biomenkaart van de Wildernis" style="width:100%;max-width:320px;aspect-ratio:1;border-radius:8px;margin-top:8px;display:block;image-rendering:pixelated"></canvas>
+      <div class="row" style="margin-top:6px;align-items:center;gap:6px">
+        <label class="small" for="wild-seed">Zaadgetal</label>
+        <input id="wild-seed" type="number" min="0" max="999999999" step="1" value="1616" style="width:120px">
+        <button class="btn" id="btn-wild-random" type="button">🎲 Willekeurig</button>
+        <button class="btn" id="btn-wild-seed" type="button">▶ Deze wereld spelen</button>
+      </div>
+      <p class="help">Zee en stranden, rivieren, heuvels en bergketens met besneeuwde toppen. Woestijn, steppe, grasland, loofbos, naaldbos, moeras en toendra, elk met eigen bodem en planten. Onder de grond lagen steen met kolen, ijzer, goud en diamant, en slingerende grotten. Hetzelfde zaadgetal geeft altijd dezelfde wereld; elk zaadgetal is een aparte wereld met eigen opslag.</p>
+    </div>
+    <div class="city-card">
+      <div class="city-top">
+        <div>
+          <div class="city-name">🏗 Lege bouwwereld <span class="badge-new">NIEUW</span></div>
+          <div class="small muted">4 × 4 km vlak gras · zelf een wereld bouwen</div>
+        </div>
+        <button class="btn primary" id="btn-flat">▶ Bouwen</button>
+      </div>
+      <p class="help">Begin met een leeg, vlak terrein en bouw je eigen stad of landschap: in de bouwmodus (B) leg je <b>wegen</b> (N), <b>spoor</b> (G) en <b>voetpaden</b> (J) van hoek tot hoek aan, maak je terrein <b>vlak</b> (Shift+F), maak je <b>heuvels</b> (Shift+U) en plant je <b>bomen</b> (Shift+I). Alles wordt bewaard zoals in elke wereld.</p>
+    </div>
+    <div class="city-card">
+      <div class="city-top">
+        <div>
           <div class="city-name">Nova Metropool</div>
           <div class="small muted">Fantasiewereld · 25 × 30 km · wolkenkrabbers tot 800 m</div>
         </div>
@@ -562,7 +618,7 @@
       <kbd>E</kbd><span>alle blokken</span>
       <kbd>Esc</kbd><span>pauze & opslaan</span>
     </div>
-    <p class="help tn-version" id="app-version">TERRANOVA 15.0 (ontwikkelversie) · versie 2026-11-24a <span class="muted">(vroeger Blokstad)</span></p>
+    <p class="help tn-version" id="app-version">TERRANOVA 16.0 (ontwikkelversie) · versie 2026-11-25b <span class="muted">(vroeger Blokstad)</span></p>
     <p class="help">Alles wordt op dit toestel bewaard. Met “Bestand” sla je een stuk op als TERRANOVA-bestand (<code>.blokstad</code>, het bestandsformaat van Blokstad) om te delen of te back-uppen. Oude <code>.blokstad</code>- en <code>.blokstad-bouw</code>-bestanden blijven werken.</p>
   </aside>
 </div>
@@ -618,6 +674,12 @@
     <button class="btn" id="bb-floor" title="Vloer: alleen de onderste laag (F)">▭ vloer</button>
     <button class="btn" id="bb-room" title="Kamer: muren, vloer en plafond (U)">🏠 kamer</button>
     <button class="btn" id="bb-line" title="Rechte lijn van hoek 1 naar hoek 2 (I)">📏 lijn</button>
+    <button class="btn" id="bb-road" title="Weg van hoek 1 naar hoek 2: twee rijstroken, middenstreep, stoepen, lantaarns, helling en pijlers (N)">🛣 weg</button>
+    <button class="btn" id="bb-rail" title="Spoor van hoek 1 naar hoek 2: ballast, dwarsliggers, spoorstaven (G)">🛤 spoor</button>
+    <button class="btn" id="bb-path" title="Voetpad dat de grond volgt (J)">🥾 pad</button>
+    <button class="btn" id="bb-flat" title="Terrein vlak maken op de hoogte van de laagste hoek (Shift+F)">⛏ vlak</button>
+    <button class="btn" id="bb-hill" title="Ronde heuvel in de selectie, zo hoog als de selectie (Shift+U)">⛰ heuvel</button>
+    <button class="btn" id="bb-plant" title="Bomen en bloemen op het gras in de selectie (Shift+I)">🌳 planten</button>
     <button class="btn" id="bb-copy" title="Kopiëren (C)">📋</button>
     <button class="btn" id="bb-paste" title="Plakken waar je kijkt (V)">📌</button>
     <button class="btn" id="bb-rot" title="Draaien (R)">↻</button>
@@ -698,8 +760,9 @@
     <div class="card map-card">
       <h2>🧭 Reisplanner Megatower City</h2>
       <p class="help" style="margin-top:0">Metro M1 (Westpoort – Megatower – Luchthaven), trams T1–T4, de trein Megatower Centraal – Luchthaven en wandelen (ook om over te stappen), volgens de dienstregeling van het speluur (spits, daluren, avond, nacht). Bussen B1–B38 rijden op vaste lijnen langs de buslanen.</p>
-      <div class="row"><label>Van <select id="mp-from"></select></label><label>Naar <select id="mp-to"></select></label><label>Vertrek <select id="mp-hour"></select></label></div>
+      <div class="row"><label>Van <select id="mp-from"></select></label><label>Naar <select id="mp-to"></select></label><label>Vertrek <select id="mp-hour"></select></label><label>Voorkeur <select id="mp-pref"></select></label></div>
       <div id="mp-result" class="mp-result"></div>
+      <div id="mp-alts" class="small"></div>
       <div class="row"><button class="btn primary" id="mp-nav">🧭 Begeleid mij</button><button class="btn" id="mp-close">Terug naar het spel</button></div>
     </div>
   </div>
@@ -722,6 +785,41 @@
     </div>
   </div>
   <div id="perf-hud" hidden style="position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(16,20,28,.85);color:#9fe0ff;padding:6px 14px;border-radius:10px;font-size:14px;z-index:40"></div>
+  <div class="ov" id="ov-localplan" hidden>
+    <div class="card map-card">
+      <div class="row" style="align-items:center"><h2 style="margin:0">🧭 Reisplanner (in de buurt)</h2><span class="sp"></span><button class="btn" id="lp-close">✕</button></div>
+      <p class="help" style="margin-top:4px">Plant over het OV-net dat rond je geladen is: metro, trein, tram en bus, met lopen en overstappen. Zonder dienstregeling: de wachttijd is het gemiddelde interval.</p>
+      <label>Naar <select id="lp-to"></select></label>
+      <div class="row"><button class="btn primary" id="lp-go">Plannen</button></div>
+      <pre id="lp-out" class="small" style="white-space:pre-wrap;margin-top:8px"></pre>
+    </div>
+  </div>
+  <div class="ov" id="ov-society" hidden>
+    <div class="card map-card">
+      <div class="row" style="align-items:center"><h2 style="margin:0">👪 Bewoners</h2><span class="sp"></span>
+        <label class="small">Dag <select id="soc-dow"><option value="">werkdag (standaard)</option><option value="1">maandag</option><option value="2">dinsdag</option><option value="3">woensdag</option><option value="4">donderdag</option><option value="5">vrijdag</option><option value="6">zaterdag</option><option value="0">zondag</option></select></label>
+        <button class="btn" id="soc-close">✕</button></div>
+      <p class="help" style="margin-top:4px">Iedere bewoner heeft een woning, een werk- of schoolplek en een eigen dagritme (ook ploegendiensten, studenten en gepensioneerden; het weekend is anders). De reizigers op straat zijn bewoners die op dit moment echt onderweg zijn.</p>
+      <div id="soc-body"></div>
+    </div>
+  </div>
+  <div class="ov" id="ov-mp" hidden>
+    <div class="card map-card">
+      <h2>👥 Samen spelen (proef)</h2>
+      <p class="help" style="margin-top:0">Optioneel. Speel samen in de wereld die je nu open hebt, via een eigen TERRANOVA-server (map <code>server/</code>, zie docs/terranova-16.md). Zonder server werkt alles zoals altijd, offline en zonder account. Wie dezelfde wereld opent op dezelfde server, ziet elkaar, kan samen bouwen en chatten.</p>
+      <div class="row" style="gap:6px;flex-wrap:wrap">
+        <input id="sp-url" placeholder="ws://localhost:8787" style="min-width:200px">
+        <input id="sp-name" placeholder="Jouw naam" maxlength="16" style="width:130px">
+        <input id="sp-token" placeholder="Wachtwoord (als de server er een heeft)" type="password" style="width:200px">
+        <button class="btn primary" id="sp-connect">Verbinden</button><button class="btn" id="sp-leave" hidden>Stoppen</button>
+      </div>
+      <p class="small" id="sp-status">Niet verbonden.</p>
+      <div id="sp-players" class="small"></div>
+      <div id="sp-chat" class="small" style="max-height:22vh;overflow:auto;background:rgba(0,0,0,.18);border-radius:8px;padding:6px;margin:6px 0"></div>
+      <div class="row" style="gap:6px"><input id="sp-say" placeholder="Bericht…" maxlength="200" style="flex:1"><button class="btn" id="sp-send">Stuur</button><button class="btn" id="sp-share" title="Laat de anderen zien welk voertuig je bekijkt">👀 Deel voertuig</button></div>
+      <div class="row"><button class="btn" id="sp-close">Terug naar het spel</button></div>
+    </div>
+  </div>
   <div class="ov" id="ov-diag" hidden>
     <div class="card map-card">
       <h2>🩺 Diagnose</h2>
@@ -748,6 +846,16 @@
     <div class="card">
       <img src="assets/brand/terranova-logo.svg" alt="TERRANOVA" width="220" height="41" style="display:block;margin:0 0 6px">
       <h2>Pauze</h2>
+      <div class="tabs" role="tablist" id="pause-tabs" aria-label="Pauzemenu">
+        <button class="tab" role="tab" data-tab="spel" aria-selected="true">🎮 Spel</button>
+        <button class="tab" role="tab" data-tab="personage" aria-selected="false">🧍 Personage</button>
+        <button class="tab" role="tab" data-tab="beeld" aria-selected="false">🖥 Beeld</button>
+        <button class="tab" role="tab" data-tab="wereld" aria-selected="false">🌦 Tijd &amp; weer</button>
+        <button class="tab" role="tab" data-tab="geluid" aria-selected="false">🔊 Geluid</button>
+        <button class="tab" role="tab" data-tab="besturing" aria-selected="false">🎛 Besturing</button>
+        <button class="tab" role="tab" data-tab="toegankelijk" aria-selected="false">♿ Toegankelijkheid</button>
+      </div>
+      <section class="tabpane" data-pane="spel">
       <div class="row">
         <button class="btn primary" id="btn-resume">Verder spelen</button>
         <button class="btn" id="btn-save">Opslaan</button>
@@ -759,8 +867,12 @@
         <button class="btn" id="btn-vc" hidden>💰 ViridCoin &amp; Zenvo</button>
         <button class="btn" id="btn-diag">🩺 Diagnose</button>
         <button class="btn" id="btn-ovdiag">🛠 OV-diagnose</button>
+        <button class="btn" id="btn-mp" title="Optioneel: samen met anderen in dezelfde wereld (proef, eigen server nodig)">👥 Samen spelen (proef)</button>
+        <button class="btn" id="btn-memdiag" title="Wat houdt de game nu in het geheugen vast, en wat lijkt ongebruikt?">🧠 Geheugen</button>
         <button class="btn" id="btn-megaplan" hidden>🧭 Reisplanner</button>
         <button class="btn" id="btn-ovmap" hidden>🗺 Live OV-kaart</button>
+        <button class="btn" id="btn-localplan" hidden title="Reisplanner over het geladen OV-net rond jou (metro, trein, tram, bus, lopen)">🧭 Reisplanner (in de buurt)</button>
+        <button class="btn" id="btn-society" hidden title="Wie woont hier, wat doen ze vandaag, wie is er onderweg?">👪 Bewoners</button>
         <button class="btn" id="btn-career">📋 Carrière</button>
       </div>
       <label>Opdrachten</label>
@@ -770,6 +882,8 @@
         <label>Snel naar</label>
         <div id="tp-list" class="tp-list"></div>
       </div>
+      </section>
+      <section class="tabpane" data-pane="personage" hidden>
       <label>Personage &amp; camera</label>
       <div class="look">
         <label class="mini">Camera <select id="set-cam"><option value="first">Eerste persoon</option><option value="third">Derde persoon (achter)</option><option value="front">Van voren</option></select></label>
@@ -778,18 +892,22 @@
         <label class="mini">Huid <input type="color" id="look-skin"></label>
         <label class="mini">Haar <input type="color" id="look-hair"></label>
         <label class="mini">Schoenen <input type="color" id="look-shoes"></label>
-        <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option></select></label>
+        <label class="mini">Hoofd <select id="look-hat"><option value="none">niets</option><option value="cap">pet</option><option value="beanie">muts</option><option value="helm" disabled>bouwhelm (winkel)</option><option value="ovpet" disabled>OV-pet (winkel)</option><option value="tophoed" disabled>hoge hoed (winkel)</option></select></label>
         <label class="check mini"><input type="checkbox" id="look-backpack"> Rugzak</label>
       </div>
+      </section>
+      <section class="tabpane" data-pane="beeld" hidden>
       <label>Kijkafstand: <span id="set-view-label"></span>
         <input type="range" id="set-view" min="48" max="320" step="16"></label>
       <label>Grafisch profiel
         <select id="set-profile">
           <option value="">Eigen instellingen</option>
+          <option value="batterij">Batterijbesparing (30 FPS, minder stroom)</option>
           <option value="laag">Laag (oudere telefoons)</option>
           <option value="gemiddeld">Gemiddeld</option>
           <option value="hoog">Hoog</option>
           <option value="ultra">Ultra (krachtige computer)</option>
+          <option value="adaptief">Adaptief (past zich aan op gemeten frametijden)</option>
         </select></label>
       <label>Beeldkwaliteit
         <select id="set-quality">
@@ -799,18 +917,30 @@
           <option value="ultra">Ultra (schaduwen 4096, scherpst)</option>
         </select></label>
       <label class="check"><input type="checkbox" id="set-shadows"> Zonneschaduwen</label>
-      <label class="check"><input type="checkbox" id="set-ambient"> Omgevingsgeluid (stad, wind, regen, galm in tunnels)</label>
       <label class="check"><input type="checkbox" id="set-fps"> FPS-meter tonen (F3): beelden per seconde, driehoeken, geheugen, laadtijd</label>
       <label class="check"><input type="checkbox" id="set-auto"> Kwaliteit automatisch aanpassen (vloeiend blijven)</label>
       <label>Verre gebouwen tot: <span id="set-lod-label"></span>
         <input type="range" id="set-lod" min="400" max="4000" step="100"></label>
-      <label>Tijd van de dag: <span id="set-hour-label"></span>
-        <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
-      <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
-      <label>Weer
-        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>
       <label>Zichtveld (ook voor de fotomodus): <span id="set-fov-label"></span>
         <input type="range" id="set-fov" min="40" max="100" step="1"></label>
+      </section>
+      <section class="tabpane" data-pane="wereld" hidden>
+      <label>Tijd van de dag: <span id="set-hour-label"></span>
+        <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
+      <label class="check"><input type="checkbox" id="set-bewoners"> Bewoners met een dagritme (Megatower City: wie op straat loopt, is echt onderweg)</label>
+      <label class="check"><input type="checkbox" id="set-cycle"> Dag en nacht laten verlopen (1 uur per 30 s)</label>
+      <label>Weer
+        <select id="set-weather"><option value="clear">Zonnig</option><option value="cloudy">Bewolkt</option><option value="rain">Regen (natte wegen)</option><option value="storm">Onweer en stortregen</option><option value="snow">Sneeuw (blijft liggen)</option><option value="mist">Mist (zicht ± 120 m)</option><option value="wind">Harde wind</option><option value="auto">Wisselend</option><option value="gnmi">Echt weer per regio (GNMI, Greenisland)</option></select></label>
+      </section>
+      <section class="tabpane" data-pane="geluid" hidden>
+      <label class="check"><input type="checkbox" id="set-ambient"> Geluid van de omgeving (stad, wind, regen, donder, vogels, voetstappen, gong aan de halte)</label>
+      <div class="mixer" id="mixer"><span class="small">Geluid:</span>
+        <label class="mini">Alles <input type="range" id="mix-master" min="0" max="100" step="5" aria-label="Hoofdvolume"></label>
+        <label class="mini">Omgeving <input type="range" id="mix-omgeving" min="0" max="100" step="5" aria-label="Volume omgeving"></label>
+        <label class="mini">Voertuigen <input type="range" id="mix-voertuigen" min="0" max="100" step="5" aria-label="Volume voertuigen"></label>
+        <label class="mini">Effecten <input type="range" id="mix-effecten" min="0" max="100" step="5" aria-label="Volume effecten"></label></div>
+      </section>
+      <section class="tabpane" data-pane="besturing" hidden>
       <label>Gevoeligheid
         <input type="range" id="set-sens" min="0.3" max="2.5" step="0.1"></label>
       <div class="keys desk-only">
@@ -827,6 +957,24 @@
         <kbd>M</kbd><span>kaart: klik om erheen te vliegen</span>
         <kbd>P</kbd><span>fotomodus (Enter = foto opslaan)</span>
       </div>
+      </section>
+      <section class="tabpane" data-pane="toegankelijk" hidden>
+      <label>Tekstgrootte: <span id="set-uiscale-label"></span>
+        <input type="range" id="set-uiscale" min="85" max="150" step="5" aria-describedby="set-uiscale-label"></label>
+      <label class="check"><input type="checkbox" id="set-bigbtn"> Grote knoppen (makkelijker aanraken)</label>
+      <label class="check"><input type="checkbox" id="set-contrast"> Hoog contrast (donkere panelen, witte tekst, duidelijke randen)</label>
+      <label class="check"><input type="checkbox" id="set-motion"> Minder beweging (geen bliksemflitsen, geen animaties en overgangen in menu's)</label>
+      <label class="check"><input type="checkbox" id="set-captions"> Geluiden als tekst tonen (gong, donder, omroep)</label>
+      <label>Kleuren aanpassen
+        <select id="set-colorfilter">
+          <option value="">Geen</option>
+          <option value="protan">Rood-zwak (protanopie)</option>
+          <option value="deutan">Groen-zwak (deuteranopie)</option>
+          <option value="tritan">Blauw-zwak (tritanopie)</option>
+          <option value="grey">Grijstinten</option>
+        </select></label>
+      <p class="help">Alles wordt meteen toegepast en bewaard op dit toestel.</p>
+      </section>
       <p class="help">Je zit in een gedownload stuk stad. Aan de rand staat een onzichtbare muur — download het stuk ernaast om verder te verkennen.</p>
     </div>
   </div>
@@ -863,6 +1011,6 @@
       <div id="gi-results" class="tp-list" style="margin-top:6px"></div>
     </div>
   </div>
-<script type="module" src="./js/app.js?v=2026-11-24a"></script>
+<script type="module" src="./js/app.js?v=2026-11-25b"></script>
 </body>
 </html>

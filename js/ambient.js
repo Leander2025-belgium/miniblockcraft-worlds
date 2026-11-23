@@ -4,7 +4,7 @@
 // - regen: fijne hoge ruis bij regen en onweer (niet ondergronds of binnen);
 // - ondergronds of in een tunnel: alles gedempt, een lage galm.
 // Start pas na een eerste toets of tik (de browser laat geluid niet eerder toe). Uit te zetten in de instellingen.
-import { audioCtx } from './sound.js';
+import { audioCtx, bus } from './sound.js';
 
 let buf = null;
 function noise(a) {
@@ -28,7 +28,7 @@ export class Ambient {
     const a = audioCtx(); if (!a) return false;
     try {
       if (a.state === 'suspended') a.resume();
-      this.out = a.createGain(); this.out.gain.value = 0.8; this.out.connect(a.destination);
+      this.out = a.createGain(); this.out.gain.value = 0.8; this.out.connect(bus('omgeving'));
       this.city = layer(a, this.out, 'lowpass', 380, 0.7);
       this.wind = layer(a, this.out, 'bandpass', 500, 0.6);
       this.rain = layer(a, this.out, 'highpass', 3500, 0.5);

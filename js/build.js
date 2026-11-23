@@ -9,12 +9,14 @@
 import * as THREE from 'three';
 import { cacheGet, cachePut, cacheDelete } from './storage.js';
 import { BLOCKS } from './blocks.js';
+import * as WT from './worldtools.js';
 
 const MAXVOL = 220000; // max. blokken per bewerking (vlot op telefoons)
 const SLICE = 20000;    // blokken per frame bij grote bewerkingen (in stukjes, js/build.js update)
 const GHOST_MAX = 6000; // blokken in de voorvertoning van het plakken
 const BP_INDEX = 'blokstad-blueprints';
 
+const UNDO_MAX = 2_000_000; // blokken in de hele ongedaan-maak-geschiedenis (±40 MB)
 export class Builder {
   constructor(game) {
     this.g = game; this.on = false;
@@ -40,7 +42,8 @@ export class Builder {
     const w = this.g.world, from = w.get(x, y, z);
     if (from === b) return false;
     if (!w.set(x, y, z, b)) return false;
-    if (this.g.career) { if (b) this.g.career.onPlace(x, y, z); else this.g.career.onBreak(x, y, z); } // carrière: wat de speler zelf bouwt (js/career.js)
+    if (this.g.career) { if (b) this.g.career.onPlace(x, y, z); else this.g.career.onBreak(x, y, z); }
+    this.g.mp?.localEdit(x, y, z, b); // samen spelen: de server bevestigt en stuurt het naar de anderen // carrière: wat de speler zelf bouwt (js/career.js)
     if (this.cur) {
       const k = x + ',' + y + ',' + z, e = this.cur.get(k);
       if (e) e[4] = b; else this.cur.set(k, [x, y, z, from, b]);
@@ -50,26 +53,32 @@ export class Builder {
   commit() {
     if (this.depth) { this.depth--; return; }
     const c = this.cur; this.cur = null;
-    const list = c ? [...c.values()].filter(e => e[3] !== e[4]) : [];
-    if (!list.length) return;
+    // TERRANOVA 16: compact bewaren (5 gehele getallen per blok in één Int32Array i.p.v. een los array per blok:
+    // ±20 i.p.v. ±100 bytes per blok) en de hele geschiedenis begrensd op UNDO_MAX blokken, niet alleen op 120 stappen
+    let n = 0; if (c) for (const e of c.values()) if (e[3] !== e[4]) n++;
+    if (!n) return;
+    const list = new Int32Array(n * 5); let i = 0;
+    for (const e of c.values()) if (e[3] !== e[4]) { list[i] = e[0]; list[i + 1] = e[1]; list[i + 2] = e[2]; list[i + 3] = e[3]; list[i + 4] = e[4]; i += 5; }
     this.undoStack.push(list);
-    if (this.undoStack.length > 120) this.undoStack.shift();
+    let tot = 0; for (const l of this.undoStack) tot += l.length / 5;
+    while (this.undoStack.length > 1 && (this.undoStack.length > 120 || tot > UNDO_MAX)) tot -= this.undoStack.shift().length / 5;
     this.redoStack.length = 0;
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
   apply(list, useTo) {
     let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9;
-    for (const [x, y, z, from, to] of list) {
-      this.g.world.set(x, y, z, useTo ? to : from);
+    for (let i = 0; i < list.length; i += 5) {
+      const x = list[i], y = list[i + 1], z = list[i + 2];
+      this.g.world.set(x, y, z, list[i + (useTo ? 4 : 3)]);
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
     }
     this.g.editY = [y0, y1];
-    this.remesh(x0, z0, x1, z1, list.length > 4000);
+    this.remesh(x0, z0, x1, z1, list.length / 5 > 4000);
     this.g.editY = null;
     this.g.dirty = true; this.g.lastEditAt = performance.now();
   }
-  undo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length} blokken)`); }
-  redo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length} blokken)`); }
+  undo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.undoStack.pop(); if (!l) return this.g.toast('Niets om ongedaan te maken'); this.apply(l, false); this.redoStack.push(l); this.g.toast(`↶ Ongedaan gemaakt (${l.length / 5} blokken)`); }
+  redo() { if (this.job) return this.g.toast('Even geduld: de bewerking is nog bezig'); const l = this.redoStack.pop(); if (!l) return this.g.toast('Niets om opnieuw te doen'); this.apply(l, true); this.undoStack.push(l); this.g.toast(`↷ Opnieuw (${l.length / 5} blokken)`); }
   remesh(x0, z0, x1, z1, queued = false) {
     const done = new Set(), hadY = this.g.editY;
     if (!hadY) this.g.editY = [0, 4000]; // onbekende hoogte: in een toren alle gevelsecties bijwerken
@@ -160,6 +169,26 @@ export class Builder {
     function* cells() { for (let i = 0; i <= n; i++) yield [Math.round(a[0] + (b[0] - a[0]) * i / n), Math.round(a[1] + (b[1] - a[1]) * i / n), Math.round(a[2] + (b[2] - a[2]) * i / n)]; }
     const lo = [Math.min(a[0], b[0]), 0, Math.min(a[2], b[2])], hi = [Math.max(a[0], b[0]), 0, Math.max(a[2], b[2])];
     this.run(cells(), blk, n + 1, [lo, hi], (k) => this.g.toast(`📏 Lijn: ${k} blokken ${BLOCKS[blk].name}`));
+  }
+  // ── wereldbouwer (TERRANOVA 16 fase 8, js/worldtools.js): weg, spoor, voetpad, terrein vlak maken, heuvel, beplanten ──
+  world(kind) {
+    if (this.job) return this.g.toast('Even geduld: de vorige bewerking is nog bezig');
+    if (!this.a || !this.b) return this.g.toast('Kies eerst twee hoeken (① en ②)');
+    const get = (x, y, z) => this.g.world.get(x, y, z), a = this.a, b = this.b;
+    const lo = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])], hi = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
+    const surfaceY = (x, z, y) => { for (let k = 8; k >= -8; k--) { const v = get(x, y + k, z); if (v && !get(x, y + k + 1, z)) return y + k; } return y; };
+    let cells, label;
+    if (kind === 'road') { cells = WT.roadCells(a, b, get); label = '🛣 Weg aangelegd'; }
+    else if (kind === 'rail') { cells = WT.railCells(a, b, get); label = '🛤 Spoor gelegd'; }
+    else if (kind === 'path') { cells = WT.pathCells(a, b, get, surfaceY); label = '🥾 Voetpad gelegd'; }
+    else if (kind === 'flat') { cells = [...WT.flattenCells(lo, hi, get)]; label = '⛏ Terrein vlak gemaakt'; }
+    else if (kind === 'hill') { cells = [...WT.hillCells(lo, hi)]; label = '⛰ Heuvel gemaakt'; }
+    else if (kind === 'plant') { cells = WT.plantCells(lo, hi, get, this.undoStack.length + 1); label = '🌳 Beplant'; }
+    else return;
+    if (cells.length > MAXVOL * 2) return this.g.toast(`Te groot (${cells.length.toLocaleString('nl-BE')} blokken): kies een kleiner stuk`);
+    const pad = kind === 'road' ? 6 : kind === 'rail' ? 4 : 2, box = [[lo[0] - pad, lo[1], lo[2] - pad], [hi[0] + pad, hi[1], hi[2] + pad]];
+    this.lastWorld = { kind, cellen: cells.length };
+    this.run(cells[Symbol.iterator](), null, cells.length, box, (n) => this.g.toast(`${label}: ${n} blokken`));
   }
   // spiegelen van wat je gekopieerd hebt: links-rechts (x) of voor-achter (z)
   mirror(axis = 'x') {
@@ -276,6 +305,12 @@ export class Builder {
     if (c === 'KeyO') { this.saveBlueprint(); return true; }
     if (c === 'KeyL') { this.showList(); return true; }
     if (c === 'KeyX') { this.a = this.b = null; this.showSel(); this.g.toast('Selectie gewist'); return true; }
+    if (c === 'KeyF' && e.shiftKey) { this.world('flat'); return true; }
+    if (c === 'KeyU' && e.shiftKey) { this.world('hill'); return true; }
+    if (c === 'KeyI' && e.shiftKey) { this.world('plant'); return true; }
+    if (c === 'KeyN') { this.world('road'); return true; }
+    if (c === 'KeyG') { this.world('rail'); return true; }
+    if (c === 'KeyJ') { this.world('path'); return true; }
     if (c === 'KeyF') { this.floor(); return true; }
     if (c === 'KeyU') { this.room(); return true; }
     if (c === 'KeyI') { this.line(); return true; }
@@ -325,6 +360,7 @@ export class Builder {
     on('bb-copy', () => this.copy()); on('bb-paste', () => this.paste()); on('bb-rot', () => this.rotate());
     on('bb-floor', () => this.floor()); on('bb-room', () => this.room()); on('bb-line', () => this.line()); on('bb-mirror', () => this.mirror('x'));
     on('bb-save', () => this.saveBlueprint()); on('bb-list', () => this.showList());
+    for (const k of ['road', 'rail', 'path', 'flat', 'hill', 'plant']) on('bb-' + k, () => this.world(k));
     on('bb-undo', () => this.undo()); on('bb-redo', () => this.redo()); on('bb-exit', () => this.toggle(false));
     on('bp-close', () => document.getElementById('bp-list')?.setAttribute('hidden', ''));
   }

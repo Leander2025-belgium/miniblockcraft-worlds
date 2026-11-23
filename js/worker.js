@@ -11,9 +11,11 @@ import { META as BERG } from './alpen-meta.js';
 // de Reuzenberg ligt nu in het midden van de Alpenwereld (50 × 50 km); oude tegels worden met de oude code gemaakt.
 // Het landschap wordt pas geladen als er een tegel van die wereld gevraagd wordt.
 import { META as GREEN } from './greenisland-meta.js';
-const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile), [GREEN.id]: () => import('./greenisland.js').then(m => m.generateTile), megatower: () => import('./megacity.js').then(m => m.generateTile) };
+const GENERATORS = { [BERG.id]: () => import('./alpen.js').then(m => m.generateTile), [GREEN.id]: () => import('./greenisland.js').then(m => m.generateTile), bouwwereld: () => import('./flatworld.js').then(m => m.generateTile), megatower: () => import('./megacity.js').then(m => m.generateTile) };
 const genCache = new Map();
-function generatorFor(id) { if (!GENERATORS[id]) return Promise.resolve(generateTile); let p = genCache.get(id); if (!p) genCache.set(id, p = GENERATORS[id]()); return p; }
+// TERRANOVA 16: Wildernis met zaadgetal in het ID ('wildernis' of 'wildernis-<getal>')
+function wildFor(id) { return import('./wildernis.js').then(m => { const seed = m.seedFromId(id); return (tx, tz) => m.generateTile(tx, tz, seed); }); }
+function generatorFor(id) { if (/^wildernis(-\d+)?$/.test(String(id)) && !GENERATORS[id]) GENERATORS[id] = () => wildFor(id); if (!GENERATORS[id]) return Promise.resolve(generateTile); let p = genCache.get(id); if (!p) genCache.set(id, p = GENERATORS[id]()); return p; }
 // verre blokken: hoogtes in absolute meters (tegels in de bergen beginnen hoger)
 function lodFor(vox, T, H, y0) { const l = computeLod(vox, T, H); if (y0) for (let i = 0; i < l.h.length; i++) { l.h[i] += y0; l.g[i] += y0; } return l; }
 

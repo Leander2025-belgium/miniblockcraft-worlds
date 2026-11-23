@@ -44,7 +44,7 @@ export function openOvMap(game) {
     for (const a of real) {
       const h = game.traffic.behind(a, 0, {});
       const T = a.trip, nx = game.traffic.nextStop?.(a);
-      S.items.push({ type: 'veh', real: true, x: h.x, z: h.z, kmh: Math.round((a.v || 0) * 3.6), kind: a.kind, line: a.line || (a.kind === 'bus' ? 'bus' : a.kind), color: a.kind === 'metro' ? '#2f6db5' : a.kind === 'tram' ? '#e67e22' : a.kind === 'bus' ? '#27ae60' : '#f1c40f', trip: T ? { id: T.id, occ: T.occ, cap: T.cap, dest: T.dest, delay: T.delay } : null, next: nx?.name || null, at: a.wait > 0 ? a.atStop : null });
+      S.items.push({ type: 'veh', real: true, x: h.x, z: h.z, kmh: Math.round((a.v || 0) * 3.6), kind: a.kind, line: a.line || (a.kind === 'bus' ? 'bus' : a.kind), color: a.kind === 'metro' ? '#2f6db5' : a.kind === 'tram' ? '#e67e22' : a.kind === 'bus' ? '#27ae60' : '#f1c40f', trip: T ? { id: T.id, occ: T.occ, cap: T.cap, dest: T.dest, delay: T.delay, measured: T.measured || 0 } : null, next: nx?.name || null, at: a.wait > 0 ? a.atStop : null });
     }
     for (const v of scheduled(hourNow())) {
       if (Math.hypot(v.x - p.x, v.z - p.z) < NEAR) continue; // daar rijden de echte voertuigen
@@ -60,6 +60,8 @@ export function openOvMap(game) {
     const nReal = S.items.filter(i => i.type === 'veh' && i.real).length, nSch = S.items.filter(i => i.type === 'veh' && !i.real).length;
     document.getElementById('ovmap-count').textContent = `${fmtTime(hourNow() * 3600)} · ${nReal} voertuigen in beeld (echt, met rit en bezetting) · ${nSch} volgens dienstregeling`;
   };
+  // vertraging zoals gemeten in js/traffic.js (measureDelay); zonder meting: niet beschikbaar
+  const delayTxt = (t) => !t.measured ? ' · vertraging: nog niet beschikbaar (eerst één halte-tot-halte meten)' : Math.abs(t.delay) < 60 ? ` · op tijd (${t.delay >= 0 ? '+' : ''}${t.delay} s, gemeten over ${t.measured} haltes)` : t.delay > 0 ? ` · ${Math.round(t.delay / 60)} min te laat (gemeten)` : ` · ${Math.round(-t.delay / 60)} min te vroeg (gemeten)`;
   const showInfo = () => {
     const s = S.sel;
     if (!s) { info.innerHTML = '<span class="muted">Klik op een voertuig of een halte.</span>'; return; }
@@ -68,7 +70,7 @@ export function openOvMap(game) {
       // het gekozen voertuig is intussen uit dienst genomen of buiten beeld gereden: geen oude rit en bezetting meer tonen
       if (v.gone) { info.innerHTML = `<b>${KIND_ICON[v.kind || v.mode] || ''} ${esc(v.line)}</b><br><span class="small">Niet meer in beeld: uit dienst genomen of buiten beeld gereden${v.trip ? ` (rit ${esc(v.trip.id)})` : ''}.</span>`; return; }
       info.innerHTML = `<b>${KIND_ICON[v.kind || v.mode] || ''} ${esc(v.line)}</b>${v.dir ? ' richting ' + esc(v.dir) : v.trip?.dest ? ' → ' + esc(v.trip.dest) : ''}<br>` +
-        (v.real ? `<span class="small">In beeld (echt voertuig) · ${v.kmh ?? 0} km/u${v.trip ? ` · rit ${esc(v.trip.id)} · bezetting ${v.trip.occ}/${v.trip.cap}${v.trip.delay ? ` · +${Math.round(v.trip.delay / 60)} min` : ' · vertraging niet gemeten'}` : ''}${v.at ? ` · staat aan ${esc(v.at)}` : v.next ? ` · volgende halte ${esc(v.next)}` : ''}</span>`
+        (v.real ? `<span class="small">In beeld (echt voertuig) · ${v.kmh ?? 0} km/u${v.trip ? ` · rit ${esc(v.trip.id)} · bezetting ${v.trip.occ}/${v.trip.cap}${delayTxt(v.trip)}` : ''}${v.at ? ` · staat aan ${esc(v.at)}` : v.next ? ` · volgende halte ${esc(v.next)}` : ''}</span>`
           : `<span class="small">Volgens dienstregeling · rit ${esc(v.id)} · volgende halte ${esc(v.next)} om ${fmtTime(v.nextT)}</span>`);
       return;
     }

@@ -43,6 +43,7 @@ De naam is veranderd, maar de technische namen van Blokstad blijven bewust dezel
 - **Volledige back-up**: in het menu *🛟 Volledige back-up maken* (`.terranova-backup`); terugzetten via *Bestand importeren…*.
 - **Documentatie**:
   - [`docs/terranova-14.md`](docs/terranova-14.md): TERRANOVA 14.0 (graphics, prestaties, reizigers, wissels; met meetresultaten en wat nog niet af is).
+  - [`docs/terranova-16.md`](docs/terranova-16.md): TERRANOVA 16.0 (ontwikkelversie): adaptieve kwaliteit en profielen, geheugendiagnose, weer (sneeuwdek, mist, wind, grip), gemeten vertraging, planner met voorkeuren, economie met rijbewijzen en uitdagingen, multiplayerprototype (`server/`); met wat niet gebouwd is. Zie ook [`CHANGELOG.md`](CHANGELOG.md).
   - [`docs/terranova-15.md`](docs/terranova-15.md): TERRANOVA 15.0 (ontwikkelversie): reizen van deur tot deur, wijken, depots, routebegeleiding, carrière, bouwmodus, crashherstel; met wat gedeeltelijk of niet gebouwd is.
   - [`docs/ov.md`](docs/ov.md): openbaar vervoer, tunnels, stations, voertuigen.
   - [`docs/audit-13.md`](docs/audit-13.md): technische audit.

@@ -1,0 +1,29 @@
+# TERRANOVA multiplayer (prototype) — los van alle andere diensten op de server.
+# Eigen projectnaam, eigen netwerk, eigen volume; standaard alleen bereikbaar op 127.0.0.1 (zet er een reverse
+# proxy met TLS voor, dan wss://). Controleer eerst welke poorten al in gebruik zijn: `ss -tlnp` en kies
+# TERRANOVA_MP_PORT zo dat er niets botst.
+#   docker compose -f docker-compose.multiplayer.yml up -d --build
+name: terranova-multiplayer
+services:
+  mp:
+    build: .
+    restart: unless-stopped
+    environment:
+      MP_TOKEN: ${TERRANOVA_MP_TOKEN:-}          # gedeeld toegangswachtwoord (leeg = iedereen met het adres)
+      MP_ORIGINS: ${TERRANOVA_MP_ORIGINS:-}      # bv. https://leander2025-belgium.github.io
+      MP_MAX: ${TERRANOVA_MP_MAX:-16}
+    ports:
+      - "${TERRANOVA_MP_BIND:-127.0.0.1}:${TERRANOVA_MP_PORT:-8787}:8787"
+    volumes:
+      - terranova-mp-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.5" }
+    networks: [terranova-mp]
+volumes:
+  terranova-mp-data:
+networks:
+  terranova-mp:
