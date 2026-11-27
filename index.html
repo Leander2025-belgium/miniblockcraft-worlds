@@ -925,6 +925,13 @@
         <input type="range" id="set-fov" min="40" max="100" step="1"></label>
       </section>
       <section class="tabpane" data-pane="wereld" hidden>
+      <div id="mig-box" class="small" hidden style="border:1px solid #556;padding:6px;margin:4px 0">
+        <b>Megatower City 16.1 — jouw bouwwerken</b><br>
+        Stukken stad die je vóór de vernieuwing bewerkte, blijven zoals ze waren (oude gebouwen). Je kan ze per stuk vernieuwen:
+        jouw eigen blokken blijven staan, de rest wordt de nieuwe stad. Eerst wordt altijd een back-up gemaakt.
+        <div><button id="mig-scan">Bewerkte stukken zoeken</button></div>
+        <div id="mig-list"></div>
+      </div>
       <label>Tijd van de dag: <span id="set-hour-label"></span>
         <input type="range" id="set-hour" min="0" max="23.9" step="0.1"></label>
       <label class="check"><input type="checkbox" id="set-bewoners"> Bewoners met een dagritme (Megatower City: wie op straat loopt, is echt onderweg)</label>

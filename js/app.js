@@ -367,8 +367,12 @@ async function playMap(id, at) {
     map.version = CITY.version;
     map.baked = await bakedBase(map);
   }
+  // basisversie van elk bewerkt stuk (TERRANOVA 16.1): op welke versie van de generator steunen de blokken? Een stuk
+  // dat vóór 16.1 bewerkt werd (geen v) blijft op versie 6 staan, ook als je er nu verder aan bouwt (zie js/migrate161.js)
+  const baseV = new Map();
   const provider = (tx, tz) => new Promise((resolve, reject) => {
     store.cacheGet(mapKeys.edit(map, tx, tz)).then(async (ed) => {
+      baseV.set(tx + ',' + tz, ed && ed.rle ? (ed.v ?? (map.id === 'megatower' ? 6 : map.version)) : map.version);
       let mine = null;
       // eigen bouwwerken: controleren voor gebruik (lengte en, sinds 15.0, controlegetal); beschadigd = apart bewaren
       // (niet weggooien) en de vorige versie van dit stuk terugzetten, of anders het gewone landschap tonen
@@ -404,7 +408,7 @@ async function playMap(id, at) {
   const saveTile = async (tx, tz, vox, H, y0, edge) => {
     const k = mapKeys.edit(map, tx, tz), rle = store.rleEncode(vox), old = await store.cacheGet(k).catch(() => null);
     if (old && old.rle && store.rleLength(old.rle) === T * T * old.H && (old.crc === undefined || store.fnv(old.rle) === old.crc)) await store.cachePut(k + store.PREV, old).catch(() => {});
-    return store.cachePut(k, { rle, H, y0: y0 || 0, edge: edge || null, crc: store.fnv(rle), saved: Date.now() });
+    return store.cachePut(k, { rle, H, y0: y0 || 0, edge: edge || null, crc: store.fnv(rle), saved: Date.now(), v: baseV.get(tx + ',' + tz) ?? map.version });
   };
   const isCity = map.id === CITY.id, isMetro = map.kind === 'proc', PR = PROC[map.id] || PROC[METRO.id];
   $('#menu').hidden = true;
@@ -429,6 +433,20 @@ async function playMap(id, at) {
   if (at) { spawn = { x: at.x, y: (isMetro && PR.groundAt ? PR.groundAt(at.x, at.z) + 40 : map.ground + 90 + (isBE ? 80 : 0)), z: at.z, yaw: 0, pitch: -0.15, fly: true }; delete meta.player; }
   rememberLast('map', id, meta.name);
   const interiorFor = map.id === MEGA.id ? (tx, tz) => (tx === TOWER_TX && tz === TOWER_TZ ? { x0: 16, z0: 16, x1: 112, z1: 112, fill: towerShell, inside: towerInside } : null) : null;
+  // TERRANOVA 16.1: bewerkte stukken van Megatower City (vóór de vernieuwing) desgewenst vernieuwen, met back-up
+  { const box = $('#mig-box'); if (box) { box.hidden = map.id !== 'megatower'; const list = $('#mig-list'), btn = $('#mig-scan');
+    if (btn && !btn.dataset.bound) { btn.dataset.bound = '1'; btn.addEventListener('click', async () => {
+      const M = await import('./migrate161.js'); list.textContent = 'Zoeken…';
+      const rows = await M.scan('megatower', (i, n) => { list.textContent = `Zoeken… ${i}/${n}`; });
+      if (!rows.length) { list.textContent = 'Je hebt in Megatower City nog niets gebouwd: er is niets te doen.'; return; }
+      list.innerHTML = rows.map(r => `<div>Stuk ${r.tx},${r.tz} · ${r.v >= 7 ? 'al nieuw' : r.veranderd ? 'oude versie (stad hier vernieuwd)' : 'oude versie (stad hier niet veranderd)'}
+        ${r.v < 7 && r.veranderd ? `<button data-mig="${r.tx},${r.tz}">Vernieuwen</button>` : ''}${r.backup ? ` <button data-res="${r.tx},${r.tz}">Back-up terugzetten</button>` : ''}</div>`).join('');
+      list.querySelectorAll('[data-mig],[data-res]').forEach(el => el.addEventListener('click', async () => {
+        const [tx, tz] = (el.dataset.mig || el.dataset.res).split(',').map(Number);
+        const r = el.dataset.mig ? await M.migrate('megatower', tx, tz) : await M.restore('megatower', tx, tz);
+        el.replaceWith(document.createTextNode(r.ok ? (el.dataset.mig ? ` vernieuwd (${r.eigenBlokken} eigen blokken behouden, back-up bewaard) — open de wereld opnieuw` : ' teruggezet — open de wereld opnieuw') : ' niet gelukt: ' + r.waarom));
+      }));
+    }); } } }
   game.loadTiled(meta, { ...map, spawn, prefetchArea, requestLods, interiorFor, zoneName: isMetro ? PR.zoneName : null, groundAt: isMetro ? PR.groundAt : null }, provider, saveTile);
   game.start();
 }
