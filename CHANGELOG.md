@@ -1,5 +1,23 @@
 # Changelog
 
+## TERRANOVA 16.1 (ontwikkelversie) · 2026-11-27a — branch `terranova-16.1`
+
+Megatower City: Ultimate Metropolis Revolution. Details, metingen en grenzen: [`docs/terranova-megatower-revolution.md`](docs/terranova-megatower-revolution.md).
+
+### Nieuw
+- 🏙 **The Megatower** (nog altijd exact 1.000 m): gelede vliesgevel met pijlers en twee glassoorten, ribben met
+  ledlijnen, lichtbanden bij elke sectie-overgang, negen sky gardens, portaal en glazen luifel bij de hoofdingang,
+  verlichte kroon; 's nachts een lichtgolf en kamerverlichting die het uur volgt; eigen gevel van ver.
+- 🚉 **Megatower Grand Central**: 22 perronsporen (11 eilandperrons), stationshal (+1) met 38 winkels en horecazaken,
+  tramstation (-1, 10 sporen), metrostation (-2, 6 sporen), hyperloopterminal; treindienstleiding met vrije
+  spoortoewijzing en vergrendelde wisselstraten.
+- 🚊 **Tram T5** (onder Grand Central door), 🚇 **metro M2** (noord–zuid, 8 stations), 🚄 **hyperloop** Grand
+  Central – Luchthaven (fictief toekomstconcept, 3,7 km, ± 92 s); alles in de reisplanner en op de vertrekborden.
+- 🛍 **Megatower Galleria**: vijf winkelverdiepingen rond een atrium, 360 ingerichte winkels en horecazaken,
+  foodcourt, panoramagalerij, logistieke kelder. **Grand Boulevard**: 1,66 km winkelstraat met 227 winkels.
+- 🌳 Hoogtemix en pocketparken in het centrum, een culturele wijk en een uitgaanswijk.
+- 💾 Bewerkte stukken blijven zoals ze waren; vernieuwen kan op vraag, met back-up (pauzemenu → Wereld).
+
 ## TERRANOVA 16.0 (ontwikkelversie) · 2026-11-25b — branch `terranova-16`
 
 Tweede ronde: de fasen die eerst ontbraken, elk als eerste geteste versie. Details en grenzen: [`docs/terranova-16.md`](docs/terranova-16.md).

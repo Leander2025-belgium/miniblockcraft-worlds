@@ -1214,7 +1214,7 @@ async function showReal(r) {
 }
 
 // ---------- altijd de nieuwste versie ----------
-const APP_VERSION = '2026-11-25b';
+const APP_VERSION = '2026-11-27a';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 // Alleen herladen als de server een NIEUWERE versie heeft (de cache van GitHub Pages kan na een publicatie
 // een paar minuten nog een oudere version.json geven: dan niet telkens herladen). Speel je op dat moment,
