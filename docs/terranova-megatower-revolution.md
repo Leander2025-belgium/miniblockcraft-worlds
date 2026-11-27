@@ -211,8 +211,20 @@ Alles in deze omgeving, op deze versie:
 - Bij het testen gevonden en opgelost: punten van lengte nul bij het knippen van gebogen sporen (aansluiting
   geweigerd), haltes precies op een tegelrand, laanbomen die door het spoordek groeiden, zwevende lampen, voertuigen
   die met hun staart in een wisselstraat verschenen zonder vergrendeling.
-- Niet gedaan: de volledige set oudere browsertests (49 stuks, ± 3 uur) heb ik voor deze ronde niet opnieuw gedraaid;
-  wel alle controles zonder browser. Geen mobiele test op een echt toestel.
+- **Regressie in de echte game: 21 bestaande browsertests die Megatower City openen**, één voor één (centraal,
+  megastad-ronde2, voertuig-interieurs, bushalte, reizen, metro-interieur, wijken, torenbezoekers, ovkaart, planner16,
+  routebegeleiding, vertraging, busremise, reizigers-auto, compat16, bewoners, stadsvoertuigen, crashherstel,
+  graphics, planner-overal, megatower): **20 meteen geslaagd, 1 gefaald** (`reizigers-auto`: 24 reizigers tegelijk
+  bij Westpoort, grens 23; op main 19). Oorzaak, vergeleken met main: door de nieuwe plekken in de stad is de
+  bevolking anders samengesteld; één bewoner kreeg een schoolreis met een bushalte op ± 360 m die het looppad niet
+  haalt, en werd na elke mislukking meteen opnieuw gekozen (30 keer). Daardoor bijna geen hele reizen (1–2 tegen
+  8–17 op main) en meer losse reizigers. **Opgelost** in `js/travelers.js`: wie geen pad vond, komt 10 minuten
+  (speltijd) niet opnieuw aan de beurt. Daarna `reizigers-auto` geslaagd (max 21), `bewoners` en `reizen` opnieuw
+  geslaagd. De testgrens heb ik niet aangepast.
+- Niet gedaan: de overige oudere browsertests die Megatower City niet openen (andere werelden) heb ik niet opnieuw
+  gedraaid. Gedeelde code (`js/traffic.js`, `js/game.js`, `js/travelers.js`) is wel gewijzigd; voor die werelden
+  liepen alleen de controles zonder browser. Geen mobiele test op een
+  echt toestel.
 
 ## Wat nog niet klaar is
 

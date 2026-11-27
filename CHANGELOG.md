@@ -18,6 +18,10 @@ Megatower City: Ultimate Metropolis Revolution. Details, metingen en grenzen: [`
 - 🌳 Hoogtemix en pocketparken in het centrum, een culturele wijk en een uitgaanswijk.
 - 💾 Bewerkte stukken blijven zoals ze waren; vernieuwen kan op vraag, met back-up (pauzemenu → Wereld).
 
+### Opgelost
+- Reizigers: een bewoner wiens reis geen looppad vond, werd meteen opnieuw gekozen en verdrong zo de hele reizen;
+  nu 10 minuten (speltijd) wachttijd (gevonden met de regressietest `reizigers-auto`).
+
 ## TERRANOVA 16.0 (ontwikkelversie) · 2026-11-25b — branch `terranova-16`
 
 Tweede ronde: de fasen die eerst ontbraken, elk als eerste geteste versie. Details en grenzen: [`docs/terranova-16.md`](docs/terranova-16.md).

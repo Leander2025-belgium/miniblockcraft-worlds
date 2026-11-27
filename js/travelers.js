@@ -140,7 +140,7 @@ export class Travelers {
       if (!t.auto) return true;
       const far = Math.hypot(t.x - player.x, t.z - player.z) > AUTO_FAR;
       if (t.journey) { // hele reis: buiten beeld gaat de reis op afstand verder (js/journeys.js)
-        if (t.done || t.state === 'geen pad' || t.state === 'gestrand') { this.stats.weg++; if (t.done) { this.stats.aangekomen++; this.jstats.aangekomen++; } return false; }
+        if (t.done || t.state === 'geen pad' || t.state === 'gestrand') { this.stats.weg++; if (t.done) { this.stats.aangekomen++; this.jstats.aangekomen++; } else if (t.who) { (this.failedWho || (this.failedWho = new Map())).set(t.who.id, this.tr.clock || 0); this.jstats.mislukt = (this.jstats.mislukt || 0) + 1; } return false; }
         if (far && t.state !== 'aan boord' && t.state !== 'op afstand') this.goRemote(t);
         return true;
       }
@@ -217,6 +217,8 @@ export class Travelers {
     // TERRANOVA 16 (js/society.js): een echte bewoner die nu een verplaatsing heeft die hier begint of eindigt
     if (this.society) {
       const S = this.society, h = this.journey.hour(), ex = new Set(this.list.filter(t => t.who).map(t => t.who.id));
+      // 16.1: wie net geen pad vond (bv. halte te ver voor het looppad), komt 10 minuten niet opnieuw aan de beurt
+      if (this.failedWho) { const now = this.tr.clock || 0; for (const [id, t0] of this.failedWho) { if (now - t0 > 600 || now < t0) this.failedWho.delete(id); else ex.add(id); } }
       // tot 4 kandidaten proberen: niet elke woning of werkplek heeft een bereikbare deur in de geladen wereld
       let trip = null, o = null;
       for (let k = 0; k < 4 && !o; k++) {
