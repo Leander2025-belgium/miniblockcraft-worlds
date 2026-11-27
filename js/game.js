@@ -100,6 +100,8 @@ uniform vec2 lampTile;
 uniform vec2 waterTile;
 uniform vec2 fillTile;
 uniform vec2 tvTile;
+uniform vec2 ledTile;
+uniform float occ;
 varying vec2 vUv;
 varying vec2 vTile;
 varying float vLight;
@@ -183,10 +185,17 @@ void main() {
   vec3 skyRefl = mix(fogColor, skyTop, clamp(reflect(-viewDir, n).y, 0.0, 1.0)) * daylight;
   if (isLamp) col = c.rgb * mix(1.0, 1.4, 1.0 - day);
   if (distance(vTile, tvTile) < 0.1) col = c.rgb * 1.15;
+  if (distance(vTile, ledTile) < 0.1) {
+    // ledgevel (TERRANOVA 16.1): 's avonds en 's nachts een langzame lichtgolf langs de ribben en lichtbanden
+    float wave = 0.5 + 0.5 * sin(vWorld.y * 0.045 - time * 0.8 + (vWorld.x + vWorld.z) * 0.012);
+    vec3 ledc = mix(vec3(0.55, 0.75, 1.0), vec3(1.0, 0.86, 0.62), wave);
+    col = mix(col, ledc * (1.05 + 0.45 * wave), clamp((1.0 - day) * 1.2, 0.0, 1.0));
+  }
   if (distance(vTile, fillTile) < 0.1) {
     // achter het glas van een toren: verlichte kamers per kamer (6 × 4 × 6 m), niet per blok; warm, neutraal of koel licht
     vec3 room = floor((vWorld - n * 0.5) / vec3(6.0, 4.0, 6.0));
-    float on = step(0.42, h3(room)), tone = h3(room + 17.0);
+    float on = step(0.42 + occ, h3(room)), tone = h3(room + 17.0);
+    on = abs(on - step(0.94, h3(room + floor(time / 150.0 + h3(room + 5.0) * 9.0)))); // af en toe gaat een kamer aan of uit
     vec3 lc = tone < 0.55 ? vec3(1.0, 0.8, 0.55) : tone < 0.85 ? vec3(0.96, 0.93, 0.84) : vec3(0.72, 0.84, 1.0);
     col = mix(mix(c.rgb * 0.1, lc * (0.6 + 0.35 * h3(room + 3.0)), on), c.rgb * 0.5, day);
   }
@@ -211,7 +220,7 @@ void main() {
     col += sunColor * pow(max(dot(reflect(-viewDir, n), L), 0.0), 90.0) * 1.3 * day;
     // 's avonds verlichte kamers achter het glas: per kamer (6 × 4 × 6 m), met verschillende lichtkleuren
     vec3 room = floor((vWorld - n * 0.5) / vec3(6.0, 4.0, 6.0));
-    float lit = step(0.62, h3(room)) * (1.0 - day), tone = h3(room + 17.0);
+    float lit = abs(step(0.62 + occ * 0.6, h3(room)) - step(0.95, h3(room + floor(time / 150.0 + h3(room + 5.0) * 9.0)))) * (1.0 - day), tone = h3(room + 17.0);
     vec3 lc = tone < 0.55 ? vec3(1.0, 0.82, 0.55) : tone < 0.85 ? vec3(0.97, 0.94, 0.85) : vec3(0.74, 0.85, 1.0);
     col = mix(col, lc * (0.75 + 0.25 * h3(room + 3.0)), lit * 0.88);
     a = mix(max(a, 0.34 + 0.48 * fr), 0.95, lit);
@@ -361,6 +370,9 @@ class TileWorld {
   sourceAt(x, z) { return this.tileAt(x, z); }
 }
 
+// hoeveel kamers er 's avonds en 's nachts verlicht zijn (TERRANOVA 16.1): drempel bovenop de vaste spreiding per kamer.
+// Negatief = meer licht (begin van de avond), positief = minder (diep in de nacht, vroeg in de ochtend).
+export function occOfHour(h) { h = ((h % 24) + 24) % 24; return h >= 17 && h < 21 ? -0.12 : h >= 21 && h < 23 ? 0 : h >= 23 || h < 1 ? 0.12 : h < 5 ? 0.3 : h < 7 ? 0.15 : 0; }
 export class Game {
   constructor(ui) {
     this.ui = ui; // { root, canvas, hud, ... } DOM-elementen
@@ -404,6 +416,7 @@ export class Game {
       waterTile: { value: new THREE.Vector2(TILE_INDEX.water % ATLAS_COLS, Math.floor(TILE_INDEX.water / ATLAS_COLS)) },
       fillTile: { value: new THREE.Vector2(TILE_INDEX.room_fill % ATLAS_COLS, Math.floor(TILE_INDEX.room_fill / ATLAS_COLS)) },
       tvTile: { value: new THREE.Vector2(TILE_INDEX.tv_on % ATLAS_COLS, Math.floor(TILE_INDEX.tv_on / ATLAS_COLS)) },
+      ledTile: { value: new THREE.Vector2(TILE_INDEX.facade_led % ATLAS_COLS, Math.floor(TILE_INDEX.facade_led / ATLAS_COLS)) }, occ: { value: 0 },
     });
     this.matOpaque = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms() });
     this.matTrans = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: uniforms(), transparent: true, depthWrite: false, side: THREE.DoubleSide });
@@ -1107,7 +1120,7 @@ export class Game {
       if (this.far) { u.fogNear.value = 3000; u.fogFar.value = 26000; }
       else if (this.tiled) { u.fogNear.value = this.settings.lod * 0.35; u.fogFar.value = this.settings.lod; }
       else { u.fogNear.value = far * 0.45; u.fogFar.value = far; }
-      u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock;
+      u.fogColor.value.set(...env.sky); u.day.value = env.day; u.sunDir.value.copy(env.sun); u.time.value = this.clock; u.occ.value = occOfHour(this.settings.hour ?? 12);
       u.sunColor.value.set(...env.sunColor); u.skyTop.value.set(...env.top);
       if (ug) { u.fogColor.value.set(0.01, 0.01, 0.015); u.fogNear.value = 8; u.fogFar.value = 64; }
       else if (this.curWeather === 'mist') { u.fogNear.value = 8; u.fogFar.value = Math.min(u.fogFar.value, 120); }
@@ -1117,6 +1130,7 @@ export class Game {
     this.clouds.material.map.offset.set((p.pos.x / 9000) * 6 + this.clock * 0.002, (p.pos.z / 9000) * 6);
     this.clouds.material.color.setRGB(...env.sky.map((v, i) => Math.min(1, 0.55 + v * 0.5 + env.dusk * [0.3, 0.1, 0][i])));
     this.clouds.material.opacity = 0.35 + env.day * 0.55;
+    if (this.lod && this.lod.mat.uniforms.time) { this.lod.mat.uniforms.time.value = this.clock; this.lod.mat.uniforms.occ.value = occOfHour(this.settings.hour ?? 12); }
     if (this.lod) this.lod.update(env, this.settings.lod, this.world.tiles, p.pos.x, p.pos.z, this.lodNear ? this.settings.lod : 0);
     if (this.traffic && this.settings.traffic !== false) {
       if (this.trafficDirty) { this.trafficDirty = false; this.traffic.rebuild(this.world.tiles, p.pos); }
@@ -1703,6 +1717,7 @@ export class Game {
     if (this.drive) { this.drive.update(dt); this.updateHud(); return; }
     // in een lift van de Megatower: meerijden; op een stoel of in bed: blijven tot je beweegt
     if (this.mega && this.mega.updateRide()) { if (this.tiled) this.updateTiles(); this.updateHud(); return; }
+    if (this.mega && this.mega.hyper && this.mega.hyper.riding()) { if (this.tiled) this.updateTiles(); this.updateTarget?.(); this.updateHud(); return; } // in de hyperloopcapsule: meerijden
     if (this.seat && updateSeat(this)) { this.updateTarget(); this.updateHud(); return; }
     // voertuig in de buurt? (instappen)
     if (this.traffic && !this.aboardStep && (this.nearT = (this.nearT || 0) + dt) > 0.4) {

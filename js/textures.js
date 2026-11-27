@@ -417,6 +417,31 @@ painters.planter_top = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [96
 painters.planter = P((x, y, n) => y > 14 ? [80, 60, 44] : sh([100, 74, 54], n, 8));
 painters.wall_wood = P((x, y, n) => (x % 4 === 0) ? [100, 70, 44] : sh([136, 96, 62], n, 6));
 
+// TERRANOVA 16.1
+painters.facade_led = P((x, y, n) => (x < 2 || x > 13) ? [150, 158, 166] : [236 + n * 6, 244 + n * 4, 255]);
+painters.clothes_rack = P((x, y, n) => y < 2 ? [150, 156, 162] : (y >= 2 && y < 12 && x > 0 && x < 15) ? [[180, 40, 60], [40, 70, 150], [230, 230, 225], [30, 30, 34], [200, 160, 60]][(x >> 1) % 5].map(v => v + n * 14) : (x === 7 || x === 8) ? [150, 156, 162] : [0, 0, 0, 0]);
+painters.register_top = P((x, y, n) => (x > 3 && x < 12 && y > 2 && y < 8) ? [70, 160, 210] : (x > 2 && x < 13 && y > 9 && y < 14) ? ((x + y) % 2 ? [200, 200, 200] : [120, 120, 124]) : sh([60, 62, 70], n, 6));
+painters.register_side = P((x, y, n) => y < 4 ? [70, 72, 80] : (y > 8 && x > 5 && x < 10) ? [30, 30, 34] : sh([212, 208, 200], n, 6));
+painters.showcase_top = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [200, 190, 150] : ((x * 7 + y * 3) % 11 === 0) ? [255, 230, 120] : ((x * 5 + y) % 13 === 0) ? [230, 240, 255] : [150, 190, 210]);
+painters.showcase_side = P((x, y, n) => y < 7 ? (((x * 7 + y * 3) % 9 === 0) ? [255, 226, 110] : [160, 196, 214]) : y < 9 ? [200, 190, 150] : sh([70, 50, 36], n, 6));
+painters.tech_shelf = P((x, y, n) => (y % 8 < 1) ? [120, 124, 130] : (y % 8 < 6 && x % 8 > 0 && x % 8 < 7) ? (y % 8 < 2 ? [20, 20, 24] : [[60, 140, 230], [230, 90, 60], [80, 200, 140], [200, 200, 220]][((x >> 3) + (y >> 3)) % 4]) : sh([40, 44, 52], n, 4));
+painters.food_top = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [200, 190, 150] : [[196, 140, 70], [120, 70, 40], [236, 200, 150], [180, 60, 70]][((x >> 2) + (y >> 2) * 3) % 4].map(v => v + n * 16));
+painters.food_shelf = P((x, y, n) => y < 7 ? [[196, 140, 70], [120, 70, 40], [236, 200, 150], [180, 60, 70]][((x >> 2) + (y >> 2)) % 4].map(v => v + n * 14) : y < 9 ? [210, 210, 214] : sh([120, 84, 56], n, 6));
+painters.toy_shelf = P((x, y, n) => (y % 5 === 0) ? [168, 128, 82] : [[230, 60, 50], [250, 200, 40], [60, 160, 230], [100, 200, 90], [220, 100, 200]][((x >> 2) + (y >> 2) * 2) % 5].map(v => v + n * 18));
+painters.sport_rack = P((x, y, n) => (y % 8 < 1) ? [150, 156, 162] : (y % 8 < 7) ? (Math.hypot((x % 8) - 3.5, (y % 8) - 3.5) < 3 ? [[240, 120, 30], [240, 240, 240], [40, 120, 200]][(x >> 3) % 3] : sh([60, 66, 74], n, 4)) : [150, 156, 162]);
+painters.perfume_shelf = P((x, y, n) => (y % 8 < 1) ? [230, 230, 236] : (y % 8 > 2 && x % 4 > 0 && x % 4 < 3) ? [[220, 170, 210], [250, 230, 160], [170, 210, 240], [250, 200, 200]][((x >> 2) + (y >> 3)) % 4] : [246, 240, 246]);
+painters.shoe_shelf = P((x, y, n) => (y % 5 === 0) ? [168, 128, 82] : (y % 5 > 2 && x % 5 < 4) ? [[30, 30, 34], [150, 90, 50], [230, 230, 230], [180, 40, 50]][((x / 5 | 0) + (y / 5 | 0)) % 4] : sh([226, 222, 214], n, 4));
+painters.mannequin = P((x, y, n) => (y < 3 && x > 5 && x < 10) ? [236, 230, 222] : (y >= 3 && y < 11 && x > 3 && x < 12) ? [180, 40, 60] : (y >= 11 && (x === 6 || x === 9)) ? [236, 230, 222] : [0, 0, 0, 0]);
+painters.menu_board = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [120, 84, 50] : (y % 3 === 1 && x > 2 && x < (y % 2 ? 12 : 10)) ? [236, 236, 220] : (y % 3 === 1 && x > 12) ? [250, 210, 90] : [34, 40, 36]);
+painters.bench_top = P((x, y, n) => (y % 4 === 3) ? [0, 0, 0, 0] : sh([150, 110, 70], n, 8));
+painters.bench_side = P((x, y, n) => (y > 5 && y < 9) ? sh([150, 110, 70], n, 8) : (y >= 9 && (x < 2 || x > 13)) ? [60, 64, 70] : [0, 0, 0, 0]);
+painters.awning_red = P((x, y, n) => ((x >> 2) % 2 === 0) ? sh([196, 44, 44], n, 6) : sh([244, 240, 232], n, 4));
+painters.awning_blue = P((x, y, n) => ((x >> 2) % 2 === 0) ? sh([40, 76, 160], n, 6) : sh([244, 240, 232], n, 4));
+painters.departure_board = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [70, 72, 80] : (y % 3 === 1 && x > 1 && x < 14 && (x % 6 !== 5)) ? (x < 5 ? [255, 190, 60] : [236, 236, 236]) : [16, 18, 24]);
+painters.fruit_top = P((x, y, n) => (x < 1 || x > 14 || y < 1 || y > 14) ? [150, 110, 60] : Math.hypot((x % 4) - 1.5, (y % 4) - 1.5) < 1.7 ? [[230, 60, 40], [250, 160, 30], [120, 190, 60], [250, 220, 60]][((x >> 2) * 3 + (y >> 2)) % 4] : [70, 50, 30]);
+painters.locker = P((x, y, n) => (x % 8 === 0 || y % 8 === 0) ? [100, 104, 112] : (x % 8 === 6 && y % 8 === 4) ? [240, 200, 60] : sh([166, 172, 182], n, 4));
+painters.hyper_glass = P((x, y, n) => (x === 0 || y === 0) ? [230, 240, 250, 255] : [200, 232, 250, 70]);
+
 export const TILE_NAMES = Object.keys(painters);
 export const TILE_INDEX = Object.fromEntries(TILE_NAMES.map((n, i) => [n, i]));
 export const ATLAS_ROWS = Math.ceil(TILE_NAMES.length / ATLAS_COLS);
@@ -437,7 +462,7 @@ const MATERIAL = {
   stone: [10, 200, 0], granite: [30, 180, 0], mossy_stone: [5, 220, 0], gravel: [5, 230, 0], ballast: [5, 230, 0], dirt: [0, 180, 0], sand: [10, 120, 0], grass_top: [5, 170, 0],
   planks: [20, 200, 0], dark_planks: [20, 200, 0], log: [5, 230, 0], birch: [5, 160, 0], crate: [15, 210, 0], roof_red: [25, 230, 0], roof_dark: [35, 230, 0], clay_roof: [25, 230, 0],
   leaves: [10, 160, 0], birch_leaves: [10, 160, 0], spruce: [5, 160, 0], pine_leaves: [5, 160, 0], hedge: [5, 160, 0], concrete: [15, 110, 0], sidewalk: [20, 140, 0],
-  half_timber: [10, 160, 0], bookshelf: [10, 200, 0], parquet: [60, 120, 20], counter_top: [160, 20, 60], fridge: [120, 0, 40], liftdoor: [170, 30, 110], tv_off: [200, 0, 120], mirror_wall: [200, 0, 220], helipad: [40, 90, 30], room_fill: [0, 0, 0], wool_red: [0, 150, 0], cobble_dummy: [0, 0, 0],
+  half_timber: [10, 160, 0], bookshelf: [10, 200, 0], parquet: [60, 120, 20], counter_top: [160, 20, 60], fridge: [120, 0, 40], liftdoor: [170, 30, 110], tv_off: [200, 0, 120], mirror_wall: [200, 0, 220], helipad: [40, 90, 30], room_fill: [0, 0, 0], facade_led: [0, 0, 0], hyper_glass: [255, 0, 200], showcase_top: [230, 0, 150], wool_red: [0, 150, 0], cobble_dummy: [0, 0, 0],
 };
 // fijne korrel per materiaal (hoe sterk de 32×32-details variëren)
 const GRAIN = { grass_top: 16, dirt: 14, sand: 12, stone: 14, gravel: 10, ballast: 10, granite: 12, mossy_stone: 14, snow: 5, concrete: 7, asphalt: 9, sidewalk: 7,

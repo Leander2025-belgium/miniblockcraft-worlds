@@ -25,6 +25,8 @@ uniform vec3 fogColor;
 uniform float fogNear;
 uniform float fogFar;
 uniform float day;
+uniform float time;
+uniform float occ;
 varying vec3 vColor;
 varying vec3 vWorld;
 varying float vDist;
@@ -47,9 +49,23 @@ void main() {
       else if (st < 3.5) { float sp = step(fract(vWorld.y / 4.0), 0.5); win = 1.0 - sp; col = mix(col * 0.8, vec3(0.78, 0.78, 0.76), sp); } // bandramen
       else if (st < 4.5) { float b = step(0.5, fract(vWorld.y / 24.0)); win = 1.0 - floorLine; col = mix(col, col.bgr * 0.9, b); col *= 1.0 - floorLine * 0.4; } // tweekleurige banden
       else if (st < 5.5) { float fin = step(fract(along / 12.0), 0.17); win = (1.0 - fin) * (1.0 - step(fract(vWorld.y / 8.0), 0.12)); col = mix(col, col * 0.45, fin); } // lamellen
-      else { float pil = max(step(fract(along / 12.0), 0.17), step(fract(vWorld.y / 8.0), 0.12)); win = 1.0 - pil; col = mix(col * 0.75, vec3(0.86, 0.83, 0.74), pil); } // natuursteen
+      else if (st < 6.5) { float pil = max(step(fract(along / 12.0), 0.17), step(fract(vWorld.y / 8.0), 0.12)); win = 1.0 - pil; col = mix(col * 0.75, vec3(0.86, 0.83, 0.74), pil); } // natuursteen
+      else {
+        // The Megatower van ver (TERRANOVA 16.1): traveeën van 6 m in twee glassoorten, om de 24 m een pijler, ribben om
+        // de 12 m met 's nachts een lichtgolf, een lichtband bij elke sectie-overgang en een verlichte kroon
+        float bay = floor(along / 6.0), pier = step(mod(bay, 4.0), 0.5), rib = step(fract(along / 12.0), 0.09);
+        col = mix(vec3(0.42, 0.56, 0.68), vec3(0.30, 0.42, 0.56), mod(bay, 2.0)) * mix(0.25, 1.0, day);
+        col = mix(col, vec3(0.80, 0.82, 0.84) * mix(0.25, 1.0, day), pier * 0.8);
+        win = (1.0 - pier) * (1.0 - floorLine);
+        float yy = vWorld.y - 120.0, band = 0.0;
+        for (int i = 0; i < 8; i++) { float b = float(i == 0 ? 40 : i == 1 ? 120 : i == 2 ? 320 : i == 3 ? 480 : i == 4 ? 600 : i == 5 ? 800 : i == 6 ? 920 : 996); band = max(band, 1.0 - step(2.0, abs(yy - b))); }
+        float wave = 0.5 + 0.5 * sin(vWorld.y * 0.045 - time * 0.8 + along * 0.012), night = clamp((1.0 - day) * 1.2, 0.0, 1.0);
+        vec3 led = mix(vec3(0.55, 0.75, 1.0), vec3(1.0, 0.86, 0.62), wave) * (1.05 + 0.45 * wave);
+        col = mix(col, mix(vec3(0.7, 0.72, 0.75), led, night), max(rib, band));
+        if (yy > 920.0) col = mix(col, led, night * 0.6);
+      }
     }
-    float lit = win * step(0.66, h3(cell)) * (1.0 - day);
+    float lit = win * step(0.66 + occ * 0.6, h3(cell)) * (1.0 - day);
     col = mix(col, vec3(1.0, 0.84, 0.55), lit * 0.85);
   }
   float fog = smoothstep(fogNear, fogFar, length(vRel)); // per pixel, berekend vanaf de camera (nauwkeurig op telefoons)
@@ -65,7 +81,7 @@ export class FarView {
     this.data = new Map();
     this.mat = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,
-      uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 400 }, fogFar: { value: 2000 }, day: { value: 1 } },
+      uniforms: { fogColor: { value: new THREE.Vector3() }, fogNear: { value: 400 }, fogFar: { value: 2000 }, day: { value: 1 }, time: { value: 0 }, occ: { value: 0 } },
     });
     // grondvlak onder de hele kaart en ver daarbuiten (geen lege lucht onder de horizon)
     const SX = this.nx * this.T, SZ = this.nz * this.T, M = 6000, gy = this.G - 2.5, gc = spec.groundColor || [0.55, 0.56, 0.52];

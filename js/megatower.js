@@ -365,16 +365,70 @@ const SERVICE = {
 };
 
 // ---------- gevel ----------
+// TERRANOVA 16.1: geen vlak raamraster meer maar een gelede vliesgevel. Langs elke zijde traveeën van 6 m: om de vier
+// een dichte pijler (kadermateriaal met een smalle raamspleet), daartussen afwisselend twee glassoorten (verticale
+// stroken), stijlen om de 6 m. De afgeronde hoeken zijn één doorlopende panoramische glaswand. De bovenste verdieping
+// van elke torensectie draagt een lichtband (ledgevel), de eerste een koperen of metalen gordel: zo is elke overgang
+// tussen twee secties leesbaar. Buiten de gevel: uitstekende ribben om de 6 m (om de 12 m met ledlijn), sky gardens.
+const ALT_GLASS = { lobby: B.GLASS_BLUE, office: B.GLASS_BLUE, hotel: B.GLASS, apt: B.GLASS_BLUE, sky: B.GLASS, lux: B.MIRROR, pent: B.GLASS_BLUE, top: B.GLASS_BLUE };
+const BELT = { lobby: B.METAL, office: B.COPPER, hotel: B.PANEL_WHITE, apt: B.COPPER, sky: B.PANEL_WHITE, lux: B.COPPER, pent: B.METAL, top: B.PANEL_WHITE };
+// sky gardens: verdieping → zijde (0 noord, 1 oost, 2 zuid, 3 west); uitkragend, 16 m breed en 3 m diep
+export const SKY_GARDENS = { 44: 1, 62: 3, 96: 0, 112: 2, 136: 1, 164: 3, 184: 0, 212: 2, 226: 1 };
+export const RIB_STEP = 6;
+const sideOf = (ci, cj) => Math.abs(ci + 0.5) > Math.abs(cj + 0.5) ? (ci >= 0 ? 1 : 3) : (cj >= 0 ? 2 : 0);
+export function facadeKind(f, along, a, r) { // 0 hoekglas, 1 pijler, 2 glas A, 3 glas B (ook voor tests en de verre schil)
+  if (Math.abs(along + 0.5) >= a - r - 0.5) return 0;
+  const bay = Math.floor((along + 120) / 6);
+  return bay % 4 === 0 ? 1 : bay % 2 ? 3 : 2;
+}
 function facade(F) {
-  const f = F.f, [glass, frame] = F.look, top = F.zone === 'top';
+  const f = F.f, [glass, frame] = F.look, top = F.zone === 'top', a = F.p.a, r = F.p.r;
+  const glass2 = ALT_GLASS[F.zone] || glass;
+  const up = f < F_MAX ? plateOf(f + 1) : null, dn = f > 0 ? plateOf(f - 1) : null;
+  const lastOfPlate = f >= 2 && up && up.a !== a, firstOfPlate = f >= 2 && dn && dn.a !== a;
   for (let cj = -HALF; cj < HALF; cj++) for (let ci = -HALF; ci < HALF; ci++) {
     if (F.m(ci, cj) !== 1) continue;
     if (f < 0) { for (let l = 0; l < 4; l++) F.set(ci, cj, l, B.CONCRETE); continue; }
-    const along = Math.abs(ci) > Math.abs(cj) ? cj : ci;
-    const mull = ((along + 100) % 3) === 0;
-    F.set(ci, cj, 0, f % 8 === 7 ? B.VENT : frame);
-    for (let l = 1; l < 4; l++) F.set(ci, cj, l, mull && l < 3 ? B.METAL : (top && f >= 244 && l === 3 && (along % 2 === 0)) ? B.LAMP : glass);
-    if (F.zone === 'lobby' && f <= 1) for (let l = 1; l < 4; l++) F.set(ci, cj, l, mull ? B.METAL : B.GLASS);
+    const along = Math.abs(ci + 0.5) > Math.abs(cj + 0.5) ? cj : ci;
+    const k = facadeKind(f, along, a, r), inBay = ((along + 120) % 6 + 6) % 6;
+    F.set(ci, cj, 0, f % 8 === 7 ? B.VENT : firstOfPlate ? (BELT[F.zone] || frame) : frame);
+    for (let l = 1; l < 4; l++) {
+      let b;
+      if (k === 0) b = glass;                                                    // panoramische hoek: één glaswand
+      else if (k === 1) b = (l === 2 && (inBay === 2 || inBay === 3)) ? B.DARKGLASS : frame; // pijler met raamspleet
+      else b = inBay === 0 && l < 3 ? B.METAL : (k === 3 ? glass2 : glass);
+      if (top && f >= 244 && l === 3 && (along % 2 === 0)) b = B.LAMP;
+      if (lastOfPlate && l === 3) b = B.FACADE_LED;                              // lichtband bij de overgang
+      F.set(ci, cj, l, b);
+    }
+    if (F.zone === 'lobby' && f <= 1) for (let l = 1; l < 4; l++) F.set(ci, cj, l, inBay === 0 ? B.METAL : B.GLASS);
+  }
+  // ribben: één cel buiten de gevel, om de 6 m (om de 12 m een ledlijn), niet voor de terrasdeuren en niet in de afgeronde hoeken
+  if (f >= 2) for (let cj = -HALF; cj < HALF; cj++) for (let ci = -HALF; ci < HALF; ci++) {
+    if (F.m(ci, cj) !== 1) continue;
+    const s = sideOf(ci, cj), along = s % 2 ? cj : ci;
+    if (Math.abs(along + 0.5) >= a - r - 1.5 || Math.abs(along + 0.5) < 3 || ((along % RIB_STEP) + RIB_STEP) % RIB_STEP !== 0) continue;
+    const [ox, oz] = s === 0 ? [0, -1] : s === 1 ? [1, 0] : s === 2 ? [0, 1] : [-1, 0], rx = ci + ox, rz = cj + oz;
+    if (!F.inB(rx, rz) || F.m(rx, rz)) continue;
+    const led = ((along % 12) + 12) % 12 === 0;
+    for (let l = 0; l < 4; l++) F.set(rx, rz, l, led ? B.FACADE_LED : (l === 0 ? frame : B.METAL));
+  }
+  // sky garden: uitkragende tuin met gras, hagen, boompjes en een glazen balustrade; deur in het midden van de zijde
+  const sg = SKY_GARDENS[f];
+  if (sg !== undefined) {
+    const id = F.addRoom('Sky garden (verdieping ' + f + ')');
+    for (let t = -8; t < 8; t++) for (let d = a; d < a + 3; d++) {
+      const [ci, cj] = sideToC(sg, t, d); if (!F.inB(ci, cj) || F.m(ci, cj)) continue;
+      F.mark(ci, cj, id);
+      const edge = d === a + 2 || t === -8 || t === 7;
+      F.set(ci, cj, 0, edge ? B.PANEL_WHITE : B.GRASS);
+      if (edge) { F.set(ci, cj, 1, B.GLASS); continue; }
+      if ((t === -6 || t === 5) && d === a + 1) { F.set(ci, cj, 1, B.LOG); F.set(ci, cj, 2, B.LEAVES); F.set(ci, cj, 3, B.LEAVES); }
+      else if (d === a + 1 && (t === -3 || t === 2)) F.set(ci, cj, 1, B.HEDGE);
+      else if (d === a + 1 && t === -1) F.set(ci, cj, 1, B.BENCH);
+      else if (d === a && (t + 8) % 5 === 2 && Math.abs(t + 0.5) > 2) F.set(ci, cj, 1, B.FLOWERS);
+    }
+    for (const t of [-1, 0]) { const [ci, cj] = sideToC(sg, t, a - 1); if (F.m(ci, cj) === 1) { F.set(ci, cj, 1, B.DOOR_GLASS); F.set(ci, cj, 2, B.DOOR_GLASS); const [ii, ij] = sideToC(sg, t, a - 2); F.set(ii, ij, 1, 0); F.set(ii, ij, 2, 0); } }
   }
   for (const [ci, cj] of F.balc || []) { F.set(ci, cj, 1, B.DOOR_GLASS); F.set(ci, cj, 2, B.DOOR_GLASS); }
   // terras op de dakrand van de lagere plaat (getrapte vorm)
@@ -396,7 +450,7 @@ function facade(F) {
     const k = ring(ci, cj);
     if (k !== F.p.a || F.m(ci, cj)) continue;
     const along = Math.abs(ci) > Math.abs(cj) ? cj : ci;
-    if ((along + 100) % 4 === 0 && inPlate(ci, cj, F.p.a + 1, F.p.r)) for (let l = 0; l < 4; l++) F.set(ci, cj, l, f >= 246 && l === 3 ? B.LAMP : B.PANEL_WHITE);
+    if ((along + 100) % 4 === 0 && inPlate(ci, cj, F.p.a + 1, F.p.r)) for (let l = 0; l < 4; l++) F.set(ci, cj, l, f >= 246 && l === 3 ? B.LAMP : (along + 100) % 8 === 0 ? B.FACADE_LED : B.PANEL_WHITE);
   }
 }
 
@@ -966,9 +1020,11 @@ function clearDoorways(F) {
 function roofCell(ci, cj) {
   const p = plateOf(F_MAX), m = maskOf(p.a, p.r)[(cj + HALF) * N + ci + HALF];
   if (!m) return 0;
-  if (m === 1) return (ci + cj) % 3 === 0 ? B.LAMP : B.PANEL_WHITE;
+  if (m === 1) return (ci + cj) % 3 === 0 ? B.LAMP : B.FACADE_LED; // lichtkroon op 1.000 m
   const d = Math.hypot(ci + 0.5, cj + 0.5);
   if (d < 11) return Math.abs(d - 9.5) < 0.8 ? B.PAINT_YELLOW : B.HELIPAD;
+  if (ring(ci, cj) === p.a - 3) return B.METAL;                                   // rails van de gevelonderhoudsinstallatie
+  if (ring(ci, cj) === p.a - 6 && (ci + cj) % 7 === 0) return B.VENT;              // luchtbehandeling
   return B.CONCRETE;
 }
 
@@ -995,6 +1051,24 @@ export function writeTower(vox, H, y0) {
   }
   const roof = floorY(F_MAX + 1) - 1 - y0;
   for (let cj = -HALF; cj < HALF; cj++) for (let ci = -HALF; ci < HALF; ci++) { const b = roofCell(ci, cj); if (b) vox[(((64 + cj) * T) + 64 + ci) * H + roof] = b; }
+  entrance(vox, H, y0);
+}
+// ---------- hoofdingang (TERRANOVA 16.1) ----------
+// noordkant: een portaal van drie verdiepingen hoog rond de draaideuren en een glazen luifel van 32 × 14 m over het
+// plein, op vier slanke kolommen, met een lichtlijn aan de voorrand en lampen eronder (overdekt van de taxi tot de lobby)
+export const CANOPY = { ci0: -16, ci1: 15, cj0: -62, cj1: -48, y: G + 9 };
+function entrance(vox, H, y0) {
+  const put = (ci, cj, y, b) => { const x = 64 + ci, z = 64 + cj, ly = y - y0; if (x < 0 || z < 0 || x >= T || z >= T || ly < 0 || ly >= H) return; vox[(z * T + x) * H + ly] = b; };
+  const { ci0, ci1, cj0, cj1, y } = CANOPY;
+  for (let cj = cj0; cj <= cj1; cj++) for (let ci = ci0; ci <= ci1; ci++) {
+    const edge = ci === ci0 || ci === ci1 || cj === cj0;
+    put(ci, cj, y, cj === cj0 ? B.FACADE_LED : edge ? B.PANEL_WHITE : ((ci + 100) % 4 === 0 ? B.METAL : B.GLASS));
+    if (!edge && (ci + 100) % 6 === 3 && (cj + 100) % 4 === 1) put(ci, cj, y - 1, B.LAMP);
+  }
+  for (const ci of [ci0, ci0 + 10, ci1 - 10, ci1]) for (let yy = G; yy < y; yy++) put(ci, cj0 + 1, yy, B.METAL); // kolommen
+  // portaal: twee pijlers en een latei van 12 m hoog, met de naam erin
+  for (let yy = G; yy <= G + 12; yy++) for (const ci of [-11, 10]) { put(ci, -47, yy, B.METAL); put(ci, -48, yy, yy % 4 === 3 ? B.FACADE_LED : B.METAL); }
+  for (let ci = -11; ci <= 10; ci++) { put(ci, -47, G + 12, B.METAL); put(ci, -48, G + 12, B.PANEL_WHITE); if (ci >= -6 && ci <= 5) put(ci, -48, G + 11, B.SIGN); }
 }
 
 // ---------- in de game: waar ben ik? ----------

@@ -21,6 +21,10 @@ export const B = {
   DOOR_OPEN: 106, CHARGER: 107, PAY_MACHINE: 108, BARRIER: 109, LIFT_DOOR: 110, LIFT_BUTTON: 111, SIGN: 112, ROOM_FILL: 113,
   SERVER: 114, GENERATOR: 115, PUMP: 116, VENT: 117, GYM: 118, SHELF: 119, SHOWER_FLOOR: 120, MIRROR_WALL: 121, PARQUET: 122,
   HELIPAD: 123, PLANTER: 124, DOOR_OPEN_TOP: 125, TICKET: 126, CARPET_GREY: 127, BED_BLUE: 128, SOFA_LEATHER: 129, CHAIR_RED: 130, WALL_WOOD: 131,
+  // TERRANOVA 16.1: gevelverlichting, winkelinrichting, straatmeubilair, station
+  FACADE_LED: 132, CLOTHES_RACK: 133, CASH_REGISTER: 134, SHOWCASE: 135, TECH_SHELF: 136, FOOD_SHELF: 137, TOY_SHELF: 138, SPORT_RACK: 139,
+  PERFUME_SHELF: 140, SHOE_SHELF: 141, MANNEQUIN: 142, MENU_BOARD: 143, BENCH: 144, AWNING_RED: 145, AWNING_BLUE: 146, DEPARTURE_BOARD: 147,
+  FRUIT_CRATE: 148, LOCKER: 149, HYPER_GLASS: 150,
 };
 
 // tex: [boven, zijkant, onder] — tegelnamen uit textures.js
@@ -158,6 +162,25 @@ export const BLOCKS = [
   { id: 129, name: 'Leren zetel', color: [96, 60, 40], tex: ['leather_top', 'leather_side', 'dark_planks'], seat: 'sit' },
   { id: 130, name: 'Rode stoel', color: [170, 40, 44], tex: ['chair_red', 'chair_red_side', 'metal'], seat: 'sit', cutout: true },
   { id: 131, name: 'Houten wandbekleding', color: [130, 92, 60], tex: ['wall_wood'] },
+  { id: 132, name: 'Ledgevel', color: [240, 246, 255], tex: ['facade_led', 'facade_led', 'metal'] },
+  { id: 133, name: 'Kledingrek', color: [160, 90, 120], tex: ['metal', 'clothes_rack', 'metal'], cutout: true },
+  { id: 134, name: 'Kassa', color: [60, 62, 70], tex: ['register_top', 'register_side', 'counter_top'] },
+  { id: 135, name: 'Vitrine', color: [200, 220, 230], tex: ['showcase_top', 'showcase_side', 'dark_planks'] },
+  { id: 136, name: 'Elektronicarek', color: [40, 44, 52], tex: ['metal', 'tech_shelf', 'metal'] },
+  { id: 137, name: 'Toonbank met gebak', color: [210, 160, 100], tex: ['food_top', 'food_shelf', 'dark_planks'] },
+  { id: 138, name: 'Speelgoedrek', color: [220, 120, 60], tex: ['planks', 'toy_shelf', 'planks'] },
+  { id: 139, name: 'Sportrek', color: [60, 120, 200], tex: ['metal', 'sport_rack', 'metal'] },
+  { id: 140, name: 'Parfumrek', color: [230, 210, 230], tex: ['paint_white', 'perfume_shelf', 'paint_white'] },
+  { id: 141, name: 'Schoenenrek', color: [140, 100, 70], tex: ['planks', 'shoe_shelf', 'planks'] },
+  { id: 142, name: 'Etalagepop', color: [230, 226, 220], tex: ['paint_white', 'mannequin', 'paint_white'], cutout: true },
+  { id: 143, name: 'Menubord', color: [30, 32, 30], tex: ['paint_black', 'menu_board', 'paint_black'] },
+  { id: 144, name: 'Bank', color: [130, 96, 60], tex: ['bench_top', 'bench_side', 'metal'], seat: 'sit', cutout: true },
+  { id: 145, name: 'Luifel rood', color: [200, 50, 50], tex: ['awning_red'] },
+  { id: 146, name: 'Luifel blauw', color: [40, 80, 170], tex: ['awning_blue'] },
+  { id: 147, name: 'Vertrekbord', color: [20, 22, 28], tex: ['paint_black', 'departure_board', 'paint_black'] },
+  { id: 148, name: 'Fruitkrat', color: [200, 120, 50], tex: ['fruit_top', 'crate', 'crate'] },
+  { id: 149, name: 'Bagagekluis', color: [150, 156, 166], tex: ['metal', 'locker', 'metal'] },
+  { id: 150, name: 'Hyperloopglas', color: [190, 230, 250], tex: ['hyper_glass'], transparent: true },
 ];
 
 export const N_BLOCKS = BLOCKS.length;
