@@ -30,6 +30,7 @@ function clipRuns(src, T) {
       return true;
     };
     if (!(clip(-dx, ax) && clip(dx, T - ax) && clip(-dz, az) && clip(dz, T - az))) { flush(); continue; }
+    if (t1 - t0 < 1e-6) continue; // stuk van lengte nul (punt precies op de tegelrand): geen dubbel punt (TERRANOVA 16.1)
     const p0 = [ax + dx * t0, az + dz * t0, ay + (by - ay) * t0], p1 = [ax + dx * t1, az + dz * t1, ay + (by - ay) * t1];
     if (!run.length || t0 > 0) { flush(); run.push(...p0); }
     run.push(...p1);
@@ -58,7 +59,7 @@ function at(e, d, out) {
   return out;
 }
 
-class Network {
+export class Network {
   constructor() { this.edges = new Map(); this.sig = ''; this.stops = []; this.len = { road: 0, walk: 0, tram: 0, rail: 0, major: 0 }; }
   build(tiles, T) {
     const edges = new Map(), stops = [], signals = [];
@@ -67,7 +68,7 @@ class Network {
       t.paths.forEach((p, pi) => {
         if (p.type === 'signal') { if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) signals.push({ x: t.ox + p.pts[0], y: p.pts[2] + 1, z: t.oz + p.pts[1] }); return; }
         if (p.type === 'railstop' || p.type === 'busstop' || p.type === 'metrostop') {
-          if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) stops.push({ kind: p.type, x: t.ox + p.pts[0], y: p.pts[2], z: t.oz + p.pts[1], name: p.name || '' });
+          if (p.pts[0] >= 0 && p.pts[1] >= 0 && p.pts[0] < T && p.pts[1] < T) stops.push({ kind: p.type, x: t.ox + p.pts[0], y: p.pts[2], z: t.oz + p.pts[1], name: p.name || '', trk: p.trk || 0, plat: p.plat || 0 });
           return;
         }
         const net = NET_OF[p.type]; if (!net) return;
@@ -76,6 +77,8 @@ class Network {
           for (let i = 0; i < r.length; i += 3) { pts[i] = t.ox + r[i]; pts[i + 1] = r[i + 2] + 1; pts[i + 2] = t.oz + r[i + 1]; }
           const id = t.key + '|' + pi + '|' + ri;
           const e = makeEdge(id, net, pts, p.type === 'carM'); e.cls = p.type; e.line = p.line || ''; edges.set(id, e);
+          // Megatower Grand Central (TERRANOVA 16.1): spoornummer, wisselstraat, geen masten, vaste rijrichting
+          if (p.trk) e.trk = p.trk; if (p.throat) e.throat = p.throat; if (p.noMast) e.noMast = true; if (p.run) e.runDir = p.run; if (p.gc) e.gc = p.gc;
         });
       });
     }
@@ -115,7 +118,9 @@ class Network {
           const [px, , pz] = end(e, k), out = k ? e.t1 : [-e.t0[0], -e.t0[1]];
           near(px, pz, R, ([f, j]) => {
             if (f === e || f.net !== e.net) return;
-            const [qx, , qz] = end(f, j);
+            if (e.trk && f.trk && e.trk !== f.trk) return; // Grand Central: geen sprong tussen twee perronsporen in de waaier
+            const [qx, qy, qz] = end(f, j);
+            if (Math.abs(qy - end(e, k)[1]) > 2.5) return;   // niet over verdiepingen heen koppelen (winkelcentrum, station)
             if (Math.hypot(qx - px, qz - pz) > R) return;
             const inn = j ? [-f.t1[0], -f.t1[1]] : f.t0;
             if (out[0] * inn[0] + out[1] * inn[1] < minDot) return;
@@ -133,10 +138,12 @@ class Network {
         if (!nets.includes(e.net) || e.conn) continue;
         const r = s.kind === 'railstop' || s.kind === 'metrostop' ? 16 : 10;
         if (s.kind === 'metrostop' && Math.abs(e.pts[1] - s.y) > 6) continue; // alleen sporen op dezelfde diepte
+        if (s.trk && e.trk !== s.trk) continue;                                // perronspoor: alleen dat ene spoor
+        if (!s.trk && e.trk) continue;
         if (Math.abs(e.pts[0] - s.x) > e.len + r || Math.abs(e.pts[2] - s.z) > e.len + r) continue;
         let bd = 1e9, bdd = 0;
         for (let d = 0; d <= e.len; d += 2) { at(e, d, tmp); const q = Math.hypot(tmp.x - s.x, tmp.z - s.z); if (q < bd) { bd = q; bdd = d; } }
-        if (bd < r && bdd > 6 && bdd < e.len - 6) { e.stops.push(bdd); (e.stopNames || (e.stopNames = [])).push(s.name || (s.kind === 'railstop' ? 'Station' : 'Halte')); }
+        if (bd < r && bdd > 6 && bdd < e.len - 6) { e.stops.push(bdd); (e.stopNames || (e.stopNames = [])).push(s.name || (s.kind === 'railstop' ? 'Station' : 'Halte')); if (s.plat) e.stopPlat = s.plat; }
       }
     }
     // verkeerslichten: stopstreep op elke rijstrook die er vlak langs loopt
@@ -341,7 +348,7 @@ export class Traffic {
       }
       if (train) for (let d = 0.3; d < e.len; d += 0.65) { at(e, d, tmp); sleepers.push(tmp.x, tmp.y, tmp.z, Math.atan2(tmp.tx, tmp.tz)); }
       const every = train ? 55 : 38;
-      for (let d = every / 2; d < e.len; d += every) { at(e, d, tmp); masts.push(tmp.x, tmp.y, tmp.z, Math.atan2(tmp.tx, tmp.tz), wireH); }
+      if (!e.noMast) for (let d = every / 2; d < e.len; d += every) { at(e, d, tmp); masts.push(tmp.x, tmp.y, tmp.z, Math.atan2(tmp.tx, tmp.tz), wireH); }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -381,6 +388,33 @@ export class Traffic {
     for (const o of this.rail) this.group.add(o);
   }
 
+  // ---------- Megatower Grand Central: treindienstleiding (TERRANOVA 16.1) ----------
+  // Een wisselstraat (e.throat) mag door één voertuig tegelijk bereden worden; een perronspoor (e.trk) wordt
+  // gereserveerd van het binnenrijden tot het vertrek. Binnenkomende voertuigen krijgen het vrije spoor dat het langst
+  // ongebruikt bleef, zodat alle perronsporen aan bod komen. Zo kruisen er geen voertuigen in de waaier.
+  gcLockMap() { return this.gcLock || (this.gcLock = new Map()); }
+  gcResMap() { return this.gcRes || (this.gcRes = new Map()); }
+  gcHolds(id, a) { const h = this.gcLockMap().get(id); return h && h !== a && !h.dead && (h.route.some(r => r.e.throat === id) || (h.gcPick && h.gcPick.e.throat === id)) ? h : null; }
+  gcTaken(trk, a) { const h = this.gcResMap().get(trk); return !!(h && h !== a && !h.dead && h.gcTrk === trk); }
+  gcPickNext(a, opts) {
+    const th = opts.filter(o => o.e.throat); if (!th.length) return null;
+    const id = th[0].e.throat; if (this.gcHolds(id, a)) return null;
+    const cur = a.route[0].e, res = this.gcResMap();
+    let pick;
+    if (cur.trk) { pick = th[0]; if (res.get(cur.trk) === a) res.delete(cur.trk); a.gcTrk = null; } // vertrek van het perron
+    else {
+      const free = th.filter(o => o.e.trk && !this.gcTaken(o.e.trk, a));
+      if (!free.length) return null;
+      const last = this.gcLast || (this.gcLast = new Map());
+      free.sort((p, q) => (last.get(p.e.trk) || -1) - (last.get(q.e.trk) || -1) || (p.e.trk - q.e.trk));
+      pick = free[0];
+      if (a.gcTrk && res.get(a.gcTrk) === a) res.delete(a.gcTrk);
+      res.set(pick.e.trk, a); a.gcTrk = pick.e.trk; last.set(pick.e.trk, (this.clock || 0) + Math.random() * 0.01);
+      (this.gcUsed || (this.gcUsed = new Set())).add(pick.e.trk);
+    }
+    this.gcLockMap().set(id, a);
+    return pick;
+  }
   // aan welke kant ligt het perron? (de deuren gaan alleen daar open) — gemeten in de blokken naast het voertuig
   platformSide(a) {
     if (!this.solidAt || a.kind === 'car') return null;
@@ -398,6 +432,8 @@ export class Traffic {
     let total = 0;
     for (const e of this.net.edges.values()) {
       if ((net === 'ship' ? (e.net !== 'water' && e.net !== 'sea') : e.net !== net) || e.conn || e.len < 8) continue;
+      if (e.throat) continue;                                                       // niet in een wisselstraat (Grand Central)
+      if (e.trk && this.gcTaken(e.trk)) continue;                                    // perronspoor al bezet
       if (kind === 'bus' && this.net.len.major > 300 && !e.major) continue;
       if (kind === 'bus' && this.busLinesOnly && !(e.line && e.line[0] === 'B')) continue; // vaste buslijnen (Megatower City)
       if (kind === 'car' && e.cls === 'boat') continue;
@@ -444,6 +480,7 @@ export class Traffic {
     // niet bovenop een ander voertuig
     if (kind !== 'walk') for (const b of this.agents) if (b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
     a.v = SPEED[kind] * 0.6;
+    if (e.trk) { if (a.route.some(r => r.e.throat && this.gcHolds(r.e.throat, a))) return null; for (const r of a.route) if (r.e.throat) this.gcLockMap().set(r.e.throat, a); this.gcResMap().set(e.trk, a); a.gcTrk = e.trk; }
     this.agents.push(a);
     if (kind === 'bus' || kind === 'tram' || kind === 'metro' || kind === 'train') {
       const dest = this.terminus(a);
@@ -590,7 +627,8 @@ export class Traffic {
         if (a.trip) { this.trips.alight(a, a.trip.occ); a.trip.dest = 'Niet in dienst'; }
         a.oos = true; a.line = null;
       }
-      const o = this.choose(a, opts);
+      const o = a.gcPick && opts.includes(a.gcPick) ? a.gcPick : this.choose(a, opts);
+      if (o === a.gcPick) a.gcPick = null;
       a.route.unshift({ e: o.e, dir: o.dir });
       a.d = o.dir > 0 ? over : o.e.len - over;
       dist = 0;
@@ -812,6 +850,14 @@ export class Traffic {
         }
         a.gapAhead = gap;
         if (gap < 1e8) target = Math.min(target, Math.max(0, (gap - 3) * 0.9));
+        // Grand Central: vóór een wisselstraat een vrij perronspoor en de wisselstraat zelf vastleggen, anders wachten
+        if ((a.kind === 'train' || a.kind === 'tram' || a.kind === 'metro') && !a.player && left < 120) {
+          const nx = e.next[r.dir > 0 ? 1 : 0];
+          if (nx.length && nx.some(n => n.e.throat)) {
+            if (!a.gcPick || !nx.includes(a.gcPick)) a.gcPick = this.gcPickNext(a, nx) || null;
+            if (!a.gcPick) { target = Math.min(target, Math.max(0, Math.sqrt(2 * 0.8 * Math.max(0, left - 10)))); a.gcWait = (a.gcWait || 0) + dt; } else a.gcWait = 0;
+          }
+        }
         // haltes
         if ((a.kind === 'bus' || a.kind === 'tram' || a.kind === 'train' || a.kind === 'metro') && e.stops.length && !a.oos) {
           const half = a.kind === 'bus' ? 0 : a.L / 2;

@@ -10,21 +10,27 @@
 // voertuigen volgens deze dienstregeling.
 import { periodOfHour, HEADWAY, DWELL, PERIOD_LABEL } from './service.js';
 import { TRAM_X, TRAM_Z, TILES, avenueNS, avenueEW, zoneName, BUS_NS, BUS_EW, busLineNS, busLineEW } from './megacity.js';
+import { M2_STATIONS, M2_X, TRAM as GC_TRAM, HYPER, RAIL_Z as GC_RZ, PX0, PX1 } from './grandcentral.js';
 
 const T = 128, METRO_Z = 40 * T, RAIL_Z = 47 * T;
 const METRO = [[5, 'Westpoort'], [12, 'Parkzicht'], [24, 'Universiteit'], [32, 'Oude Markt'], [40, 'Megatower'], [48, 'Oostkade'], [56, 'Ziekenhuis'], [64, 'Fabriekshallen'], [70, 'Luchthaven']]
   .map(([tx, name]) => ({ id: 'M:' + name, name: 'Metro ' + name, line: 'M1', x: tx * T + 64, z: METRO_Z, kind: 'metro' }));
-const RAIL = [{ id: 'T:Centraal', name: 'Station Megatower Centraal', line: 'IC', x: 38 * T + 64, z: RAIL_Z, kind: 'train' }, { id: 'T:Luchthaven', name: 'Station Luchthaven', line: 'IC', x: 70 * T + 64, z: RAIL_Z, kind: 'train' }];
-export const STOPS = [...METRO, ...RAIL];
+const RAIL = [{ id: 'T:Centraal', name: 'Megatower Grand Central', line: 'IC', x: (PX0 + PX1) / 2, z: RAIL_Z, kind: 'train' }, { id: 'T:Luchthaven', name: 'Station Luchthaven', line: 'IC', x: 70 * T + 64, z: RAIL_Z, kind: 'train' }];
+// metro M2 (TERRANOVA 16.1): noord–zuid onder de laan x = 5376, met Grand Central (-2)
+const METRO2 = M2_STATIONS.map(S => ({ id: 'M2:' + S.name, name: 'Metro ' + S.name, line: 'M2', x: M2_X, z: S.z, kind: 'metro' }));
+// hyperloop (fictief toekomstconcept): Grand Central ↔ Luchthaven, één capsule die heen en weer pendelt
+const HYPERLOOP = [{ id: 'H:GC', name: 'Hyperloop Grand Central', line: 'Hyperloop', x: HYPER.A.dock, z: GC_RZ + HYPER.A.o, kind: 'hyperloop' }, { id: 'H:LH', name: 'Hyperloop Luchthaven', line: 'Hyperloop', x: HYPER.B.dock, z: GC_RZ + HYPER.B.o, kind: 'hyperloop' }];
+export const STOPS = [...METRO, ...METRO2, ...RAIL, ...HYPERLOOP];
 export const PLACES = [
   { id: 'P:toren', name: 'The Megatower (hoofdingang)', x: 40 * T + 64, z: 40 * T + 64 },
-  { id: 'P:centraal', name: 'Station Megatower Centraal', x: 38 * T + 64, z: RAIL_Z + 18 },
+  { id: 'P:centraal', name: 'Megatower Grand Central (stationshal)', x: 5184, z: RAIL_Z - 20 },
   { id: 'P:luchthaven', name: 'Luchthaven (terminal)', x: 72 * T, z: 40 * T },
-  { id: 'P:busstation', name: 'Busstation Centraal', x: 38 * T + 64, z: 47 * T + 110 },
+  { id: 'P:busstation', name: 'Busstation Centraal', x: 38 * T + 64, z: 48 * T + 64 },
   { id: 'P:park', name: 'Centraal Park', x: 45 * T + 64, z: 34 * T },
   { id: 'P:ziekenhuis', name: 'Ziekenhuis Sint-Elisabeth', x: 56 * T + 64, z: 42 * T },
   { id: 'P:uni', name: 'Universiteitscampus', x: 24 * T + 64, z: 38 * T },
   ...METRO.map(s => ({ id: s.id, name: s.name, x: s.x, z: s.z })),
+  ...METRO2.map(s => ({ id: s.id, name: s.name, x: s.x, z: s.z })),
 ];
 const WALK = 1.35, METRO_V = 16, TRAIN_V = 33, TRAM_V = 9.5, TRANSFER = 60, WALK_MAX = 1600;
 export const TRAIN_HEADWAY = { spits: 600, dal: 900, avond: 1200, nacht: 1800 };
@@ -48,6 +54,8 @@ function lineRuns(mode, off, colorOf, defs) {
       if (run.length) { const t0 = Math.floor((g - step) / T); let cont = true; for (let q = t0; q <= t; q++) if (!(axis === 'x' ? avenueNS(b, q) : avenueEW(b, q))) cont = false; if (!cont) flush(); }
       if (!ok) { flush(); continue; }
       const x = axis === 'x' ? b * T : g, z = axis === 'x' ? g : b * T;
+      // T5 rijdt onder Grand Central door: daar is de halte het tramstation (-1)
+      if (line === 'T5' && x > GC_TRAM.u0 - 40 && x < GC_TRAM.u1 + 40) { run.push({ id: `${line}:${g}`, name: 'Tramstation Grand Central', x: 5100, z, kind: mode }); continue; }
       run.push({ id: `${line}:${g}`, name: (mode === 'tram' ? 'Tramhalte ' : 'Halte ') + (axis === 'x' ? zoneName(b * T, g) : zoneName(g, b * T)), x, z, kind: mode });
     }
     flush();
@@ -58,17 +66,20 @@ function lineRuns(mode, off, colorOf, defs) {
 const tramLines = () => lineRuns('tram', 80, (l) => TRAM_COLOR[l], [...TRAM_X.map((b, i) => ['T' + (i + 1), 'x', b]), ...TRAM_Z.map((b, i) => ['T' + (i + 3), 'z', b])]);
 const busLines = () => lineRuns('bus', 42, () => '#27ae60', [...BUS_NS.map(b => [busLineNS(b), 'x', b]), ...BUS_EW.map(b => [busLineEW(b), 'z', b])]);
 export const BUS_HEADWAY = { spits: 600, dal: 900, avond: 1200, nacht: 1800 };
-const TRAM_COLOR = { T1: '#e67e22', T2: '#16a085', T3: '#8e44ad', T4: '#c0392b' };
+const TRAM_COLOR = { T1: '#e67e22', T2: '#16a085', T3: '#8e44ad', T4: '#c0392b', T5: '#d35400' };
 export const LINES = [
   { id: 'M1', line: 'M1', mode: 'metro', color: '#2f6db5', stops: METRO },
+  { id: 'M2', line: 'M2', mode: 'metro', color: '#9b59b6', stops: METRO2 },
+  { id: 'HL', line: 'Hyperloop', mode: 'hyperloop', color: '#00bcd4', stops: HYPERLOOP },
   { id: 'IC', line: 'IC', mode: 'trein', color: '#f1c40f', stops: RAIL },
   ...tramLines(),
   ...busLines(),
 ];
 const BUS_V = 8;
-const speedOf = (L) => L.mode === 'metro' ? METRO_V : L.mode === 'trein' ? TRAIN_V : L.mode === 'bus' ? BUS_V : TRAM_V;
-const headwayOf = (L, per) => L.mode === 'trein' ? TRAIN_HEADWAY[per] : L.mode === 'bus' ? BUS_HEADWAY[per] : HEADWAY[per][L.mode === 'metro' ? 'metro' : 'tram'];
-const dwellOf = (L, per) => L.mode === 'trein' ? TRAIN_DWELL : DWELL[per][L.mode];
+export const HYPER_V = 40, HYPER_HEADWAY = 300, HYPER_DWELL = 45; // gemiddeld met optrekken en remmen; heen en terug ± 5 min
+const speedOf = (L) => L.mode === 'metro' ? METRO_V : L.mode === 'trein' ? TRAIN_V : L.mode === 'bus' ? BUS_V : L.mode === 'hyperloop' ? HYPER_V : TRAM_V;
+const headwayOf = (L, per) => L.mode === 'trein' ? TRAIN_HEADWAY[per] : L.mode === 'bus' ? BUS_HEADWAY[per] : L.mode === 'hyperloop' ? HYPER_HEADWAY : HEADWAY[per][L.mode === 'metro' ? 'metro' : 'tram'];
+const dwellOf = (L, per) => L.mode === 'trein' ? TRAIN_DWELL : L.mode === 'hyperloop' ? HYPER_DWELL : DWELL[per][L.mode];
 // tijdsprofiel per richting: vertrek aan halte i = vertrek aan de beginhalte + cum[i]
 function profile(L, dir, per) {
   const st = dir ? [...L.stops].reverse() : L.stops, cum = [0], dw = dwellOf(L, per);
@@ -78,7 +89,9 @@ function profile(L, dir, per) {
   return { st, cum, h, off, dw, run: (i) => Math.hypot(st[i + 1].x - st[i].x, st[i + 1].z - st[i].z) / speedOf(L) + (L.mode === 'trein' ? TRAIN_DWELL : 0) };
 }
 const dirName = (L, dir) => { const st = dir ? L.stops[0] : L.stops[L.stops.length - 1]; return L.mode === 'tram' || L.mode === 'bus' ? st.name.replace('Tramhalte ', '').replace('Halte ', '') + ` (${L.stops[0].x === L.stops[1].x ? (dir ? 'noord' : 'zuid') : (dir ? 'west' : 'oost')})` : st.name.replace('Metro ', '').replace('Station ', ''); };
-const perronOf = (L, dir) => L.mode === 'metro' ? (dir ? 2 : 1) : L.mode === 'trein' ? (dir ? 1 : 2) : null;
+// perrons in Grand Central (TERRANOVA 16.1): oostwaartse treinen op sporen 1–11, westwaartse op 12–22 (het juiste spoor
+// wijst de treindienstleiding toe bij het binnenrijden); M1 zoals vroeger; hyperloop: perron 1 vertrek, 2 aankomst
+const perronOf = (L, dir) => L.mode === 'metro' ? (dir ? 2 : 1) : L.mode === 'trein' ? (dir ? '12–22' : '1–11') : L.mode === 'hyperloop' ? 1 : null;
 
 // ---------- planner ----------
 // vaste graaf per periode (TERRANOVA 15): haltes en wandelburen (≤ 1,6 km) worden één keer berekend;
@@ -173,7 +186,7 @@ export function alternatives(from, to, hour) {
   }
   return out;
 }
-const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', bus: '🚌', wandelen: '🚶' };
+const ICON = { metro: '🚇', trein: '🚆', tram: '🚊', bus: '🚌', hyperloop: '🚄', wandelen: '🚶' };
 export function planHtml(r) {
   const min = (s) => Math.max(1, Math.round(s / 60));
   return `<div class="small muted">Dienstregeling: ${PERIOD_LABEL[r.per]} (metro om de ${HEADWAY[r.per].metro / 60} min, tram om de ${HEADWAY[r.per].tram / 60} min, bus om de ${BUS_HEADWAY[r.per] / 60} min, trein om de ${TRAIN_HEADWAY[r.per] / 60} min)</div>
@@ -214,10 +227,14 @@ export function departures(stopName, hour, n = 6, pos = null) {
 }
 export const fmtTime = fmt;
 
-// vertrekbord in de stationshal van Megatower Centraal: de volgende treinen naar de Luchthaven
+// vertrekbord in de stationshal van Megatower Grand Central: treinen, hyperloop, tram T5 en metro M2
 export function centraalBoard(hour) {
   const per = periodOfHour(hour), t = Math.round(hour * 3600), h = TRAIN_HEADWAY[per], rows = [];
   let d = nextDep(t, h, 120);
-  for (let i = 0; i < 4; i++, d += h) rows.push(`${fmt(d)}  IC → Luchthaven  spoor 2  (${Math.round((Math.abs(RAIL[1].x - RAIL[0].x) / TRAIN_V + TRAIN_DWELL) / 60)} min)`);
-  return `🚆 Megatower Centraal · vertrekken (${PERIOD_LABEL[per]}, om de ${h / 60} min)\n${rows.join('\n')}\nMetro M1: halte Megatower (± 260 m) · trappen en lift naar de perrons`;
+  for (let i = 0; i < 3; i++, d += h) rows.push(`${fmt(d)}  IC → Luchthaven  sporen 1–11 (${Math.round((Math.abs(RAIL[1].x - RAIL[0].x) / TRAIN_V + TRAIN_DWELL) / 60)} min)`);
+  const hl = departures('Hyperloop Grand Central', hour, 2), t5 = departures('Tramstation Grand Central', hour, 2), m2 = departures('Metro Grand Central', hour, 2);
+  for (const r of hl) rows.push(`${r.hhmm}  Hyperloop → Luchthaven  terminal (niveau 0)`);
+  for (const r of t5) rows.push(`${r.hhmm}  T5 → ${r.dir}  tramstation (-1)`);
+  for (const r of m2) rows.push(`${r.hhmm}  M2 → ${r.dir}  metro (-2)`);
+  return `🚆 Megatower Grand Central · vertrekken (${PERIOD_LABEL[per]})\n${rows.join('\n')}\nHet perronspoor wordt bij het binnenrijden toegewezen (vrij spoor). Metro M1: halte Megatower (± 900 m)`;
 }

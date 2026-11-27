@@ -4,7 +4,9 @@
 import * as THREE from 'three';
 import { B } from './blocks.js';
 import { buildingAt, interiorBlock, metroStationAt, MEGA_HALL, METRO_Z } from './megacity.js';
-import { centraalBoard } from './megaplan.js';
+import { centraalBoard, departures } from './megaplan.js';
+import { gcPlace, inGC, HYPER, RAIL_Z as GC_RZ, M2_X, PLATFORMS } from './grandcentral.js';
+import { Hyperloop } from './hyperloop.js';
 import { periodOfHour, PERIOD_LABEL, DWELL, HEADWAY } from './service.js';
 import { LIFTS, floorY, floorAt, floorLabel, roomAt, CX, CZ, zoneOf, ZONE_NAMES, inTowerBox, F_MIN } from './megatower.js';
 
@@ -55,8 +57,9 @@ export class MegaView {
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.v3 = new THREE.Vector3(); this.one = new THREE.Vector3(1, 1, 1);
     this.doorsDirty = true; this.doorT = 0; this.room = null; this.panelFor = null; this.opened = new Map();
     this.makePanel();
+    try { this.hyper = new Hyperloop(g); } catch (e) { console.error(e); this.hyper = null; } // hyperloop Grand Central ↔ Luchthaven (TERRANOVA 16.1)
   }
-  dispose() { this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.group.removeFromParent(); this.panel?.remove(); this.rideHud?.remove(); }
+  dispose() { this.hyper?.dispose(); this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); this.group.removeFromParent(); this.panel?.remove(); this.rideHud?.remove(); }
 
   // ---------- botsingen: gesloten liftdeuren en de vloer van de cabine ----------
   solid(x, y, z) {
@@ -110,6 +113,7 @@ export class MegaView {
   }
   update(dt) {
     const g = this.g, p = g.player.pos;
+    if (this.hyper) this.hyper.update(dt);
     this.updateNav();
     const near = inTowerBox(p.x, p.z) || Math.hypot(p.x - CX, p.z - CZ) < 120;
     for (let i = 0; i < this.S.length; i++) {
@@ -314,6 +318,8 @@ export class MegaView {
   lineDest(a, dx, dz) { if (a.kind !== 'metro') return null; return Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? 'Luchthaven' : 'Westpoort') : null; }
   hudText() {
     const r = this.where, p = this.g.player.pos;
+    if (this.hyper && this.hyper.riding()) return this.hyper.info().split('\n')[0];
+    { const gp = gcPlace(p.x, p.y, p.z); if (gp) return (/Hyperloop/.test(gp) ? '🚄 ' : /Metro/.test(gp) ? '🚇 ' : /Tram/.test(gp) ? '🚊 ' : '🚉 ') + gp; }
     // ondergronds langs metrolijn M1: station of tunnel
     if (!(r && r.inside) && p.y < this.g.meta.ground - 6 && Math.abs(p.z - METRO_Z) < 14) { const ms = metroStationAt(p.x, p.z); return ms ? `🚇 Metrostation ${ms.name} · M1` : '🚇 Metrotunnel M1'; }
     if (!r || !r.inside) return null;
@@ -321,7 +327,14 @@ export class MegaView {
   }
   roomNear(t) { const r = roomAt(t.x + 0.5, t.y + 0.5, t.z + 0.5); return r && r.room && r.room !== 'Liftlobby' ? r.room : null; }
   signText(t) {
-    // stationshal en perrons van Megatower Centraal
+    // hyperloopterminals: vertrekscherm van de capsule
+    if (this.hyper && Math.abs(t.y - (HYPER.y + 2)) < 4 && ((Math.abs(t.x - HYPER.A.dock) < 60 && Math.abs(t.z - GC_RZ - HYPER.A.o) < 9) || (Math.abs(t.x - HYPER.B.dock) < 70 && Math.abs(t.z - GC_RZ - HYPER.B.o) < 9))) return this.hyper.info();
+    // tramstation en metro M2 in Grand Central
+    if (inGC(t.x, t.z) && t.y < this.g.meta.ground - 1 && t.y > this.g.meta.ground - 12) return '🚊 Tramstation Grand Central (-1) · T5\n' + departures('Tramstation Grand Central', this.g.settings.hour ?? 12, 6).map(r => `${r.hhmm}  ${r.line} → ${r.dir}`).join('\n');
+    if (Math.abs(t.x - M2_X) < 26 && t.y < this.g.meta.ground - 18) { const gp = gcPlace(t.x, t.y, t.z) || 'Metro M2'; const nm = gp.replace('Metro M2 · ', '').replace(' (niveau -2)', ''); return '🚇 ' + gp + '\n' + departures('Metro ' + nm, this.g.settings.hour ?? 12, 6).map(r => `${r.hhmm}  ${r.line} → ${r.dir}`).join('\n'); }
+    // perrons van Grand Central: perronnummer en sporen
+    if (inGC(t.x, t.z) && t.y > this.g.meta.ground + 8 && t.y < this.g.meta.ground + 16) { const P = PLATFORMS.find(q => t.z - GC_RZ >= q.o0 - 1 && t.z - GC_RZ <= q.o1 + 1); if (P) return `🚉 Perron ${P.n} · sporen ${P.tracks[0]} en ${P.tracks[1]}\n` + centraalBoard(this.g.settings.hour ?? 12); }
+    // stationshal en perrons van Megatower Grand Central
     if (t.x >= MEGA_HALL.x0 - 300 && t.x <= MEGA_HALL.x1 + 120 && t.z >= MEGA_HALL.z0 - 2 && t.z <= MEGA_HALL.z1 + 2 && t.y > this.g.meta.ground + 4) return centraalBoard(this.g.settings.hour ?? 12);
     const ms = t.y < this.g.meta.ground - 6 ? metroStationAt(t.x, t.z) : null;
     if (ms) {
