@@ -480,7 +480,9 @@ export class Traffic {
     // niet bovenop een ander voertuig
     if (kind !== 'walk') for (const b of this.agents) if (b.route[0].e === e && Math.abs(b.d - a.d) < a.L + b.L) return null;
     a.v = SPEED[kind] * 0.6;
-    if (e.trk) { if (a.route.some(r => r.e.throat && this.gcHolds(r.e.throat, a))) return null; for (const r of a.route) if (r.e.throat) this.gcLockMap().set(r.e.throat, a); this.gcResMap().set(e.trk, a); a.gcTrk = e.trk; }
+    // Grand Central: wie met een deel van de trein in een wisselstraat verschijnt, moet die vrij hebben en vergrendelt ze
+    if (a.route.some(r => r.e.throat)) { if (a.route.some(r => r.e.throat && this.gcHolds(r.e.throat, a))) return null; for (const r of a.route) if (r.e.throat) this.gcLockMap().set(r.e.throat, a); }
+    if (e.trk) { if (this.gcTaken(e.trk, a)) return null; this.gcResMap().set(e.trk, a); a.gcTrk = e.trk; }
     this.agents.push(a);
     if (kind === 'bus' || kind === 'tram' || kind === 'metro' || kind === 'train') {
       const dest = this.terminus(a);
@@ -626,6 +628,11 @@ export class Traffic {
         if (!this.pl || Math.hypot(h.x - this.pl.x, h.z - this.pl.z) > 150) { a.d = r.dir > 0 ? e.len : 0; a.dead = true; a.why = 'einde lijn'; return; }
         if (a.trip) { this.trips.alight(a, a.trip.occ); a.trip.dest = 'Niet in dienst'; }
         a.oos = true; a.line = null;
+      }
+      // Grand Central: een wisselstraat in zonder vergrendeling mag niet: dan aan het einde van dit stuk spoor wachten
+      if (!(a.gcPick && opts.includes(a.gcPick)) && !a.player && (a.kind === 'train' || a.kind === 'tram' || a.kind === 'metro') && opts.some(q => q.e.throat)) {
+        a.gcPick = this.gcPickNext(a, opts) || null;
+        if (!a.gcPick) { a.d = r.dir > 0 ? e.len : 0; a.v = 0; return; }
       }
       const o = a.gcPick && opts.includes(a.gcPick) ? a.gcPick : this.choose(a, opts);
       if (o === a.gcPick) a.gcPick = null;
