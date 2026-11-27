@@ -3,6 +3,7 @@
 // - geen gaten in de grond (behalve rivier, metrotrappen), alles staat op de grond
 // - bruggen over de rivier lopen door, metro en trein hebben sporen in elke tegel waar ze komen
 // - deterministisch: dezelfde tegel twee keer maken geeft exact hetzelfde
+import { designedOpening } from '../js/grandcentral.js';
 import { generateTile, avenueNS, avenueEW, TILES, landmark, RAIL_Z, METRO_Z } from '../js/megacity.js';
 import { G, T } from '../js/megatower.js';
 import { B, IS_SOLID } from '../js/blocks.js';
@@ -19,7 +20,7 @@ for (let j = 0; j <= TILES; j++) for (let tx = 0; tx < TILES; tx++) {
 }
 console.log(`laaneinden ${ends} (allemaal op een kruispunt als er geen fout staat)`);
 // 2. tegels: gaten, bruggen, sporen, determinisme
-const sample = [[40, 40], [17, 40], [17, 47], [38, 47], [37, 46], [70, 40], [31, 51], [45, 34], [5, 40], [24, 40], [60, 5], [12, 70], [75, 75], [0, 0], [79, 79], [50, 46], [23, 30], [17, 61], [32, 40], [35, 44], [10, 10], [16, 30], [18, 40]]; // + wijken van 15.0: historisch, winkels, villa's, haven
+const sample = [[40, 40], [17, 40], [17, 47], [38, 47], [37, 46], [70, 40], [31, 51], [45, 34], [5, 40], [24, 40], [60, 5], [12, 70], [75, 75], [0, 0], [79, 79], [50, 46], [23, 30], [17, 61], [32, 40], [35, 44], [10, 10], [16, 30], [18, 40], [42, 35], [45, 47], [41, 44], [40, 43], [40, 33], [44, 40], [36, 40]]; // + wijken van 15.0 (historisch, winkels, villa's, haven) en 16.1 (cultuur, uitgaan, Galleria, boulevard, hoogtemix)
 let holes = 0, cols = 0;
 for (const [tx, tz] of sample) {
   const r = generateTile(tx, tz), H = r.H, y0 = r.y0, L = landmark(tx, tz);
@@ -28,7 +29,7 @@ for (const [tx, tz] of sample) {
     cols++;
     const g = at(x, G - 1, z), below = at(x, G - 2, z);
     const wz = tz * T + z;
-    if (!g && !below && !(L && L.id === 'river') && !(L && L.id === 'tower' && x >= 16 && x < 112 && z >= 16 && z < 112) && Math.abs(wz - METRO_Z) > 2) { holes++; if (holes < 5) fail(`gat in de grond op ${tx * T + x}, ${wz}`); }
+    if (!g && !below && !(L && L.id === 'river') && !(L && L.id === 'tower' && x >= 16 && x < 112 && z >= 16 && z < 112) && Math.abs(wz - METRO_Z) > 2 && !designedOpening(tx * T + x, wz)) { holes++; if (holes < 5) fail(`gat in de grond op ${tx * T + x}, ${wz}`); }
   }
   const r2 = generateTile(tx, tz);
   if (r2.H !== H || r2.vox.length !== r.vox.length || Buffer.compare(Buffer.from(r2.vox), Buffer.from(r.vox))) fail(`tegel ${tx},${tz} niet deterministisch`);
@@ -42,17 +43,17 @@ console.log(`kolommen bekeken ${cols} · gaten ${holes}`);
 // wijken (15.0): geen zwevende blokken — elk vast blok boven de straat rust op iets eronder of zit vast aan een buur
 {
   let floating = 0, checked = 0;
-  for (const [tx, tz] of [[32, 40], [31, 39], [35, 44], [36, 45], [10, 10], [16, 30], [18, 40]]) {
+  for (const [tx, tz] of [[32, 40], [31, 39], [35, 44], [36, 45], [10, 10], [16, 30], [18, 40], [42, 35], [45, 47], [41, 44], [40, 43], [40, 33], [38, 46], [40, 47]]) {
     const r = generateTile(tx, tz), H = r.H, y0 = r.y0;
     const at = (x, y, z) => { if (x < 0 || z < 0 || x >= T || z >= T) return 1; const ly = y - y0; return ly < 0 || ly >= H ? 0 : r.vox[(z * T + x) * H + ly]; };
     for (let z = 0; z < T; z++) for (let x = 0; x < T; x++) for (let y = G; y < G + 40; y++) {
       const b = at(x, y, z); if (!b) continue; checked++;
       if (at(x, y - 1, z) || at(x, y + 1, z)) continue; // rust op iets of hangt aan het plafond (lamp)
       if (at(x + 1, y, z) || at(x - 1, y, z) || at(x, y, z + 1) || at(x, y, z - 1)) continue;
-      floating++; if (floating < 4) fail(`zwevend blok ${b} in tegel ${tx},${tz} op ${x},${y - G},${z}`);
+      floating++; (globalThis.__fl || (globalThis.__fl = {}))[tx + "," + tz + ":" + b] = ((globalThis.__fl || {})[tx + "," + tz + ":" + b] || 0) + 1; if (floating < 4) fail(`zwevend blok ${b} in tegel ${tx},${tz} op ${x},${y - G},${z}`);
     }
   }
-  console.log(`wijken: ${checked} blokken boven de straat bekeken · zwevend ${floating}`);
+  console.log(`wijken: ${checked} blokken boven de straat bekeken · zwevend ${floating}`, floating ? JSON.stringify(globalThis.__fl) : "");
 }
 console.log(fails ? `${fails} fout(en)` : 'Megatower City in orde');
 process.exitCode = fails ? 1 : 0;

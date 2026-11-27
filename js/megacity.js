@@ -8,12 +8,14 @@ import { B } from './blocks.js';
 import { hallBlock, hallFloor } from './stationhall.js';
 import { hash, placeTree, placeTreeVariety } from './city.js';
 import { G, T, TOWER_TX, TOWER_TZ, Y0 as TOWER_Y0, TILE_H as TOWER_H, CX, CZ, writeTower, floorY } from './megatower.js';
+import { isBoulevard, isGalleria, boulevardColumn, galleriaColumn, boulevardCrossing, shoppingPaths, GAL } from './shopping.js';
+import { GC, inGC, gcGround, gcUpper, tramColumn, tramStairTop, m2Column, tubeColumn, terminalB, gcPaths, WX0 as GC_WX0, EX1 as GC_EX1, HALL as GC_HALL, TRAM as GC_TRAM, NAME as GC_NAME, M2_X, M2_Z0, M2_Z1 } from './grandcentral.js';
 
 export const TILES = 80, MW = TILES * T, ML = TILES * T;
 export const META = {
   id: 'megatower', name: 'Megatower City', kind: 'proc', tile: T,
   tilesX: TILES, tilesZ: TILES, tiles: TILES,
-  ground: G, version: 6, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
+  ground: G, version: 7, superTiles: 4, miniStep: 2, groundColor: [0.5, 0.52, 0.5], maxH: 1200, megatower: true,
 };
 const Y0 = G - 32;          // gewone tegels beginnen 32 m onder de straat (metro op -18 m)
 export const SPAWN = { x: CX + 0.5, y: G + 1, z: CZ - 58, yaw: 0, pitch: 0.25 };
@@ -27,7 +29,7 @@ const LM = [
   { id: 'uni', name: 'Universiteit', x0: 22, x1: 24, z0: 30, z1: 31 },
   { id: 'industry', name: 'Industriegebied', x0: 56, x1: 67, z0: 2, z1: 12 },
 ];
-const SINGLE = { '40,40': 'tower', '50,46': 'hospital', '38,47': 'busstation', '36,42': 'mall', '47,44': 'mall', '28,38': 'mall', '52,30': 'mall', '34,36': 'park2', '58,56': 'park2', '12,20': 'park2', '20,62': 'park2', '62,22': 'park2' };
+const SINGLE = { '40,40': 'tower', '50,46': 'hospital', '38,48': 'busstation', '36,42': 'mall', '47,44': 'mall', '28,38': 'mall', '52,30': 'mall', '34,36': 'park2', '58,56': 'park2', '12,20': 'park2', '20,62': 'park2', '62,22': 'park2' };
 const RIVER_TX = 17;
 export const RAIL_Z = 47 * T, METRO_Z = 40 * T;
 const STATION_X0 = 37 * T, STATION_X1 = 40 * T;      // Megatower Centraal (op het viaduct)
@@ -35,17 +37,20 @@ const RAIL_END = 70 * T + 120;                        // eindpunt aan de luchtha
 const METRO_END = 70 * T + 112;
 const METRO_ST = [5, 12, 24, 32, 40, 48, 56, 64, 70]; // stations (tegelkolom)
 const METRO_NAMES = { 5: 'Westpoort', 12: 'Parkzicht', 24: 'Universiteit', 32: 'Oude Markt', 40: 'Megatower', 48: 'Oostkade', 56: 'Ziekenhuis', 64: 'Fabriekshallen', 70: 'Luchthaven' };
-export const TRAM_X = [30, 52], TRAM_Z = [26, 56];
+export const TRAM_X = [30, 52], TRAM_Z = [26, 56, 46]; // T5 (TERRANOVA 16.1): laan z = 5888, onder Grand Central door
+const BUS_FREE_Z = [26, 56];                          // buslijnen blijven genummerd zoals vóór T5
 // buslijnen (TERRANOVA 14.2): om de 4 lanen een vaste buslijn die de hele laan volgt (niet op de tramlanen);
 // noord-zuid B1–B19, oost-west daarna. Haltes om de 384 m aan beide kanten van de laan (js/traffic.js stopt per rijrichting).
 export const BUS_NS = [], BUS_EW = [];
 for (let i = 2; i < 80; i += 4) { if (!TRAM_X.includes(i)) BUS_NS.push(i); }
-for (let j = 2; j < 80; j += 4) { if (!TRAM_Z.includes(j)) BUS_EW.push(j); }
+for (let j = 2; j < 80; j += 4) { if (!BUS_FREE_Z.includes(j)) BUS_EW.push(j); }
 export const busLineNS = (i) => { const k = BUS_NS.indexOf(i); return k < 0 ? '' : 'B' + (k + 1); };
 export const busLineEW = (j) => { const k = BUS_EW.indexOf(j); return k < 0 ? '' : 'B' + (BUS_NS.length + k + 1); };          // laantegelgrenzen met een tram in de middenberm
 const AIRPORT = LM[2], RUNWAY_X = 76 * T + 64, RUNWAY_Z0 = 31 * T, RUNWAY_Z1 = 50 * T + 100;
 
 const TOWER_LM = { id: 'tower', group: 'towerplaza', single: false };
+const GC_LM = { id: 'grandcentral', name: 'Megatower Grand Central', single: false };
+const GAL_LM = { id: 'galleria', name: 'Megatower Galleria', single: false }, BLV_LM = { id: 'boulevard', name: 'Grand Boulevard', single: false };
 // metrostation op deze plek (voor het vertrekbord)
 export function metroStationAt(x, z) {
   const tx = Math.floor(x / T);
@@ -55,11 +60,14 @@ export function metroStationAt(x, z) {
 export function landmark(tx, tz) {
   if (tx === RIVER_TX) return { id: 'river' };
   if (tx === TOWER_TX && tz === TOWER_TZ) return TOWER_LM;
+  if (tx >= GC.tx0 && tx <= GC.tx1 && tz >= GC.tz0 && tz <= GC.tz1) return GC_LM;
+  if (isGalleria(tx, tz)) return GAL_LM;
+  if (isBoulevard(tx, tz)) return BLV_LM;
   for (const L of LM) if (tx >= L.x0 && tx <= L.x1 && tz >= L.z0 && tz <= L.z1) return L;
   const s = SINGLE[tx + ',' + tz];
   return s ? { id: s, single: true } : null;
 }
-const lmId = (tx, tz) => { const l = landmark(tx, tz); return l && !l.single && l.id !== 'river' && l.id !== 'industry' ? (l.group || l.id) : null; };
+const lmId = (tx, tz) => { const l = landmark(tx, tz); return l && !l.single && l.id !== 'river' && l.id !== 'industry' && l.id !== 'grandcentral' && l.id !== 'boulevard' ? (l.group || l.id) : null; }; // de lanen kruisen de boulevard // Grand Central: de lanen lopen onder het station door
 // laan tussen twee tegels: weg als beide tegels bij hetzelfde grote gebied horen
 export function avenueNS(i, tz) { if (tz < 0 || tz >= TILES) return false; const a = lmId(i - 1, tz); return !(a && a === lmId(i, tz)); }
 export function avenueEW(j, tx) { if (tx < 0 || tx >= TILES) return false; const a = lmId(tx, j - 1); return !(a && a === lmId(tx, j)); }
@@ -71,7 +79,10 @@ function district(x, z) {
 export function zoneName(x, z) {
   const tx = Math.floor(x / T), tz = Math.floor(z / T), l = landmark(tx, tz);
   if (l) { const n = { tower: 'The Megatower', river: 'Rivier en kades', park: 'Centraal Park', park2: 'Stadspark', stadium: 'Megatower Stadion', airport: 'Luchthaven', uni: 'Universiteitscampus', industry: 'Industriegebied', hospital: 'Ziekenhuis Sint-Elisabeth', busstation: 'Busstation Centraal', mall: 'Winkelcentrum' }[l.id]; if (n) return n; if (l.name) return l.name; } // onbekend oriëntatiepunt (bv. torenplein): naam van de wijk
-  if (Math.abs(z - RAIL_Z) < 16 && x >= STATION_X0 && x < STATION_X1) return 'Station Megatower Centraal';
+  if (inGC(x, z)) return GC_NAME;
+  if (isGalleria(tx, tz)) return 'Megatower Galleria';
+  if (isBoulevard(tx, tz)) return 'Grand Boulevard';
+  { const q = QUARTER(tx, tz); if (q === 'culture') return 'Culturele wijk (Museumkwartier)'; if (q === 'nightlife') return 'Uitgaanswijk'; }
   return { core: 'Centrum', cbd: 'Zakendistrict', urban: 'Stadswijk', resid: 'Woonwijk', suburb: 'Buitenwijk' }[district(x, z)];
 }
 export function groundAt() { return G; }
@@ -95,6 +106,10 @@ function fillColumn(x, z, col) {
     else top = blockColumn(x, z, tx, tz, lx, lz, L, col);
   }
   metroColumn(x, z, col);
+  if (Math.abs(x - M2_X) < 26 && z > M2_Z0 - 8 && z < M2_Z1 + 8) m2Column(x, z, col);
+  if (inGC(x, z)) { top = Math.max(top, gcUpper(x, z, col)); if (kind === 3 && Math.abs(z - RAIL_Z) < 110) kind = 0; } // geen laanbomen onder het spoordek
+  if (Math.abs(z - GC_TRAM_Z) < 32 && x >= GC_TRAM.r0 - 2 && x <= GC_TRAM.e1 + 2) { tramColumn(x, z, col); tramStairTop(x, z, col); if (Math.abs(z - GC_TRAM_Z) < 6) kind = 0; } // geen bomen in de tramsleuf
+  top = Math.max(top, tubeColumn(x, z, col), terminalB(x, z, col));
   const r = railColumn(x, z, col);
   return Math.max(top, r);
 }
@@ -123,8 +138,9 @@ function avenueColumn(x, z, ox, oz, col) {
   }
   const o = ox !== null ? ox : oz, along = ox !== null ? z : x;
   const bnd = ox !== null ? Math.round(x / T) : Math.round(z / T);
-  const tram = ox !== null ? TRAM_X.includes(bnd) : TRAM_Z.includes(bnd);
+  const tram = ox !== null ? TRAM_X.includes(bnd) : TRAM_Z.includes(bnd) && !(bnd === 46 && x >= GC_TRAM.r0 && x <= GC_TRAM.e1); // T5 rijdt hier onder de grond
   col[G - 1] = avenueSurface(o, along, tram);
+  if (oz !== null && o > -12 && o < 11 && boulevardCrossing(x, z)) col[G - 1] = (x & 1) ? B.LINE_WHITE : B.ASPHALT; // zebrapad van de Grand Boulevard
   // straatmeubilair (TERRANOVA 15) op de rij langs de gevels: banken, bloembakken, verlichte reclamezuilen en
   // verkeersborden vlak voor het kruispunt; buiten het centrum een rood fietspad op de rij langs de rijbaan
   const la = ((along % T) + T) % T;
@@ -205,6 +221,9 @@ function blockColumn(x, z, tx, tz, lx, lz, L, col) {
       case 'hospital': return hospitalColumn(x, z, lx, lz, col);
       case 'busstation': return busColumn(x, z, lx, lz, col);
       case 'mall': return mallColumn(x, z, lx, lz, tx, tz, col);
+      case 'grandcentral': return gcGround(x, z, col);
+      case 'galleria': return galleriaColumn(x, z, col) || G - 1;
+      case 'boulevard': { const r = boulevardColumn(x, z, lx, lz, tz, col); if (typeof r === 'object') { kind = r.kind; return r.top; } return r; }
     }
   }
   // straten door het midden (58..69): stoep 2, rijbaan 8, stoep 2
@@ -253,6 +272,8 @@ const HIST_WALLS = [B.BRICK, B.BRICK_DARK, B.RED_SANDSTONE, B.PLASTER_BEIGE, B.L
 const QUARTER = (tx, tz) => {
   if (tx >= 30 && tx <= 34 && tz >= 38 && tz <= 42) return 'historic';
   if (tx >= 33 && tx <= 37 && tz >= 43 && tz <= 46) return 'shops';
+  if (tx >= 41 && tx <= 43 && tz >= 34 && tz <= 36) return 'culture';    // culturele wijk rond metro Museumkwartier (16.1)
+  if (tx >= 44 && tx <= 46 && tz >= 47 && tz <= 48) return 'nightlife';  // uitgaansgebied naast Grand Central (16.1)
   if (tx >= 6 && tx <= 15 && tz >= 6 && tz <= 15) return 'villa';
   if ((tx === RIVER_TX - 1 || tx === RIVER_TX + 1) && tz >= 18 && tz <= 62) return 'warehouse';
   if (tx === BUS_DEPOT.tx && tz === BUS_DEPOT.tz) return 'busdepot';
@@ -485,7 +506,7 @@ const lotCache = new Map();
 export { lotDesc as _lotDesc }; // voor controles en schermafdrukken
 // gevelsoort voor verre gebouwen (js/lod.js): 0 = gewoon raamraster, 1..5 = vliesgevel, bandramen, banden, lamellen, natuursteen
 const FACADE_ID = { curtain: 1, ribbon: 2, bands: 3, fins: 4, stone: 5 };
-export function facadeAt(x, z) { const L = lotDesc(Math.floor(x / 64), Math.floor(z / 64)); return L.type === 'tower' ? FACADE_ID[L.facade] || 0 : 0; }
+export function facadeAt(x, z) { if (Math.abs(x - CX) < 48 && Math.abs(z - CZ) < 48) return 6; const L = lotDesc(Math.floor(x / 64), Math.floor(z / 64)); return L.type === 'tower' ? FACADE_ID[L.facade] || 0 : 0; }
 function lotDesc(qx, qz) {
   const key = qx * 1000 + qz;
   let L = lotCache.get(key);
@@ -499,7 +520,11 @@ function lotDesc(qx, qz) {
   if (lm && lm.id === 'industry') { L.type = r < 0.2 ? 'tanks' : 'hall'; L.h = 10 + Math.floor(r2 * 3) * 4; }
   else if (quarter) { L.type = quarter; L.dist = quarter; L.wall = HIST_WALLS[Math.floor(r3 * HIST_WALLS.length)]; L.shop = SHOP_COLORS[Math.floor(hash(qx, qz, 806) * SHOP_COLORS.length)]; }
   else if (dist === 'core' || dist === 'cbd') {
+    // hoogtemix (TERRANOVA 16.1): niet elk perceel een wolkenkrabber; middelhoogbouw (24–48 m) en pocketparken
+    const r4 = hash(qx, qz, 808), pocket = dist === 'core' ? 0.09 : 0.11, mid = dist === 'core' ? 0.26 : 0.38;
     if (r3 < 0.08) L.type = 'plaza';
+    else if (r4 < pocket) L.type = 'pocket';
+    else if (r4 < pocket + mid) { L.type = 'block'; L.h = 24 + Math.floor(r2 * 5) * 6; L.wall = WALLS.urban[Math.floor(r3 * WALLS.urban.length)]; L.shop = SHOP_COLORS[Math.floor(hash(qx, qz, 806) * SHOP_COLORS.length)]; }
     else {
       L.type = 'tower';
       let h;
@@ -544,6 +569,9 @@ function lotColumn(x, z, qx, qz, px, pz, col, industry) {
     case 'hall': return hallColumn(x, z, px, pz, L, col);
     case 'tanks': return tankColumn(x, z, px, pz, L, col);
     case 'green': col[G - 1] = B.GRASS; kind = 1; return G - 1;
+    case 'pocket': return pocketColumn(x, z, px, pz, qx, qz, col);
+    case 'culture': return cultureColumn(x, z, qx, qz, px, pz, col);
+    case 'nightlife': return nightColumn(x, z, qx, qz, px, pz, col);
     case 'historic': return historicColumn(x, z, qx, qz, px, pz, L, col);
     case 'shops': return shopsColumn(x, z, px, pz, L, col);
     case 'villa': return villaColumn(x, z, px, pz, L, col);
@@ -595,6 +623,91 @@ function towerColumn(x, z, px, pz, L, col) {
   if (towerInside(L, u, v, L.h) && ((x * 7 + z * 3) % 11 === 0)) { col[ry + 1] = B.VENT; col[ry + 2] = B.VENT; top = ry + 2; }
   if (L.h > 300 && Math.abs(u) < 1 && Math.abs(v) < 1) { const s = Math.round(L.h * 0.08); for (let y = ry + 1; y < ry + s; y++) col[y] = B.METAL; col[ry + s] = B.LAMP; top = ry + s; }
   return top;
+}
+// ---------- TERRANOVA 16.1: pocketpark, culturele wijk, uitgaansgebied ----------
+// pocketpark: gras met een rondgaand pad, bomen, banken, een kleine speeltuin of waterpartij
+function pocketColumn(x, z, px, pz, qx, qz, col) {
+  col[G - 1] = B.GRASS;
+  const e = Math.min(px, pz, 43 - px, 43 - pz), ring = e === 3 || e === 4, cross = Math.abs(px - 21.5) < 1.5 || Math.abs(pz - 21.5) < 1.5;
+  if (e < 1) { col[G] = B.HEDGE; return G; }
+  if (ring || cross) { col[G - 1] = B.GRAVEL; if (ring && (px + pz) % 10 === 0) { col[G] = B.BENCH; return G; } if (ring && (px * 3 + pz) % 22 === 0) { for (let y = G; y < G + 4; y++) col[y] = B.POST; col[G + 4] = B.LAMP; return G + 4; } return G - 1; }
+  const c = Math.hypot(px - 21.5, pz - 21.5), play = hash(qx, qz, 830) < 0.5;
+  if (c < 5) { if (play) { col[G - 1] = B.SAND; if (c < 1) { col[G] = B.PAINT_RED; col[G + 1] = B.PAINT_YELLOW; return G + 1; } return G - 1; } col[G - 1] = B.WATER; col[G - 2] = B.WATER; return G - 1; }
+  if (c < 6) { col[G] = B.MARBLE; return G; }
+  if (e > 6 && (px % 7 === 3) && (pz % 7 === 3)) kind = 1;
+  if (e > 6 && (px * 5 + pz * 3) % 17 === 0) { col[G] = B.FLOWERS; return G; }
+  return G - 1;
+}
+// culturele wijk: museum met zuilengang, theater met lichtreclame, bibliotheek, concertzaal; elk perceel één gebouw
+const CULTURE = ['museum', 'theater', 'bibliotheek', 'concertzaal', 'galerie'];
+export const cultureAt = (qx, qz) => CULTURE[Math.floor(hash(qx, qz, 840) * CULTURE.length)];
+function cultureColumn(x, z, qx, qz, px, pz, col) {
+  const kindC = cultureAt(qx, qz), e = Math.min(px, pz, 43 - px, 43 - pz);
+  col[G - 1] = (px + pz) % 2 ? B.GRANITE : B.LIMESTONE;
+  if (e < 4) { if (e === 1 && (px + pz) % 9 === 0) { col[G] = B.MARBLE; col[G + 1] = B.MARBLE; col[G + 2] = B.MARBLE; return G + 2; } if (e === 2 && (px + pz) % 7 === 3) { col[G] = B.BENCH; return G; } return G - 1; } // plein met beelden en banken
+  if (kindC === 'concertzaal') {
+    const r = Math.hypot(px - 21.5, pz - 21.5); if (r > 17.5) return G - 1;
+    const H = 26 - Math.round((r / 17.5) ** 2 * 8), wall = r > 16.5;
+    for (let y = G; y <= G + H; y++) col[y] = wall ? ((y - G) % 5 === 4 ? B.PANEL_WHITE : B.GLASS) : 0;
+    col[G - 1] = B.PARQUET; col[G + H] = B.PANEL_WHITE; if (!wall) col[G + H - 1] = B.PANEL_WHITE; // koepel van twee lagen
+    if (!wall && r < 7) { col[G] = B.PLANKS; col[G + 1] = r < 2 ? B.PAINT_BLACK : 0; }           // podium
+    else if (!wall && r > 9 && r < 15 && Math.round(r) % 2 === 0 && (px + pz) % 2 === 0) col[G] = B.CHAIR_RED; // zaal
+    if (!wall && (px * 7 + pz) % 13 === 0) col[G + H - 1] = B.LAMP;
+    if (wall && Math.abs(px - 21.5) < 2 && pz < 21) { col[G] = 0; col[G + 1] = 0; col[G + 2] = 0; }      // ingang
+    return G + H;
+  }
+  const H = kindC === 'museum' ? 18 : kindC === 'theater' ? 22 : kindC === 'bibliotheek' ? 16 : 12;
+  const wallB = { museum: B.LIMESTONE, theater: B.RED_SANDSTONE, bibliotheek: B.BRICK_DARK, galerie: B.PAINT_WHITE }[kindC];
+  const front = pz === 4, edge = e === 4, portico = kindC === 'museum' && pz >= 4 && pz <= 7 && px > 8 && px < 35;
+  if (portico) {                                                                                            // zuilengang met trappen
+    if (pz < 7) { for (let y = G; y < G + H - 4; y++) col[y] = (px % 4 === 1 && pz === 5) ? B.LIMESTONE : 0; col[G - 1] = B.MARBLE; col[G + H - 4] = B.LIMESTONE; col[G + H - 3] = (px === 21 || px === 22) ? B.SIGN : B.LIMESTONE; return G + H - 3; }
+  }
+  col[G - 1] = kindC === 'bibliotheek' ? B.PARQUET : B.MARBLE;
+  for (let y = G; y <= G + H; y++) {
+    const k = y - G;
+    if (edge) { const door = front && Math.abs(px - 21.5) < 3 && k < 4, win = kindC === 'galerie' ? (k > 6 && px % 6 < 4) : kindC === 'bibliotheek' ? (k % 5 !== 0 && px % 3 === 1) : (k % 6 > 1 && (px + pz) % 4 === 1); col[y] = door ? 0 : win ? B.GLASS : wallB; }
+    else col[y] = k === H ? (kindC === 'museum' && Math.abs(px - 21.5) < 8 && Math.abs(pz - 23) < 8 ? B.GLASS : kindC === 'theater' ? B.COPPER : B.CONCRETE) : 0;
+  }
+  if (kindC === 'theater' && edge && front) col[G + 5] = (px % 2 ? B.LAMP : B.PAINT_RED);                // lichtreclame
+  if (!edge) {
+    if (kindC === 'bibliotheek' && pz % 4 === 2 && px > 8 && px < 35 && px % 8 !== 0) { col[G] = B.BOOKSHELF; col[G + 1] = B.BOOKSHELF; col[G + 2] = B.BOOKSHELF; }
+    if (kindC === 'bibliotheek' && pz % 4 === 0 && px % 6 === 3) col[G] = B.TABLE;
+    if ((kindC === 'museum' || kindC === 'galerie') && px % 6 === 3 && pz % 6 === 3) { col[G] = B.SHOWCASE; }
+    if ((kindC === 'museum' || kindC === 'galerie') && px % 12 === 9 && pz % 12 === 9) { col[G] = B.MARBLE; col[G + 1] = B.MARBLE; col[G + 2] = B.GOLD_ORE; } // beelden
+    if (kindC === 'theater' && pz > 20 && pz < 36 && px % 2 === 0 && pz % 2 === 0) col[G] = B.CHAIR_RED;
+    if (kindC === 'theater' && pz >= 36) { col[G] = B.PLANKS; col[G + 1] = 0; }
+    if ((px * 5 + pz * 3) % 19 === 0) col[G + H - 1] = B.LAMP;                                             // lamp onder het dak
+  }
+  return G + H;
+}
+// uitgaansgebied: smalle panden van 3 tot 6 lagen met cafés, clubs en een bioscoop; lichtreclames en terrassen
+function nightColumn(x, z, qx, qz, px, pz, col) {
+  const { side, d, along } = lotSide(px, pz), id = Math.floor(along / 8), hx = along % 8, hs = hash(qx * 8 + side, qz * 64 + id, 860);
+  col[G - 1] = B.TILE;
+  const cinema = hash(qx, qz, 861) < 0.25;
+  if (d < 3) { // terras op de stoep
+    if (d === 1 && hx === 3) { col[G] = B.TABLE; col[G + 1] = B.POST; col[G + 2] = hs < 0.5 ? B.AWNING_RED : B.AWNING_BLUE; return G + 2; }
+    if (d === 1 && (hx === 2 || hx === 4)) { col[G] = B.CHAIR; return G; }
+    return G - 1;
+  }
+  if (cinema && d >= 3 && px > 3 && px < 40 && pz > 3 && pz < 40) {
+    const e = Math.min(px, pz, 43 - px, 43 - pz) - 3, H = 16;
+    for (let y = G; y <= G + H; y++) col[y] = e === 0 ? ((y - G) === 5 ? (x % 2 ? B.LAMP : B.PAINT_YELLOW) : (y - G) < 3 && hx < 4 ? 0 : B.PAINT_BLACK) : (y === G + H ? B.CONCRETE : 0);
+    if (e > 0 && pz > 32) { for (let y = G + 2; y < G + 12; y++) col[y] = B.PAINT_WHITE; }   // doek
+    if (e > 0 && pz < 30 && px % 2 === 0 && pz % 2 === 0 && e > 2) col[G] = B.CHAIR_RED;
+    return G + H;
+  }
+  if (d > 14) { col[G - 1] = B.COBBLE; return G - 1; }                                                // binnenplein
+  const floors = 3 + Math.floor(hs * 4), H = floors * 4, wall = [B.BRICK_DARK, B.PAINT_BLACK, B.RED_SANDSTONE, B.BRICK, B.DARK_PLANKS][Math.floor(hash(qx, qz * 3 + id, 862) * 5)];
+  const front = d === 3, party = hx === 0;
+  for (let y = G; y < G + H; y++) {
+    const k = y - G, lev = k % 4;
+    if (front) col[y] = k < 3 ? (hx === 1 && k < 2 ? 0 : B.GLASS) : k === 3 ? (hx % 2 ? B.LAMP : [B.PAINT_RED, B.PAINT_BLUE, B.PAINT_GREEN, B.PAINT_ORANGE][Math.floor(hs * 4)]) : (lev !== 0 && hx % 3 !== 0 ? B.GLASS : wall);
+    else if (party || d === 14) col[y] = wall;
+    else col[y] = k === 0 && d === 6 && hx > 1 ? B.COUNTER : k === 0 && d === 8 && hx % 2 ? B.CHAIR : k === 4 ? B.PLANKS : k > 4 ? B.ROOM_FILL : (k === 3 && hx === 4 ? B.LAMP : 0);
+  }
+  col[G + H] = front && hx % 2 ? B.LIMESTONE : B.CONCRETE;
+  return G + H;
 }
 function plazaLot(x, z, px, pz, col) {
   col[G - 1] = B.COBBLE;
@@ -1012,8 +1125,10 @@ function metroColumn(x, z, col) {
 
 // ---------- spoorviaduct op z = 6016: deck op G+8, pijlers in de middenberm, station Megatower Centraal ----------
 const DECK = G + 8;
+const GC_TRAM_Z = 46 * T;
 function railColumn(x, z, col) {
   const o = z - RAIL_Z;
+  if (x >= GC_WX0 && x <= GC_EX1) return 0;                 // Megatower Grand Central (js/grandcentral.js)
   if (x > RAIL_END + 8 || o < -16 || o > 15) return 0;
   const station = x >= STATION_X0 && x < STATION_X1, apStation = x >= RAIL_END - 220;
   const half = station || apStation ? 15 : 5;
@@ -1076,7 +1191,7 @@ function railColumn(x, z, col) {
 }
 // stationshal boven de sporen van Megatower Centraal (64 m lang, 30 m breed)
 const HALL_X0 = STATION_X0 + 160, HALL_W = 64, HALL_STAIR = 6, HALL_LIFT = 20;
-export const MEGA_HALL = { x0: HALL_X0, x1: HALL_X0 + HALL_W, z0: RAIL_Z - 15, z1: RAIL_Z + 14, floor: G + 8 + 7 };
+export const MEGA_HALL = { x0: GC_HALL.x0, x1: GC_HALL.x1, z0: RAIL_Z + GC_HALL.o0, z1: RAIL_Z + GC_HALL.o1, floor: GC_HALL.floor }; // de stationshal van Grand Central
 
 // ---------- tegel maken ----------
 const PAD = 3;
@@ -1118,6 +1233,8 @@ export function generateTile(tx, tz) {
 }
 
 // ---------- paden voor het verkeer ----------
+// [a, b] zonder het stuk [c0, c1] (alles in tegelcoördinaten)
+function cut(a, b, c0, c1) { const out = []; if (c0 > a) out.push([a, Math.min(b, c0)]); if (c1 < b) out.push([Math.max(a, c1), b]); return out.filter(([p, q]) => q - p > 0.5); }
 function makePaths(tx, tz) {
   const X0 = tx * T, Z0 = tz * T, paths = [];
   const add = (type, pts, extra) => paths.push({ type, pts: new Float32Array(pts), ...extra });
@@ -1141,7 +1258,7 @@ function makePaths(tx, tz) {
       add('carM', dir > 0 ? [0, z, G - 1, T, z, G - 1] : [T, z, G - 1, 0, z, G - 1], busLineEW(j) ? { line: busLineEW(j) } : undefined);
     }
     for (const o of [-13, 12]) { const z = Z + o; if (z > -2 && z < T + 2) add('walk', [0, z, G - 1, T, z, G - 1]); }
-    if (TRAM_Z.includes(j)) for (const [o, dir] of [[-3, -1], [2, 1]]) { const z = Z + o; if (z > -2 && z < T + 2) add('tram', dir > 0 ? [0, z, G - 1, T, z, G - 1] : [T, z, G - 1, 0, z, G - 1], { line: 'T' + (TRAM_Z.indexOf(j) + 3) }); }
+    if (TRAM_Z.includes(j)) for (const [o, dir] of [[-3, -1], [2, 1]]) { const z = Z + o; if (z > -2 && z < T + 2) for (const [a, b] of (j === 46 ? cut(0, T, GC_TRAM.u0 - 40 - X0, GC_TRAM.u1 + 40 - X0) : [[0, T]])) add('tram', dir > 0 ? [a, z, G - 1, b, z, G - 1] : [b, z, G - 1, a, z, G - 1], { line: 'T' + (TRAM_Z.indexOf(j) + 3) }); }
   }
   // verkeerslichten op de kruispunten van lanen
   if (avenueNS(tx, tz) || avenueEW(tz, tx)) add('signal', [0, 0, G - 1]);
@@ -1155,7 +1272,7 @@ function makePaths(tx, tz) {
     if (stopAt(gz) === 42 && busLineNS(tx + 1) && avenueNS(tx + 1, tz)) add('busstop', [T - 12, a, G - 1], { name: 'Halte ' + zoneName(X0 + T, gz) });
     if (stopAt(gx) === 42 && busLineEW(tz + 1) && avenueEW(tz + 1, tx)) add('busstop', [a, T - 12, G - 1], { name: 'Halte ' + zoneName(gx, Z0 + T) });
     if (stopAt(gz) === 80 && TRAM_X.includes(tx)) add('busstop', [0, a, G - 1], { name: 'Tramhalte ' + zoneName(X0, gz) });
-    if (stopAt(gx) === 80 && TRAM_Z.includes(tz)) add('busstop', [a, 0, G - 1], { name: 'Tramhalte ' + zoneName(gx, Z0) });
+    if (stopAt(gx) === 80 && TRAM_Z.includes(tz) && !(tz === 46 && gx > GC_TRAM.u0 - 40 && gx < GC_TRAM.u1 + 40)) add('busstop', [a, 0, G - 1], { name: 'Tramhalte ' + zoneName(gx, Z0) });
   }
   // straten door het midden
   if (!L || L.id === 'industry') {
@@ -1174,10 +1291,14 @@ function makePaths(tx, tz) {
   // trein over het viaduct (4 sporen in het station, 2 erbuiten) en haltes
   if (X0 < RAIL_END) {
     const xb = Math.min(T, RAIL_END - X0);
-    for (const [o, dir] of [[-3, 1], [2, -1]]) { const z = RAIL_Z + o - Z0; if (z > -2 && z < T + 2) add('train', dir > 0 ? [0, z, DECK, xb, z, DECK] : [xb, z, DECK, 0, z, DECK], { line: 'IC' }); }
-    if (X0 >= STATION_X0 && X0 < STATION_X1 && tx === 38 && RAIL_Z - Z0 >= 0 && RAIL_Z - Z0 < T) add('railstop', [64, RAIL_Z - Z0, DECK], { name: 'Megatower Centraal' });
+    for (const [o, dir] of [[-3, 1], [2, -1]]) { const z = RAIL_Z + o - Z0; if (z > -2 && z < T + 2) for (const [a, b] of cut(0, xb, GC_WX0 - X0, GC_EX1 - X0)) add('train', dir > 0 ? [a, z, DECK, b, z, DECK] : [b, z, DECK, a, z, DECK], { line: 'IC' }); } // in Grand Central: wisselstraten en 22 sporen (gcPaths)
     if (RAIL_END - X0 > 0 && RAIL_END - X0 <= T && RAIL_Z - Z0 >= 0 && RAIL_Z - Z0 < T) add('railstop', [RAIL_END - X0 - 100, RAIL_Z - Z0, DECK], { name: 'Luchthaven' });
   }
+  // Grand Boulevard en Megatower Galleria: looproutes (en een verkeerslicht waar de boulevard een laan kruist)
+  for (const p of shoppingPaths(tx, tz)) paths.push(p);
+  if (isBoulevard(tx, tz) && isBoulevard(tx, tz - 1)) add('signal', [64, 0, G - 1]);
+  // Megatower Grand Central (22 treinsporen, tram T5 onder de grond, metro M2): js/grandcentral.js
+  for (const p of gcPaths(tx, tz)) paths.push(p);
   // luchthaven: startbaan en gates
   if (L && L.id === 'airport') {
     if (X0 <= RUNWAY_X && X0 + T > RUNWAY_X && Z0 <= RUNWAY_Z0 + 100 && Z0 + T > RUNWAY_Z0 + 100) add('runway', [RUNWAY_X - X0, RUNWAY_Z0 + 100 - Z0, G - 1, RUNWAY_X - X0, RUNWAY_Z1 - 100 - Z0, G - 1]);
@@ -1192,8 +1313,15 @@ function makePaths(tx, tz) {
 // ---------- plaatsen om naartoe te springen ----------
 export const PLACES = [
   ['Megatower – hoofdingang', CX + 0.5, CZ - 58],
-  ['Station Megatower Centraal', 38 * T + 64, RAIL_Z + 18],
-  ['Busstation Centraal', 38 * T + 64, 47 * T + 110],
+  ['Megatower Grand Central – stationshal (+1)', 5184.5, RAIL_Z - 20, G + 17],
+  ['Grand Central – perron 1 (sporen 1 en 2)', 5100.5, RAIL_Z - 79, G + 10],
+  ['Grand Central – tramstation (-1)', 5100.5, 46 * T + 0.5, G - 9],
+  ['Grand Central – metrostation M2 (-2)', M2_X + 0.5, 6000.5, G - 26],
+  ['Grand Central – hyperloopterminal', 5180.5, RAIL_Z + 94.5, G + 10],
+  ['Grand Boulevard (bij de fontein)', 40 * T + 64, 43 * T + 50],
+  ['Megatower Galleria – atrium', GAL.x0 + 114, GAL.z0 + 140],
+  ['Megatower Galleria – foodcourt (niveau 3)', GAL.x0 + 114, GAL.z0 + 50, G + 18],
+  ['Busstation Centraal', 38 * T + 64, 48 * T + 64],
   ['Luchthaven – terminal', 69 * T + 40, 40 * T],
   ['Centraal Park', 45 * T + 64, 34 * T],
   ['Megatower Stadion', 31 * T, 49 * T + 100],
