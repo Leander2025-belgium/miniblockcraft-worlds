@@ -102,7 +102,7 @@ const SHOTS = process.env.SHOTS || path.join(__dirname, '../../docs/megatower-re
   console.log('megarevolutie:', JSON.stringify(R));
   const D = R.dienst;
   const ok = !errs.length && !shaderErr.length && R.gevel.led > 0
-    && /Perron 1/.test(R.hud.perron1) && /stationshal/.test(R.hud.stationshal) && /Tramstation/.test(R.hud.tramstation) && /Metro M2/.test(R.hud.metrostation) && /Hyperloop/.test(R.hud.hyperloopterminal) && /Boulevard/.test(R.hud.boulevard) && /Galleria/.test(R.hud.galleria)
+    && /perron 1/i.test(R.hud.perron1) && /stationshal/.test(R.hud.stationshal) && /Tramstation/.test(R.hud.tramstation) && /Metro M2/.test(R.hud.metrostation) && /Hyperloop/.test(R.hud.hyperloopterminal) && /Boulevard/.test(R.hud.boulevard) && /Galleria/.test(R.hud.galleria)
     && R.net.trein === 22 && R.net.tram === 10 && R.net.metro === 6
     && D.conflictSpoor === 0 && D.conflictWissel === 0 && D.perronsporen.length >= 3 && D.treinenBinnen >= 2
     && R.hyper.aangekomen && R.hyper.meegereden >= 1 && R.hyper.spelerX > 8800
