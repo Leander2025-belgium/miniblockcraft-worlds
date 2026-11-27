@@ -8,7 +8,9 @@ const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path');
 const THREE_PATH = process.env.THREE_PATH || path.join(__dirname, '../../node_modules/three/build/three.module.js');
 const SHOTS = process.env.SHOTS, OUT = process.env.BENCH_OUT, SAMPLE = +(process.env.SAMPLE || 15000), ONLY = process.env.ONLY;
-const PROFILE = { quality: 'normal', shadows: true, view: 160, lod: 1600, auto: false, fps: false };
+const PROFILE = process.env.LIGHT ? { quality: 'fast', shadows: false, view: 96, lod: 1400, auto: false, fps: false } // LIGHT=1: vast licht profiel (Megatower City in SwiftShader)
+  : { quality: 'normal', shadows: true, view: 160, lod: 1600, auto: false, fps: false };
+const WAIT = +(process.env.WAIT || 120000); // hoe lang maximaal wachten tot de omgeving klaar is
 
 // wereld → scènes. place(g, mods) zet de speler en de camera; alles is deterministisch (generatoren, geen netwerk)
 const WORLDS = [
@@ -18,6 +20,25 @@ const WORLDS = [
     { id: 'mega-straat', hour: 9, place: 'P(30 * 128 + 4, g.meta.ground + 3, 4600, Math.PI, -0.05)' },
     { id: 'mega-metro', hour: 13, place: 'P(5337, g.meta.ground - 17, 5116, Math.PI / 2, 0)' },
     { id: 'mega-centraal', hour: 13, place: 'P(38 * 128 + 64, g.meta.ground + 14, 47 * 128 + 30, 0, -0.1)' },
+  ] },
+  // TERRANOVA 16.1 (Megatower Revolution): de tien meetplekken en vijf torenaanzichten. L(x, y, z, doelX, doelY, doelZ) richt de
+  // camera op een punt. Vóór de vernieuwing bestonden de meeste plekken nog niet: dan wordt dezelfde coördinaat gemeten.
+  { id: 'mega161', start: (p) => p.evaluate(() => document.getElementById('btn-mega').click()), ready: 'g.mega', scenes: [
+    { id: 'r16-plaza', hour: 13, place: 'L(5184, G + 1.7, 5330, 5184, G + 120, 5184)' },
+    { id: 'r16-galleria', hour: 13, place: 'L(5376, G + 1.7, 5600, 5440, G + 6, 5600)' },
+    { id: 'r16-boulevard', hour: 13, place: 'L(5184, G + 1.7, 5420, 5184, G + 4, 5800)' },
+    { id: 'r16-stationshal', hour: 13, place: 'L(5184, G + 17, 5950, 5184, G + 20, 6080)' },
+    { id: 'r16-perron1', hour: 13, place: 'L(4990, G + 10.7, 5936, 5200, G + 10, 5936)' },
+    { id: 'r16-tram', hour: 13, place: 'L(5040, G - 6.3, 5884, 5240, G - 6, 5884)' },
+    { id: 'r16-metro', hour: 13, place: 'L(5376, G - 22.3, 5970, 5376, G - 22, 6080)' },
+    { id: 'r16-hyperloop', hour: 13, place: 'L(5130, G + 10.7, 6112, 5260, G + 10, 6112)' },
+    { id: 'r16-top', hour: 13, place: 'L(5184, G + 993.7, 5160, 5184, G + 900, 4000)' },
+    { id: 'r16-panorama', hour: 17, place: 'L(4300, G + 520, 6900, 5184, G + 300, 5184)' },
+    { id: 'r16-toren-plein', hour: 11, place: 'L(5184, G + 1.7, 5380, 5184, G + 400, 5184)' },
+    { id: 'r16-toren-noord', hour: 15, place: 'L(5184, G + 60, 4200, 5184, G + 450, 5184)' },
+    { id: 'r16-toren-oost', hour: 9, place: 'L(6300, G + 120, 5300, 5184, G + 500, 5184)' },
+    { id: 'r16-toren-nacht', hour: 22, place: 'L(4300, G + 200, 5800, 5184, G + 500, 5184)' },
+    { id: 'r16-toren-lucht', hour: 13, place: 'L(3600, G + 1150, 6600, 5184, G + 500, 5184)' },
   ] },
   { id: 'green', start: async (p) => { await p.click('[data-mode="fantasy"]'); await p.click('#btn-gi-play'); }, ready: 'g.alpRail', scenes: [
     { id: 'munkbay', hour: 12, place: `(async () => { const A = await import('./js/greenisland.js'); const L = A.LINE.M1, st = L.stations.find(s => s.name === 'Munkbay-Centraal'), q = L.at(st.s), d = 6.7; P(q.x - q.tz * d, st.y + 2.2, q.z + q.tx * d, Math.atan2(q.tz, -q.tx) + Math.PI / 2, 0); })()` },
@@ -50,6 +71,7 @@ const pct = (a, q) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
       if (S === scenes[0]) r.wereldStart_ms = tStart;
       await p.evaluate(async ([place, hour]) => {
         const g = window.blokGame();
+        window.G = g.meta.ground; window.L = (x, y, z, tx, ty, tz) => { const dx = tx - x, dz = tz - z; P(x, y, z, Math.atan2(-dx, -dz), Math.atan2(ty - y, Math.hypot(dx, dz))); };
         window.P = (x, y, z, yaw, pitch) => { const pl = g.player; if (g.drive) g.drive.exit?.(); g.seat = null; pl.fly = true; pl.pos.set(x, y, z); pl.vel?.set?.(0, 0, 0); pl.yaw = yaw; pl.pitch = pitch; g.tiled && (g.tiled.aheadKey = null); g.updateTiles(true); };
         g.settings.hour = hour; g.settings.cycle = false;
         await eval(place);
@@ -60,7 +82,7 @@ const pct = (a, q) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
       // tijd tot de eerste frame met de tegel van de speler, en tot alles rond de speler klaar is
       await p.waitForFunction(() => { const g = window.blokGame(); return g.world.tileAt(g.player.pos.x, g.player.pos.z); }, null, { timeout: 240000, polling: 100 }).catch(() => {});
       r.eersteFrame_ms = Date.now() - tp;
-      r.klaar = false; for (let i = 0; i < 480; i++) { if (r.klaar = await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && (!g.tiled || g.tiled.inFlight === 0) && g.queue.length < 4; })) break; await p.waitForTimeout(250); }
+      r.klaar = false; for (let i = 0; i < WAIT / 250; i++) { if (r.klaar = await p.evaluate(() => { const g = window.blokGame(); return g.readyHere() && (!g.tiled || g.tiled.inFlight === 0) && g.queue.length < 4; })) break; await p.waitForTimeout(250); }
       r.omgevingKlaar_ms = Date.now() - tp;
       await p.waitForTimeout(2500); // inlopen (verkeer verschijnt, automatische kwaliteit staat uit)
       Object.assign(r, await p.evaluate((ms) => new Promise(done => {
@@ -69,8 +91,9 @@ const pct = (a, q) => { const s = [...a].sort((x, y) => x - y); return s[Math.mi
         let last = performance.now(); const end = last + ms;
         const step = () => {
           const now = performance.now(); ft.push(now - last); last = now;
+          if (now >= end && ft.length < 4) { /* minstens 3 echte frames */ }
           calls.push(R.info.render.calls); tris.push(R.info.render.triangles); R.info.reset();
-          if (now < end) requestAnimationFrame(step);
+          if (now < end || ft.length < 4) requestAnimationFrame(step);
           else {
             R.info.autoReset = true;
             const tr = g.traffic, mem = performance.memory;
