@@ -522,6 +522,7 @@ export function gcPlace(x, y, z) {
   const o = z - RAIL_Z;
   if (x >= HYPER.A.x0 && x <= HYPER.A.x1 && Math.abs(o - HYPER.A.o) <= 8 && y >= HYPER.y && y < HYPER.y + 7) return 'Hyperloopterminal Grand Central (niveau 0)';
   if (x >= HYPER.B.x0 && x <= HYPER.B.x1 && Math.abs(o - HYPER.B.o) <= 8 && y >= HYPER.y && y < HYPER.y + 7) return 'Hyperloopterminal Luchthaven';
+  if (y < G - 1 && y > G - 13 && Math.abs(z - TRAM_Z0) <= 31 && x >= TRAM.f0 && x <= TRAM.f1) { const P = TRAM_PLATS.find(p => z - TRAM_Z0 >= p.o0 && z - TRAM_Z0 <= p.o1); return 'Tramstation Grand Central (niveau -1)' + (P ? ' · perron ' + P.n : ''); }
   if (!inGC(x, z) && !(Math.abs(x - M2_X) < 26 && y < G - 16)) return null;
   if (y < G - 16 && Math.abs(x - M2_X) < 26) { const S = M2_STATIONS.find(s => Math.abs(z - s.z) <= 60); return S ? 'Metro M2 · ' + S.name + (S.name === 'Grand Central' ? ' (niveau -2)' : '') : 'Metro M2'; }
   if (y < G - 1 && Math.abs(z - TRAM_Z0) <= 31 && x >= TRAM.f0 && x <= TRAM.f1) { const P = TRAM_PLATS.find(p => o + RAIL_Z - TRAM_Z0 >= p.o0 && o + RAIL_Z - TRAM_Z0 <= p.o1); return 'Tramstation Grand Central (niveau -1)' + (P ? ' · perron ' + P.n : ''); }

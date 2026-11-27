@@ -147,7 +147,34 @@ de verre weergave tekent ze als blokken van 8 × 8 m); de toren van ver is één
 voetgangers worden op afstand niet gesimuleerd (bestaand). Niet gebouwd: aparte instancing van gevelelementen,
 interieur-LOD per verdieping voor de winkels, streaming per stationsdeel.
 
-METINGEN_HIER
+**Metingen** (`tests/browser/bench.cjs`, LIGHT=1: kwaliteit 'snel', zicht 96 m, verre weergave 1.400 m, geen schaduw;
+12 s per plek; voor = code van `main` op dezelfde coördinaten, na = deze versie; foto's in
+[`megatower-revolution/voor/`](megatower-revolution/voor/) en [`megatower-revolution/na-meting/`](megatower-revolution/na-meting/),
+ruwe cijfers in [`voor.json`](megatower-revolution/voor.json) en [`na.json`](megatower-revolution/na.json)):
+
+| meetplek | FPS voor | FPS na | tekenopdrachten voor → na | driehoeken (k) voor → na | JS-geheugen MB voor → na |
+|---|---|---|---|---|---|
+| 1. Megatower Plaza | 1.6 | 1.5 | 472 → 450 | 857 → 824 | 466 → 473 |
+| 2. Megatower Galleria | 1 | 0.7 | 457 → 548 | 916 → 732 | 665 → 617 |
+| 3. Grand Boulevard | 0.3 | 0.5 | 825 → 1164 | 1696 → 1380 | 662 → 601 |
+| 4. stationshal | 0.3 | 0.5 | 369 → 442 | 714 → 1086 | 801 → 685 |
+| 5. treinperron 1 | 0.4 | 0.5 | 787 → 1298 | 1568 → 1765 | 818 → 672 |
+| 6. tramstation -1 | 0.7 | 0.4 | 115 → 322 | 337 → 875 | 854 → 720 |
+| 7. metrostation -2 | 0.6 | 0.8 | 120 → 176 | 336 → 742 | 886 → 774 |
+| 8. hyperloopterminal | 0.5 | 0.5 | 968 → 1244 | 1835 → 1732 | 949 → 781 |
+| 9. top van de Megatower | 0.8 | 0.9 | 201 → 157 | 381 → 355 | 784 → 735 |
+| 10. panorama over de stad | 0.7 | 0.9 | 236 → 250 | 497 → 498 | 837 → 792 |
+| toren vanaf het plein | 0.7 | 1 | 298 → 232 | 670 → 490 | 885 → 812 |
+| toren uit het noorden | 0.6 | 0.7 | 328 → 331 | 680 → 613 | 941 → 895 |
+| toren uit het oosten | 0.4 | 0.6 | 336 → 312 | 608 → 589 | 964 → 923 |
+| toren 's nachts | 0.7 | 0.8 | 218 → 228 | 424 → 411 | 923 → 891 |
+| toren vanuit de lucht | 0.7 | 1.1 | 191 → 179 | 395 → 383 | 956 → 927 |
+
+Lezing: SwiftShader haalt hier minder dan 2 FPS, dus verschillen van 0,1–0,3 FPS zijn ruis. Waar nu meer staat dan
+vroeger (station, perrons, tram en metro onder de grond, boulevard) stijgen de tekenopdrachten (tot +65 % op perron 1)
+en op enkele plekken de driehoeken; het JS-geheugen is overal gelijk of lager. Het tramstation is de enige plek waar de
+FPS duidelijk lager ligt (0,7 → 0,4), doordat daar vroeger alleen aarde was. Op een echte telefoon of pc is niet
+gemeten.
 
 ## Fase 9 — savegames
 
@@ -162,7 +189,30 @@ METINGEN_HIER
 
 ## Fase 10 — tests
 
-RESULTATEN_HIER
+Alles in deze omgeving, op deze versie:
+- `node tests/run-all.mjs` (alle controles zonder browser, ook de andere werelden): **geslaagd**. Nieuw:
+  - `tools/check-megagevel.mjs`: exact 1.000 m, 250 verdiepingen en 25 kelders, elke verdieping een liftstop, per zijde
+    11 gevelmaterialen, ribben en ledlijnen, lichtbanden bij alle 7 overgangen, 9 sky gardens, luifel, 23 verschillende
+    gevelpatronen over de hoogte;
+  - `tools/check-grandcentral.mjs`: 22 trein-, 10 tram- en 6 metroperronsporen in het verkeersnet met halte; vanaf het
+    hoofdspoor bereikbaar 1–11 en 12–22, en weer naar buiten; tram 10/10, metro 6/6; **0 blokken in het vrijprofiel**
+    (trein, tram, tramtunnel, metro); per perron lift, roltrap en trap (11/11/11); 38 ingerichte winkels in de hal,
+    geen lege; hyperloopbuis zonder gaten; metro buiten de torenkelders;
+  - `tools/check-migratie.mjs`: eigen blokken (geplaatst en weggehaald) blijven, de rest is de nieuwe stad;
+  - `tools/check-megacity.mjs` (uitgebreid): 0 gaten in de grond, 0 zwevende blokken, ook in station, boulevard,
+    Galleria, culturele wijk en uitgaanswijk; `tools/check-megatower.mjs`: 0 onbereikbare ruimtes.
+- `tests/browser/megarevolutie.cjs` (echte game): **geslaagd** — geen JavaScript- of shaderfouten; ledgevel aanwezig;
+  de HUD noemt perron 1, de stationshal, het tramstation (-1), metro M2 (-2), de hyperloopterminal, de boulevard en de
+  Galleria; het geladen net heeft 22/10/6 perronsporen; **6 minuten treindienst**: 5 treinen kregen via de
+  treindienstleiding een vrij perronspoor, treinen stonden in die tijd op 17 verschillende perronsporen, **0 keer
+  twee voertuigen op één perronspoor, 0 keer twee in één wisselstraat**; **hyperloop**: speler stapt in in A, de
+  capsule vertrekt volgens de dienstregeling en de speler komt mee aan in B (92 s, 252 km/u); 14–70 voetgangers in
+  de Galleria, ook op de hogere niveaus.
+- Bij het testen gevonden en opgelost: punten van lengte nul bij het knippen van gebogen sporen (aansluiting
+  geweigerd), haltes precies op een tegelrand, laanbomen die door het spoordek groeiden, zwevende lampen, voertuigen
+  die met hun staart in een wisselstraat verschenen zonder vergrendeling.
+- Niet gedaan: de volledige set oudere browsertests (49 stuks, ± 3 uur) heb ik voor deze ronde niet opnieuw gedraaid;
+  wel alle controles zonder browser. Geen mobiele test op een echt toestel.
 
 ## Wat nog niet klaar is
 
